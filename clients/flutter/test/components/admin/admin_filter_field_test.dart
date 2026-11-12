@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shadowmask/components/admin/admin_filter_field.dart';
 import 'package:shadowmask/l10n/strings.dart';

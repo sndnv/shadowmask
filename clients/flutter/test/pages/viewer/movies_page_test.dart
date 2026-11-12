@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -17,6 +17,8 @@ import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
 import 'package:shadowmask/theme/theme_scope.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../../support/finders.dart';
 
 const int _total = 5;
 const int _pageSize = 2;
@@ -195,7 +197,7 @@ void main() {
       <String>['m1'],
       reason: 'only the title the state batch reported is marked',
     );
-    expect(find.byTooltip('Movie 1\n2001\nResume at 40%'), findsWidgets);
+    expect(tooltipNamed('Movie 1\n2001\nResume at 40%'), findsWidgets);
   });
 
   testWidgets('paging the grid never reaches for the whole-catalog feed', (

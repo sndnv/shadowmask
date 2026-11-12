@@ -3,6 +3,7 @@ sub init()
     m.brand = m.top.FindNode("brand")
     m.list = m.top.FindNode("list")
     m.identity = m.top.FindNode("identity")
+    m.version = m.top.FindNode("version")
 
     m.list.ObserveField("itemSelected", "onSelected")
     m.top.ObserveField("focusedChild", "onFocus")
@@ -40,7 +41,16 @@ sub render()
     m.identity.width = width - space.s5 * 2
     m.identity.maxLines = 1
     m.identity.ellipsisText = "…"
-    m.identity.translation = [space.s5, height - space.s8]
+    m.identity.translation = [space.s5, height - space.s8 - space.s5]
+
+    m.version.color = theme.muted
+    m.version.opacity = 0.7
+    m.version.font = SizedFont(sizes.textXs)
+    m.version.width = width - space.s5 * 2
+    m.version.maxLines = 1
+    m.version.ellipsisText = "…"
+    m.version.translation = [space.s5, height - space.s8]
+    m.version.text = AboutTitle()
 
     RefreshContent()
 end sub

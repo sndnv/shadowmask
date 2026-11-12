@@ -1,5 +1,5 @@
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shadowmask/components/admin/field_help.dart';
 
@@ -13,6 +13,10 @@ Future<void> hover(WidgetTester tester, Finder target) async {
   await pointer.moveTo(tester.getCenter(target));
   await tester.pumpAndSettle();
 }
+
+Finder tooltipNamed(String message) => find.byWidgetPredicate(
+  (Widget widget) => widget is Tooltip && widget.message == message,
+);
 
 Finder fieldNamed(String label) => find.descendant(
   of: find.ancestor(of: find.text(label), matching: find.byType(FieldLabel)),

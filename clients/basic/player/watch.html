@@ -341,7 +341,7 @@
         try {
           const me = await sm.self();
           const [info, resume, detail, decoding] = await Promise.all([
-            sm.json("/api/v1/server/info").catch(() => ({ profile_version: 1 })),
+            sm.serverInfo().catch(() => ({ profile_version: 1 })),
             sm
               .json("/api/v1/users/" + encodeURIComponent(me.id) + "/progress/" + encodeURIComponent(versionId))
               .catch(() => null),

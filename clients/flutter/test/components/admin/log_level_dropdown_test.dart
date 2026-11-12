@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shadowmask/components/admin/log_level_dropdown.dart';
 import 'package:shadowmask/theme/app_theme.dart';

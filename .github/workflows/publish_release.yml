@@ -82,7 +82,7 @@ jobs:
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
         with:
           channel: 'stable'
-          flutter-version: '3.47.1'
+          flutter-version: '3.50.0'
 
       - name: Resolve image version
         id: meta
@@ -114,7 +114,7 @@ jobs:
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
         with:
           channel: 'stable'
-          flutter-version: '3.47.1'
+          flutter-version: '3.50.0'
 
       - name: Setup Python 3
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
@@ -157,7 +157,7 @@ jobs:
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
         with:
           channel: 'stable'
-          flutter-version: '3.47.1'
+          flutter-version: '3.50.0'
 
       - name: Build macOS app and disk image
         run: |
@@ -217,7 +217,7 @@ jobs:
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
         with:
           channel: 'stable'
-          flutter-version: '3.47.1'
+          flutter-version: '3.50.0'
 
       - name: Decode keystore
         uses: timheuer/base64-to-file@dfa5a5dd38803cb4f5c3a081eeb28e8362d43e9c
@@ -258,7 +258,7 @@ jobs:
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
         with:
           channel: 'stable'
-          flutter-version: '3.47.1'
+          flutter-version: '3.50.0'
 
       - name: Build unsigned iOS app
         run: |

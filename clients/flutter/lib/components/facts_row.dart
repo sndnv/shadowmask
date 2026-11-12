@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import 'package:shadowmask/components/fact.dart';
 import 'package:shadowmask/theme/space.dart';

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import 'package:shadowmask/api/admin_api.dart';
 import 'package:shadowmask/components/admin/confirm_dialog.dart';

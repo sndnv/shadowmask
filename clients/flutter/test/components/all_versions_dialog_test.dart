@@ -1,7 +1,6 @@
 import 'dart:convert';
 
-import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -14,6 +13,7 @@ import 'package:shadowmask/components/all_versions_dialog.dart';
 import 'package:shadowmask/components/long_menu_item.dart';
 import 'package:shadowmask/components/outline_pill.dart';
 import 'package:shadowmask/components/toast_host.dart';
+import 'package:shadowmask/components/toggle_button.dart';
 import 'package:shadowmask/components/version_picker.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/model/catalog/version.dart';
@@ -25,6 +25,7 @@ import 'package:shadowmask/view/version_jobs_watch.dart';
 import 'package:shadowmask/view/version_order.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../support/finders.dart';
 import '../support/play_on.dart';
 
 Map<String, dynamic> _json(String id, String quality) => <String, dynamic>{
@@ -189,7 +190,7 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(_numbered(_lines(tester), '1', 'UHD'), isTrue);
     // Play and download move into the expanded body so the row cannot overflow.
-    expect(find.text(Strings.play), findsNothing);
+    expect(tooltipNamed(Strings.play), findsNothing);
     expect(_more(), findsNothing);
     expect(find.byIcon(Icons.expand_more), findsNWidgets(3));
 
@@ -197,11 +198,12 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
-    expect(find.text(Strings.play), findsOneWidget);
+    expect(find.text(Strings.play), findsNothing);
+    expect(tooltipNamed(Strings.play), findsOneWidget);
     expect(_more(), findsOneWidget);
     expect(
       tester.getRect(_more()).left,
-      greaterThan(tester.getRect(find.text(Strings.play)).right),
+      greaterThan(tester.getRect(tooltipNamed(Strings.play)).right),
       reason: 'play leads the row and the actions sit at the far end',
     );
   });
@@ -235,7 +237,7 @@ void main() {
     expect(find.byIcon(Icons.download_outlined), findsNothing);
   });
 
-  testWidgets('a menu holds download, play on and the version page', (
+  testWidgets('a menu holds download and play on, the version page beside it', (
     WidgetTester tester,
   ) async {
     final PlayOnServer server = PlayOnServer();
@@ -256,28 +258,36 @@ void main() {
     );
 
     await _expand(tester);
+
+    expect(
+      tester.getRect(find.byTooltip(Strings.openVersion)).right,
+      lessThanOrEqualTo(tester.getRect(_more()).left),
+    );
+
     await _openMore(tester);
 
     expect(
       tester.widgetList<MenuItemButton>(find.byType(MenuItemButton)).length,
-      2,
+      1,
     );
     expect(find.text(Strings.downloadVersion), findsOneWidget);
     expect(find.widgetWithText(SubmenuButton, Strings.playOn), findsOneWidget);
-    expect(find.text(Strings.openVersion), findsOneWidget);
+    expect(find.text(Strings.openVersion), findsNothing);
     expect(
       tester.getRect(find.text(Strings.downloadVersion)).top,
       lessThan(tester.getRect(find.text(Strings.playOn)).top),
     );
-    expect(
-      tester.getRect(find.text(Strings.playOn)).top,
-      lessThan(tester.getRect(find.text(Strings.openVersion)).top),
-    );
+  });
+
+  final ValueVariant<Size> phones = ValueVariant<Size>(<Size>{
+    const Size(412, 915),
+    const Size(360, 740),
   });
 
   testWidgets('a phone row in progress fits every action an admin has', (
     WidgetTester tester,
   ) async {
+    final SemanticsHandle semantics = tester.ensureSemantics();
     final PlayOnServer server = PlayOnServer();
     final ApiClient api = ApiClient(
       baseUrl: 'http://test',
@@ -321,7 +331,7 @@ void main() {
           child: const Text('open'),
         ),
       ),
-      size: const Size(412, 915),
+      size: phones.currentValue,
     );
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
@@ -331,27 +341,51 @@ void main() {
     await _expand(tester);
 
     expect(tester.takeException(), isNull);
-    final RenderParagraph resume = tester.renderObject<RenderParagraph>(
-      find.descendant(
-        of: find.text(Strings.resumeAction),
-        matching: find.byType(RichText),
-      ),
+    final Finder resume = tooltipNamed(Strings.resume(40));
+    expect(resume, findsOneWidget);
+    expect(find.text(Strings.resumeAction), findsNothing);
+    expect(
+      find.descendant(of: resume, matching: find.byIcon(Icons.play_arrow)),
+      findsOneWidget,
+    );
+    final Finder resumeButton = find.descendant(
+      of: resume,
+      matching: find.byType(FilledButton),
     );
     expect(
-      resume.size.width,
-      greaterThanOrEqualTo(resume.getMaxIntrinsicWidth(double.infinity)),
-      reason: 'the label shows in full',
+      tester.getSize(resumeButton),
+      const Size.square(kActionControlHeight),
+    );
+    expect(
+      tester.getSemantics(resumeButton),
+      isSemantics(label: Strings.resume(40), isButton: true),
     );
     expect(find.byTooltip(Strings.dismissResume), findsNothing);
     expect(find.byTooltip(Strings.subtitlesHeading), findsOneWidget);
+    expect(find.byTooltip(Strings.openVersion), findsOneWidget);
+    expect(
+      tester.getCenter(resume).dy,
+      moreOrLessEquals(tester.getCenter(_more()).dy, epsilon: 1),
+      reason: 'resume and every action share one row',
+    );
 
     await _openMore(tester);
     await tester.tap(find.text(Strings.dismissResume));
     await tester.pumpAndSettle();
 
-    expect(find.text(Strings.resumeAction), findsNothing);
-    expect(find.text(Strings.play), findsOneWidget);
-  });
+    expect(tooltipNamed(Strings.resume(40)), findsNothing);
+    expect(find.text(Strings.play), findsNothing);
+    final Finder playButton = find.descendant(
+      of: tooltipNamed(Strings.play),
+      matching: find.byType(OutlinedButton),
+    );
+    expect(tester.getSize(playButton), const Size.square(kActionControlHeight));
+    expect(
+      tester.getSemantics(playButton),
+      isSemantics(label: Strings.play, isButton: true),
+    );
+    semantics.dispose();
+  }, variant: phones);
 
   testWidgets('a wide row in progress dismisses from the menu too', (
     WidgetTester tester,
@@ -505,6 +539,7 @@ void main() {
       required bool admin,
       bool? adminPages,
       double width = 760,
+      Version? version,
     }) async {
       final List<String> routes = <String>[];
       tester.view.physicalSize = const Size(1200, 900);
@@ -529,7 +564,7 @@ void main() {
                                 catalog: CatalogApi(api),
                                 playback: PlaybackApi(api),
                                 userId: 'u1',
-                                versions: <Version>[single],
+                                versions: <Version>[version ?? single],
                                 admin: admin ? AdminApi(api) : null,
                                 adminPages: adminPages ?? admin,
                               ),
@@ -552,6 +587,7 @@ void main() {
       await _expand(tester);
 
       expect(find.byTooltip(Strings.subtitlesHeading), findsNothing);
+      expect(find.byTooltip(Strings.openVersion), findsNothing);
       await _openMore(tester);
       expect(find.text(Strings.downloadVersion), findsOneWidget);
       expect(find.text(Strings.openVersion), findsNothing);
@@ -567,12 +603,48 @@ void main() {
       );
 
       await _expand(tester);
-      await _openMore(tester);
-      await tester.tap(find.text(Strings.openVersion));
+      await tester.tap(find.byTooltip(Strings.openVersion));
       await tester.pumpAndSettle();
 
       expect(routes.last, '/version?id=v-uhd');
       expect(find.text('went to /version?id=v-uhd'), findsOneWidget);
+    });
+
+    testWidgets('an admin row reads subtitles, version page, then the menu', (
+      WidgetTester tester,
+    ) async {
+      await pumpPicker(tester, api: adminApi(withFiles: true), admin: true);
+      await _expand(tester);
+
+      final Rect subtitles = tester.getRect(
+        find.byTooltip(Strings.subtitlesHeading),
+      );
+      final Rect version = tester.getRect(find.byTooltip(Strings.openVersion));
+      expect(subtitles.right, lessThanOrEqualTo(version.left));
+      expect(version.right, lessThanOrEqualTo(tester.getRect(_more()).left));
+      expect(
+        find.descendant(
+          of: find.byTooltip(Strings.openVersion),
+          matching: find.byIcon(Icons.settings_outlined),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('an unavailable version on an admin page has no menu', (
+      WidgetTester tester,
+    ) async {
+      await pumpPicker(
+        tester,
+        api: adminApi(withFiles: true),
+        admin: true,
+        version: Version.fromJson(_json('v-uhd', 'uhd')..['available'] = false),
+      );
+      await _expand(tester);
+
+      expect(find.byTooltip(Strings.subtitlesHeading), findsOneWidget);
+      expect(find.byTooltip(Strings.openVersion), findsOneWidget);
+      expect(_more(), findsNothing);
     });
 
     testWidgets('the subtitles menu transcribes per audio track', (
@@ -740,6 +812,7 @@ void main() {
       await _expand(tester);
 
       expect(find.byTooltip(Strings.subtitlesHeading), findsOneWidget);
+      expect(find.byTooltip(Strings.openVersion), findsNothing);
       await _openMore(tester);
       expect(find.text(Strings.openVersion), findsNothing);
     });
@@ -956,14 +1029,15 @@ void main() {
 
       expect(_more(), findsNothing);
       expect(find.byTooltip(Strings.subtitlesHeading), findsNothing);
+      expect(find.byTooltip(Strings.openVersion), findsNothing);
 
       await tester.tap(find.byIcon(Icons.expand_more));
       await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);
       expect(find.byTooltip(Strings.subtitlesHeading), findsOneWidget);
-      await _openMore(tester);
-      expect(find.text(Strings.openVersion), findsOneWidget);
+      expect(find.byTooltip(Strings.openVersion), findsOneWidget);
+      expect(_more(), findsOneWidget);
     });
   });
 

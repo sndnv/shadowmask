@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import 'package:shadowmask/api/child_mode_scope.dart';
 import 'package:shadowmask/components/app_dropdown.dart';

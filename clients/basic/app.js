@@ -173,6 +173,17 @@ const sm = (() => {
     return selfCache;
   }
 
+  let serverInfoCache = null;
+  function serverInfo() {
+    if (!serverInfoCache) {
+      serverInfoCache = json("/api/v1/server/info").catch((e) => {
+        serverInfoCache = null;
+        throw e;
+      });
+    }
+    return serverInfoCache;
+  }
+
   function qs(name) {
     return new URLSearchParams(location.search).get(name);
   }
@@ -794,10 +805,18 @@ const sm = (() => {
   function footer() {
     if (document.querySelector(".sm-footer")) return;
     if (!load()) return;
+    const name = el("span", null, "Shadowmask");
     const node = el("footer", { class: "sm-footer" }, [
+      name,
+      " · ",
       el("a", { href: url("about.html") }, "About"),
     ]);
     document.body.appendChild(node);
+    serverInfo()
+      .then((info) => {
+        if (info && info.version) name.textContent = "Shadowmask " + info.version;
+      })
+      .catch(() => {});
   }
 
   function chrome() {
@@ -1310,6 +1329,7 @@ const sm = (() => {
     publicGet,
     json,
     self,
+    serverInfo,
     refresh,
     requireAuth,
     tokens: load,

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import 'package:shadowmask/components/version_label.dart';
 import 'package:shadowmask/model/catalog/version.dart';

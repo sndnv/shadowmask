@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:path/path.dart' as p;
 
 import 'package:shadowmask/api/admin_api.dart';
@@ -33,6 +33,8 @@ const ButtonStyle _kRowButton = ButtonStyle(
     ),
   ),
 );
+
+final RegExp _lineBreak = RegExp(r'\r\n|\r|\n');
 
 Future<bool> showSubtitleSearch(
   BuildContext context, {
@@ -169,20 +171,55 @@ class _SubtitleTextDialogState extends State<_SubtitleTextDialog> {
               style: TextStyle(color: context.tokens.danger),
             );
           }
-          final String content = snapshot.data?.trim() ?? '';
+          final String content = snapshot.data ?? '';
           if (content.isEmpty) {
             return const StatusText(Strings.emptySubtitleText);
           }
-          return Text(
-            content,
-            style: monoStyle.copyWith(
-              color: context.tokens.text,
-              fontSize: 12,
-              height: 1.5,
-            ),
-          );
+          return _NumberedText(content);
         },
       ),
+    );
+  }
+}
+
+class _NumberedText extends StatelessWidget {
+  const _NumberedText(this.content);
+
+  final String content;
+
+  @override
+  Widget build(BuildContext context) {
+    final List<String> lines = content.split(_lineBreak);
+    final TextStyle style = monoStyle.copyWith(
+      color: context.tokens.text,
+      fontSize: 12,
+      height: 1.5,
+    );
+    final StrutStyle strut = StrutStyle.fromTextStyle(
+      style,
+      forceStrutHeight: true,
+    );
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        ExcludeSemantics(
+          child: SelectionContainer.disabled(
+            child: Text(
+              <String>[for (int i = 1; i <= lines.length; i++) '$i'].join('\n'),
+              textAlign: TextAlign.end,
+              style: style.copyWith(color: context.tokens.muted),
+              strutStyle: strut,
+            ),
+          ),
+        ),
+        const SizedBox(width: Space.s3),
+        Expanded(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Text(lines.join('\n'), style: style, strutStyle: strut),
+          ),
+        ),
+      ],
     );
   }
 }

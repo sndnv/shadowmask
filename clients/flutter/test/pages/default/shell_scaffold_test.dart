@@ -1,13 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shadowmask/api/api_client.dart';
+import 'package:shadowmask/components/app_version_footer.dart';
 import 'package:shadowmask/components/backdrop_scope.dart';
 import 'package:shadowmask/components/brand_mark.dart';
 import 'package:shadowmask/components/card_grid.dart';
@@ -29,6 +30,7 @@ import 'package:shadowmask/theme/breakpoints.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/theme_scope.dart';
 import 'package:shadowmask/theme/tokens.dart';
+import 'package:shadowmask/util/app_version.dart';
 import 'package:shadowmask/util/page_director.dart';
 
 import '../../support/backdrops.dart';
@@ -38,21 +40,30 @@ ApiClient _api() => ApiClient(
   httpClient: MockClient((http.Request _) async => http.Response('{}', 200)),
 );
 
-Widget _host(Widget body, {bool fullWidth = false, bool fitViewport = false}) =>
-    ThemeScope(
-      variant: AppThemeVariant.dark,
-      setVariant: (_) {},
-      child: MaterialApp(
-        theme: buildTheme(AppThemeVariant.dark),
-        home: ShellScaffold(
-          api: _api(),
-          current: NavSection.movies,
-          fullWidth: fullWidth,
-          fitViewport: fitViewport,
-          body: body,
-        ),
-      ),
-    );
+Widget _host(
+  Widget body, {
+  bool fullWidth = false,
+  bool fitViewport = false,
+  VersionLoader loadVersion = defaultVersion,
+}) => ThemeScope(
+  variant: AppThemeVariant.dark,
+  setVariant: (_) {},
+  child: MaterialApp(
+    theme: buildTheme(AppThemeVariant.dark),
+    home: ShellScaffold(
+      api: _api(),
+      current: NavSection.movies,
+      fullWidth: fullWidth,
+      fitViewport: fitViewport,
+      loadVersion: loadVersion,
+      body: body,
+    ),
+  ),
+);
+
+Future<String> _version() async => '1.2.3';
+
+Finder get _footer => find.text('${Strings.appTitle} 1.2.3');
 
 const Widget _body = Column(
   key: Key('body'),
@@ -506,18 +517,163 @@ void main() {
     );
   });
 
-  testWidgets('a short body still fills the viewport height', (
+  testWidgets('a short page holds the version at its foot without scrolling', (
     WidgetTester tester,
   ) async {
     tester.view.physicalSize = const Size(1200, 700);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    await tester.pumpWidget(_host(_body));
+    await tester.pumpWidget(_host(_body, loadVersion: _version));
+    await tester.pumpAndSettle();
 
     final ScrollableState scrollable = tester.state<ScrollableState>(
       find.byType(Scrollable).first,
     );
     expect(scrollable.position.maxScrollExtent, 0);
+    expect(_footer, findsOneWidget);
+    expect(tester.getRect(_footer).bottom, greaterThan(700 - Space.s8));
+    expect(tester.getRect(_footer).bottom, lessThanOrEqualTo(700));
+    expect(tester.getCenter(_footer).dx, moreOrLessEquals(600, epsilon: 1));
+  });
+
+  testWidgets('a tall page holds the version after its content', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(1200, 700);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      _host(
+        const SizedBox(key: Key('body'), height: 3000),
+        loadVersion: _version,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AppVersionFooter), findsNothing);
+
+    final ScrollableState scrollable = tester.state<ScrollableState>(
+      find.byType(Scrollable).first,
+    );
+    scrollable.position.jumpTo(scrollable.position.maxScrollExtent);
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getRect(_footer).top,
+      greaterThanOrEqualTo(
+        tester.getRect(find.byKey(const Key('body'))).bottom,
+      ),
+    );
+    expect(tester.getRect(_footer).bottom, lessThanOrEqualTo(700));
+  });
+
+  testWidgets('a phone holds the version above the tab bar', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(_host(_body, loadVersion: _version));
+    await tester.pumpAndSettle();
+
+    final Rect bar = tester.getRect(find.byType(ShellBottomNav));
+    expect(tester.getRect(_footer).bottom, lessThanOrEqualTo(bar.top));
+    expect(tester.getRect(_footer).bottom, greaterThan(bar.top - Space.s8));
+  });
+
+  testWidgets('the version keeps clear of the bottom inset on a wide window', (
+    WidgetTester tester,
+  ) async {
+    const EdgeInsets safe = EdgeInsets.fromLTRB(0, 0, 0, 34);
+    tester.view.physicalSize = const Size(1200, 700);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      ThemeScope(
+        variant: AppThemeVariant.dark,
+        setVariant: (_) {},
+        child: MaterialApp(
+          theme: buildTheme(AppThemeVariant.dark),
+          home: MediaQuery(
+            data: const MediaQueryData(size: Size(1200, 700), padding: safe),
+            child: ShellScaffold(
+              api: _api(),
+              current: NavSection.movies,
+              loadVersion: _version,
+              body: const SizedBox(key: Key('body'), height: 3000),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final ScrollableState scrollable = tester.state<ScrollableState>(
+      find.byType(Scrollable).first,
+    );
+    scrollable.position.jumpTo(scrollable.position.maxScrollExtent);
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getRect(_footer).bottom,
+      lessThanOrEqualTo(700 - safe.bottom),
+    );
+    expect(
+      tester.getRect(_footer).top -
+          tester.getRect(find.byKey(const Key('body'))).bottom,
+      lessThan(Space.s4 + Space.s3 + safe.bottom),
+    );
+  });
+
+  testWidgets('a version that cannot be read leaves the app name', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      _host(_body, loadVersion: () async => throw Exception('no platform')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.descendant(
+        of: find.byType(AppVersionFooter),
+        matching: find.text(Strings.appTitle),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('no version on a page that fits the viewport or goes immersive', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      _host(_body, fitViewport: true, loadVersion: _version),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(AppVersionFooter), findsNothing);
+
+    late ValueNotifier<bool> immersive;
+    await tester.pumpWidget(
+      _host(
+        Builder(
+          builder: (BuildContext context) {
+            immersive = ImmersiveScope.of(context)!;
+            return const SizedBox(height: 200);
+          },
+        ),
+        loadVersion: _version,
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(_footer, findsOneWidget);
+
+    immersive.value = true;
+    await tester.pumpAndSettle();
+    expect(find.byType(AppVersionFooter), findsNothing);
+
+    immersive.value = false;
+    await tester.pumpAndSettle();
+    expect(_footer, findsOneWidget);
   });
 
   testWidgets('fitViewport keeps the nav and stops the page scrolling', (

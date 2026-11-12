@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import 'package:shadowmask/components/card_menu.dart';
 import 'package:shadowmask/l10n/strings.dart';

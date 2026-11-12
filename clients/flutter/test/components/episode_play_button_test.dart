@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -18,6 +18,7 @@ import 'package:shadowmask/theme/app_theme_variant.dart';
 import 'package:shadowmask/view/next_episode.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../support/finders.dart';
 import '../support/play_on.dart';
 
 NextEpisode _next({int progress = 0, String title = 'Three'}) => (
@@ -201,7 +202,7 @@ void main() {
     await _pump(tester, Future<NextEpisode?>.value(_next()));
     await tester.pump();
 
-    expect(find.byTooltip('Up next: S02E03 · Three'), findsOneWidget);
+    expect(tooltipNamed('Up next: S02E03 · Three'), findsOneWidget);
   });
 
   testWidgets('the button keeps the action height of the buttons beside it', (
@@ -238,7 +239,7 @@ void main() {
     await tester.pump();
 
     expect(find.text('Up next: E03 · Three'), findsOneWidget);
-    expect(find.byTooltip('Up next: E03 · Three'), findsOneWidget);
+    expect(tooltipNamed('Up next: E03 · Three'), findsOneWidget);
   });
 
   testWidgets('a long note ends in an ellipsis within its row', (
