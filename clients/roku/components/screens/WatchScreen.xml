@@ -49,6 +49,10 @@
         <Group id="pausedMark" visible="false">
             <Poster id="pausedDisc" />
             <Poster id="pausedGlyph" />
+            <Group id="holdSpeed" visible="false">
+                <RoundedBox id="holdSpeedPlate" />
+                <Label id="holdSpeedLabel" />
+            </Group>
         </Group>
         <SubtitleView id="subtitles" />
         <Group id="header" visible="false">

@@ -469,16 +469,18 @@ function HoldSpeeds() as object
     return [1, 3, 5, 10]
 end function
 
-function HoldStepSeconds() as integer
-    return 3
+function HoldRungSeconds() as object
+    return [0, 1, 3, 6]
 end function
 
 function HoldSpeedAt(heldSeconds as integer) as integer
     speeds = HoldSpeeds()
+    rungs = HoldRungSeconds()
 
     rung = 0
-    if heldSeconds > 0 then rung = Int(heldSeconds / HoldStepSeconds())
-    if rung >= speeds.Count() then rung = speeds.Count() - 1
+    for index = 1 to rungs.Count() - 1
+        if heldSeconds >= rungs[index] then rung = index
+    end for
 
     return speeds[rung]
 end function
@@ -497,6 +499,28 @@ end function
 
 function HoldTickStepMs(ticks as integer) as integer
     return Int(HoldStepMs(HoldHeldSeconds(ticks)) * HoldTickMs() / 1000)
+end function
+
+function HoldAfterFocusLoss(key as string, paused as boolean, focused as boolean) as string
+    if focused or IsBlank(key) then return ""
+    if paused then return "resume"
+    return "drop"
+end function
+
+function HoldBadge(key as string, ticks as integer) as object
+    badge = { glyph: "", speed: "" }
+    if ticks <= 0 then return badge
+    if key = "left"
+        badge.glyph = "icon-rewind-large"
+    else if key = "right"
+        badge.glyph = "icon-forward-large"
+    else
+        return badge
+    end if
+
+    speed = HoldSpeedAt(HoldHeldSeconds(ticks - 1))
+    if speed > 1 then badge.speed = PhraseWith("player.holdSpeed", { speed: speed })
+    return badge
 end function
 
 function PlayerButtons(playing as boolean, finished as boolean, episode as boolean, hasPrevious as boolean, hasNext as boolean, busy = false as boolean, queued = false as boolean) as object

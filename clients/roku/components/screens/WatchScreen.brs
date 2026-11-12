@@ -5,6 +5,9 @@ sub init()
     m.pausedMark = m.top.FindNode("pausedMark")
     m.pausedDisc = m.top.FindNode("pausedDisc")
     m.pausedGlyph = m.top.FindNode("pausedGlyph")
+    m.holdSpeed = m.top.FindNode("holdSpeed")
+    m.holdSpeedPlate = m.top.FindNode("holdSpeedPlate")
+    m.holdSpeedLabel = m.top.FindNode("holdSpeedLabel")
     m.beat = m.top.FindNode("heartbeat")
     m.hide = m.top.FindNode("hide")
 
@@ -183,13 +186,29 @@ sub DrawPausedMark(theme as object)
     m.pausedGlyph.blendColor = theme.text
     m.pausedGlyph.translation = [Int((size - glyph) / 2), Int((size - glyph) / 2)]
 
+    pill = Int(TypeScale().textLg * 1.6)
+    m.holdSpeedPlate.boxWidth = size
+    m.holdSpeedPlate.boxHeight = pill
+    m.holdSpeedPlate.fillColor = WithAlpha(theme.bg, "B3")
+    m.holdSpeedLabel.font = SizedBoldFont(TypeScale().textLg)
+    m.holdSpeedLabel.color = theme.text
+    m.holdSpeedLabel.width = size
+    m.holdSpeedLabel.height = pill
+    m.holdSpeedLabel.horizAlign = "center"
+    m.holdSpeedLabel.vertAlign = "center"
+    m.holdSpeed.translation = [0, size + SpacingScale().s2]
+
     m.pausedMark.translation = [Int((CanvasWidth() - size) / 2), Int((CanvasHeight() - size) / 2)]
 end sub
 
 sub RefreshPausedMark()
-    glyph = PausedGlyph(m.playback)
+    badge = HoldBadge(m.holdKey, m.holdTicks)
+    glyph = badge.glyph
+    if IsBlank(glyph) then glyph = PausedGlyph(m.playback)
     m.pausedMark.visible = not IsBlank(glyph) and not m.upNext.visible
     if m.pausedMark.visible then m.pausedGlyph.uri = GlyphUri(glyph)
+    m.holdSpeedLabel.text = badge.speed
+    m.holdSpeed.visible = not IsBlank(badge.speed)
 end sub
 
 sub DrawHeader(theme as object)
@@ -323,6 +342,12 @@ sub ComposeBar(seeking = false as boolean)
 end sub
 
 sub onFocus()
+    lost = HoldAfterFocusLoss(m.holdKey, m.holdPaused, KeysAreOurs())
+    if not IsBlank(lost)
+        ClearHold()
+        if lost = "resume" then PostPlayback({ kind: "plays", playing: true })
+    end if
+
     if not m.top.hasFocus() then return
 
     if m.upNext.visible
@@ -1866,6 +1891,7 @@ sub onHoldFired()
     if m.holdTicks = 0 then PauseForHold()
     MoveGhost(HoldTickStepMs(m.holdTicks))
     m.holdTicks = m.holdTicks + 1
+    RefreshPausedMark()
 end sub
 
 sub PauseForHold()
@@ -1907,6 +1933,7 @@ sub ClearHold()
     m.holdPaused = false
     m.hold.control = "stop"
     m.timeline.scrubMs = -1
+    RefreshPausedMark()
 end sub
 
 sub MoveGhost(stepMs as integer)
