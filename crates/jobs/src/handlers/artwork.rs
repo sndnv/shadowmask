@@ -87,6 +87,19 @@ where
         let payload = ArtworkJobPayload::decode(&job.payload)
             .map_err(|e| JobError::Permanent(format!("invalid artwork payload: {e}")))?;
         let owner = &payload.owner;
+        let fallback = only_fallbacks(&payload);
+        if fallback
+            && !self
+                .catalog
+                .list_artwork(owner)
+                .await
+                .map_err(|e| JobError::Retryable(e.to_string()))?
+                .is_empty()
+        {
+            #[rustfmt::skip]
+            tracing::info!("{} [{}] has artwork by now, its fallback is skipped", owner.kind(), owner.id());
+            return Ok(());
+        }
         let items = payload.items.len();
         tracing::info!("generating artwork for {} [{}], {items} items", owner.kind(), owner.id());
 
@@ -110,11 +123,32 @@ where
             refs.push(ArtworkRef { id: item.id.clone(), kind: item.kind, widths });
         }
 
-        self.catalog
-            .set_artwork(&payload.owner, &refs)
+        if !fallback {
+            return self
+                .catalog
+                .set_artwork(owner, &refs)
+                .await
+                .map_err(|e| JobError::Retryable(e.to_string()));
+        }
+        let stored = self
+            .catalog
+            .set_artwork_if_empty(owner, &refs)
             .await
-            .map_err(|e| JobError::Retryable(e.to_string()))
+            .map_err(|e| JobError::Retryable(e.to_string()))?;
+        if !stored {
+            #[rustfmt::skip]
+            tracing::info!("{} [{}] got artwork while its fallback rendered, the fallback is dropped", owner.kind(), owner.id());
+        }
+        Ok(())
     }
+}
+
+fn only_fallbacks(payload: &ArtworkJobPayload) -> bool {
+    payload
+        .items
+        .iter()
+        .flat_map(|item| &item.sources)
+        .all(|source| !matches!(source, ArtworkSource::Provider(_)))
 }
 
 #[cfg(test)]
@@ -380,6 +414,84 @@ mod tests {
         assert!(episode_artwork(&catalog).await.is_empty());
     }
 
+    async fn store_episode_art(catalog: &MockCatalogRepo) {
+        let stored = ArtworkRef {
+            id: ArtworkId("tmdb".into()),
+            kind: ArtworkKind::Backdrop,
+            widths: Vec::new(),
+        };
+        catalog
+            .set_artwork(&ArtworkOwner::Episode(EpisodeId("e1".into())), &[stored])
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_fallback_finds_the_art_that_landed_before_it_and_leaves_it() {
+        let catalog = MockCatalogRepo::new();
+        store_episode_art(&catalog).await;
+        let pipeline = MockPipeline::new(PipelineMode::Ok);
+        let stills = MockStills::default();
+        let handler = ArtworkJobHandler::new(
+            catalog.clone(),
+            pipeline.clone(),
+            MockStore::default(),
+            stills.clone(),
+        );
+
+        handler.handle(&job(thumbnail_then_frame().encode())).await.unwrap();
+
+        assert!(pipeline.calls().is_empty());
+        assert!(stills.calls.lock().unwrap().is_empty());
+        let refs = episode_artwork(&catalog).await;
+        assert_eq!(refs.iter().map(|art| art.id.0.as_str()).collect::<Vec<_>>(), ["tmdb"]);
+    }
+
+    struct ArtLandsWhileFraming(MockCatalogRepo);
+
+    impl StillExtractor for ArtLandsWhileFraming {
+        async fn extract(&self, _input_path: &str, _offset_ms: u64) -> Result<Vec<u8>, StillError> {
+            store_episode_art(&self.0).await;
+            Ok(vec![0xFF, 0xD8])
+        }
+    }
+
+    #[tokio::test]
+    async fn art_that_lands_while_the_fallback_renders_is_kept() {
+        let catalog = MockCatalogRepo::new();
+        let handler = ArtworkJobHandler::new(
+            catalog.clone(),
+            MockPipeline::new(PipelineMode::Ok),
+            MockStore::default(),
+            ArtLandsWhileFraming(catalog.clone()),
+        );
+
+        let frame_only =
+            site_payload(vec![ArtworkSource::Frame { path: VIDEO.into(), offset_ms: 0 }]);
+        handler.handle(&job(frame_only.encode())).await.unwrap();
+
+        let refs = episode_artwork(&catalog).await;
+        assert_eq!(refs.iter().map(|art| art.id.0.as_str()).collect::<Vec<_>>(), ["tmdb"]);
+    }
+
+    #[tokio::test]
+    async fn provider_art_still_replaces_what_the_owner_has() {
+        let catalog = MockCatalogRepo::new();
+        store_episode_art(&catalog).await;
+        let handler = ArtworkJobHandler::new(
+            catalog.clone(),
+            MockPipeline::new(PipelineMode::Ok),
+            MockStore::default(),
+            MockStills::default(),
+        );
+
+        let provider = site_payload(vec![ArtworkSource::Provider("https://cdn/still.jpg".into())]);
+        handler.handle(&job(provider.encode())).await.unwrap();
+
+        let refs = episode_artwork(&catalog).await;
+        assert_eq!(refs.iter().map(|art| art.id.0.as_str()).collect::<Vec<_>>(), ["art-1"]);
+    }
+
     #[tokio::test]
     async fn an_item_with_no_source_records_nothing() {
         let catalog = MockCatalogRepo::new();
@@ -573,6 +685,24 @@ mod tests {
             handler.handle(&job(payload().encode())).await.unwrap_err(),
             JobError::Retryable(_)
         ));
+    }
+
+    #[tokio::test]
+    async fn a_fallback_that_cannot_read_the_owners_art_is_retried() {
+        let catalog = MockCatalogRepo::new();
+        catalog.set_fail();
+        let stills = MockStills::default();
+        let handler = ArtworkJobHandler::new(
+            catalog,
+            MockPipeline::new(PipelineMode::Ok),
+            MockStore::default(),
+            stills.clone(),
+        );
+        assert!(matches!(
+            handler.handle(&job(thumbnail_then_frame().encode())).await.unwrap_err(),
+            JobError::Retryable(_)
+        ));
+        assert!(stills.calls.lock().unwrap().is_empty());
     }
 
     #[tokio::test]

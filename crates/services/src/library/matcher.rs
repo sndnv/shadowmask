@@ -144,6 +144,21 @@ mod tests {
     }
 
     #[test]
+    fn two_shows_named_in_another_script_are_two_groups() {
+        let report = Matcher::new().match_files(
+            LibraryKind::Tv,
+            &[
+                file("/tv/霓虹港/Season 01/霓虹港 - S01E01 - 第一集.mkv"),
+                file("/tv/纸天空/Season 01/纸天空 - S01E01 - 开始.mkv"),
+            ],
+        );
+        assert_eq!(report.matched.len(), 2);
+        assert!(report.matched.iter().all(|group| group.files.len() == 1));
+        assert_ne!(report.matched[0].key.title_slug, report.matched[1].key.title_slug);
+        assert!(report.unmatched.is_empty());
+    }
+
+    #[test]
     fn low_confidence_file_goes_to_unmatched_queue() {
         let report = Matcher::new().match_files(LibraryKind::Movie, &[file("/m/recording.mkv")]);
         assert!(report.matched.is_empty());

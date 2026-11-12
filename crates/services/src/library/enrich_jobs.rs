@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use domain::catalog::{ArtworkId, ArtworkOwner, VersionId};
 use domain::error::RepositoryError;
 use domain::job::{JobId, JobKind, JobPriority, JobStatus};
@@ -163,6 +165,17 @@ where
         self.jobs
             .enqueue(queued_job(JobKind::PlaybackPrep, JobPriority::High, raw, parent, now))
             .await
+    }
+
+    pub(super) async fn artwork_owners_pending(
+        &self,
+    ) -> Result<HashSet<ArtworkOwner>, RepositoryError> {
+        let active = self.jobs.list_active(&[JobKind::Artwork]).await?;
+        Ok(active
+            .iter()
+            .filter_map(|job| ArtworkJobPayload::decode(&job.payload).ok())
+            .map(|payload| payload.owner)
+            .collect())
     }
 
     pub(super) async fn enqueue_trickplay_unless_pending(

@@ -108,6 +108,42 @@ fn paths_of(rows: &[SqliteRow]) -> Result<HashSet<String>, RepositoryError> {
     rows.iter().map(|row| column::<String>(row, "path")).collect()
 }
 
+async fn insert_artwork(
+    conn: &mut SqliteConnection,
+    title_kind: &str,
+    title_id: &str,
+    refs: &[ArtworkRef],
+) -> Result<(), RepositoryError> {
+    for (ordinal, art) in refs.iter().enumerate() {
+        sqlx::query(
+            "INSERT INTO artwork (artwork_id, title_kind, title_id, ordinal, kind) \
+             VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(art.id.0.as_str())
+        .bind(title_kind)
+        .bind(title_id)
+        .bind(ordinal as i64)
+        .bind(artwork_kind_to_str(art.kind))
+        .execute(&mut *conn)
+        .await
+        .map_err(backend)?;
+        for (width_ordinal, width) in art.widths.iter().enumerate() {
+            sqlx::query(
+                "INSERT INTO artwork_widths (artwork_id, ordinal, width, path) \
+                 VALUES (?, ?, ?, ?)",
+            )
+            .bind(art.id.0.as_str())
+            .bind(width_ordinal as i64)
+            .bind(i64::from(width.width))
+            .bind(width.path.as_str())
+            .execute(&mut *conn)
+            .await
+            .map_err(backend)?;
+        }
+    }
+    Ok(())
+}
+
 const EPISODE_CONTEXT_FROM: &str = "SELECT e.*, sn.number AS season_no, sn.title AS season_name, \
      sr.id AS series_ref \
      FROM episodes e \
@@ -2562,35 +2598,32 @@ impl CatalogRepository for SqliteCatalogRepo {
             .execute(&mut *tx)
             .await
             .map_err(backend)?;
-        for (ordinal, art) in refs.iter().enumerate() {
-            sqlx::query(
-                "INSERT INTO artwork (artwork_id, title_kind, title_id, ordinal, kind) \
-                 VALUES (?, ?, ?, ?, ?)",
-            )
-            .bind(art.id.0.as_str())
-            .bind(title_kind)
-            .bind(title_id)
-            .bind(ordinal as i64)
-            .bind(artwork_kind_to_str(art.kind))
-            .execute(&mut *tx)
-            .await
-            .map_err(backend)?;
-            for (width_ordinal, width) in art.widths.iter().enumerate() {
-                sqlx::query(
-                    "INSERT INTO artwork_widths (artwork_id, ordinal, width, path) \
-                     VALUES (?, ?, ?, ?)",
-                )
-                .bind(art.id.0.as_str())
-                .bind(width_ordinal as i64)
-                .bind(i64::from(width.width))
-                .bind(width.path.as_str())
-                .execute(&mut *tx)
-                .await
-                .map_err(backend)?;
-            }
-        }
+        insert_artwork(&mut tx, title_kind, title_id, refs).await?;
         tx.commit().await.map_err(backend)?;
         Ok(())
+    }
+
+    async fn set_artwork_if_empty(
+        &self,
+        owner: &ArtworkOwner,
+        refs: &[ArtworkRef],
+    ) -> Result<bool, RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "set_artwork_if_empty");
+        let (title_kind, title_id) = artwork_owner_parts(owner);
+        let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await.map_err(backend)?;
+        let held =
+            sqlx::query("SELECT COUNT(*) AS n FROM artwork WHERE title_kind = ? AND title_id = ?")
+                .bind(title_kind)
+                .bind(title_id)
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(backend)?;
+        if column::<i64>(&held, "n")? > 0 {
+            return Ok(false);
+        }
+        insert_artwork(&mut tx, title_kind, title_id, refs).await?;
+        tx.commit().await.map_err(backend)?;
+        Ok(true)
     }
 
     async fn list_artwork(&self, owner: &ArtworkOwner) -> Result<Vec<ArtworkRef>, RepositoryError> {

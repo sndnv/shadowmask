@@ -221,6 +221,11 @@ pub trait CatalogRepository {
         owner: &ArtworkOwner,
         refs: &[ArtworkRef],
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn set_artwork_if_empty(
+        &self,
+        owner: &ArtworkOwner,
+        refs: &[ArtworkRef],
+    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
     fn list_artwork(
         &self,
         owner: &ArtworkOwner,

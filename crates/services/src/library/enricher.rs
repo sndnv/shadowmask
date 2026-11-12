@@ -301,8 +301,13 @@ where
     }
 
     async fn reread(&self, library: &Library, report: &ScanReport) {
+        let mut framed = self.enqueue.artwork_owners_pending().await.unwrap_or_else(|err| {
+            #[rustfmt::skip]
+            warn!(library = %library.id.0, "reading the queued artwork failed, a re-read may queue a frame twice: [{err}]");
+            HashSet::new()
+        });
         for file in &report.discovered {
-            if let Err(err) = self.reread_file(file).await {
+            if let Err(err) = self.reread_file(file, &mut framed).await {
                 warn!(library = %library.id.0, path = %file.path, "re-read failed: [{err}]");
             }
         }
@@ -444,7 +449,7 @@ where
         }
         let artwork = metadata.map(|m| m.artwork).unwrap_or_default();
         let owner = ArtworkOwner::Movie(movie_id);
-        let fallback = self.unless_art_exists(&owner, site_artwork(plan.site, files)).await?;
+        let fallback = self.unless_art_exists(&owner, fallback_artwork(plan.site, files)).await?;
         self.enqueue.enqueue_artwork_or(owner, artwork, fallback, parent).await
     }
 
@@ -585,12 +590,12 @@ where
             .and_then(parse_air_date)
             .or_else(|| site_air_date(plan.site));
         let episode_artwork = matched_episode.map(|ep| ep.artwork.clone()).unwrap_or_default();
-        let site_art = site_artwork(plan.site, files);
+        let fallback_art = fallback_artwork(plan.site, files);
         let series_art = if writes_series
-            && !site_art.is_empty()
+            && !fallback_art.is_empty()
             && self.catalog.get_series(&series_id).await?.is_none()
         {
-            site_art.clone()
+            fallback_art.clone()
         } else {
             Vec::new()
         };
@@ -676,7 +681,7 @@ where
         }
         if plan.writes_title {
             let owner = ArtworkOwner::Episode(episode_id);
-            let fallback = self.unless_art_exists(&owner, site_art).await?;
+            let fallback = self.unless_art_exists(&owner, fallback_art).await?;
             self.enqueue.enqueue_artwork_or(owner, episode_artwork, fallback, parent).await?;
         }
         Ok(())
@@ -685,12 +690,12 @@ where
     async fn unless_art_exists(
         &self,
         owner: &ArtworkOwner,
-        site_art: Vec<ArtworkSource>,
+        fallback: Vec<ArtworkSource>,
     ) -> Result<Vec<ArtworkSource>, RepositoryError> {
-        if site_art.is_empty() || !self.catalog.list_artwork(owner).await?.is_empty() {
+        if fallback.is_empty() || !self.catalog.list_artwork(owner).await?.is_empty() {
             return Ok(Vec::new());
         }
-        Ok(site_art)
+        Ok(fallback)
     }
 
     async fn ingest_file(&self, ingest: FileIngest<'_>) -> Result<(), RepositoryError> {
@@ -799,12 +804,17 @@ where
         self.enqueue.enqueue_subtitles(&version_id, subtitle, false, parent).await
     }
 
-    async fn reread_file(&self, file: &DiscoveredFile) -> Result<(), RepositoryError> {
+    async fn reread_file(
+        &self,
+        file: &DiscoveredFile,
+        framed: &mut HashSet<ArtworkOwner>,
+    ) -> Result<(), RepositoryError> {
         let version_id = VersionId(derive_id("version", &file.path));
         let Some(detail) = self.catalog.version_detail(&version_id).await? else {
             return Ok(());
         };
         let existing = detail.version;
+        let title = existing.title.clone();
         self.catalog
             .upsert_version(Version {
                 quality: resolve_quality(file),
@@ -829,7 +839,49 @@ where
                 .enqueue_trickplay_unless_pending(&version_id, &file.path, file.probe.duration_ms)
                 .await?;
         }
-        self.enqueue.enqueue_playback_prep(&version_id, None).await
+        self.enqueue.enqueue_playback_prep(&version_id, None).await?;
+        if let Err(err) = self.frame_titles_without_art(&title, file, framed).await {
+            #[rustfmt::skip]
+            warn!(path = %file.path, "queuing a frame for a title without artwork failed: [{err}]");
+        }
+        Ok(())
+    }
+
+    async fn frame_titles_without_art(
+        &self,
+        title: &TitleId,
+        file: &DiscoveredFile,
+        framed: &mut HashSet<ArtworkOwner>,
+    ) -> Result<(), RepositoryError> {
+        for owner in self.artwork_owners(title).await? {
+            if !framed.contains(&owner) && self.catalog.list_artwork(&owner).await?.is_empty() {
+                self.enqueue
+                    .enqueue_artwork_or(owner.clone(), Vec::new(), vec![frame_of(file)], None)
+                    .await?;
+            }
+            framed.insert(owner);
+        }
+        Ok(())
+    }
+
+    async fn artwork_owners(&self, title: &TitleId) -> Result<Vec<ArtworkOwner>, RepositoryError> {
+        match title {
+            TitleId::Movie(id) => Ok(self
+                .catalog
+                .get_movie(id)
+                .await?
+                .map(|_| ArtworkOwner::Movie(id.clone()))
+                .into_iter()
+                .collect()),
+            TitleId::Episode(id) => {
+                let Some(episode) = self.catalog.get_episode(id).await? else {
+                    return Ok(Vec::new());
+                };
+                let series = self.catalog.get_season(&episode.season).await?;
+                let series = series.map(|season| ArtworkOwner::Series(season.series));
+                Ok([ArtworkOwner::Episode(id.clone())].into_iter().chain(series).collect())
+            }
+        }
     }
 
     async fn persist_enrichment(
@@ -1376,14 +1428,19 @@ fn site_air_date(site: Option<&SiteDetails>) -> Option<Timestamp> {
     utc_midnight(jiff::civil::Date::strptime("%Y%m%d", site?.upload_date.as_deref()?).ok()?)
 }
 
-fn site_artwork(site: Option<&SiteDetails>, files: &[DiscoveredFile]) -> Vec<ArtworkSource> {
-    let (Some(site), Some(file)) = (site, files.first()) else {
+fn fallback_artwork(site: Option<&SiteDetails>, files: &[DiscoveredFile]) -> Vec<ArtworkSource> {
+    let Some(file) = files.first() else {
         return Vec::new();
     };
-    let thumbnails = site.thumbnails.iter().filter(|url| !url.trim().is_empty());
-    let frame =
-        ArtworkSource::Frame { path: file.path.clone(), offset_ms: file.probe.duration_ms / 10 };
-    thumbnails.cloned().map(ArtworkSource::Thumbnail).chain([frame]).collect()
+    let thumbnails = site
+        .into_iter()
+        .flat_map(|site| site.thumbnails.iter())
+        .filter(|url| !url.trim().is_empty());
+    thumbnails.cloned().map(ArtworkSource::Thumbnail).chain([frame_of(file)]).collect()
+}
+
+fn frame_of(file: &DiscoveredFile) -> ArtworkSource {
+    ArtworkSource::Frame { path: file.path.clone(), offset_ms: file.probe.duration_ms / 10 }
 }
 
 #[cfg(test)]
@@ -1616,7 +1673,7 @@ mod tests {
             catalog.list_library_versions(&LibraryId("lib".into()), page()).await.unwrap().total,
             1
         );
-        assert_eq!(count_kind(&jobs, JobKind::Artwork).await, 0);
+        assert_eq!(queued_artwork(&jobs, is_movie).await, frame("/m/The Matrix (1999) 1080p.mkv"));
         assert_eq!(count_kind(&jobs, JobKind::Trickplay).await, 1);
         assert_eq!(count_kind(&jobs, JobKind::Subtitles).await, 0);
     }
@@ -2050,12 +2107,15 @@ mod tests {
         assert_eq!(collection.name, "The Matrix Collection");
         assert_eq!(collection.movies, vec![movie.id]);
 
-        assert_eq!(count_kind(&jobs, JobKind::Artwork).await, 1);
-        let artwork =
-            jobs.list().await.unwrap().into_iter().find(|j| j.kind == JobKind::Artwork).unwrap();
-        let payload = ArtworkJobPayload::decode(&artwork.payload).unwrap();
-        assert!(matches!(payload.owner, ArtworkOwner::Collection(_)));
-        assert_eq!(payload.items.len(), 2);
+        let collections =
+            queued_artwork(&jobs, |owner| matches!(owner, ArtworkOwner::Collection(_))).await;
+        assert_eq!(collections.len(), 1);
+        assert_eq!(collections[0].len(), 2);
+        assert_eq!(
+            queued_artwork(&jobs, is_movie).await,
+            frame("/m/The Matrix (1999) 1080p.mkv"),
+            "the movie itself has no TMDB art"
+        );
     }
 
     #[tokio::test]
@@ -3612,7 +3672,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn tv_ingest_without_season_metadata_enqueues_only_series_artwork() {
+    async fn tv_ingest_without_season_metadata_gives_the_series_tmdb_art_and_the_episode_a_frame() {
         let catalog = MockCatalogRepo::new();
         let jobs = MockJobStore::new();
         let metadata = TitleMetadata {
@@ -3628,17 +3688,13 @@ mod tests {
 
         svc.enrich(&library(LibraryKind::Tv), &report(&["/tv/Gamma S01E01 720p.mkv"]), None).await;
 
-        let owners: Vec<ArtworkOwner> = jobs
-            .list()
-            .await
-            .unwrap()
-            .iter()
-            .filter(|j| j.kind == JobKind::Artwork)
-            .map(|j| ArtworkJobPayload::decode(&j.payload).unwrap().owner)
-            .collect();
-        assert!(owners.iter().any(|o| matches!(o, ArtworkOwner::Series(_))));
-        assert!(!owners.iter().any(|o| matches!(o, ArtworkOwner::Season(_))));
-        assert!(!owners.iter().any(|o| matches!(o, ArtworkOwner::Episode(_))));
+        let poster = vec![vec![(
+            ArtworkKind::Poster,
+            vec![ArtworkSource::Provider("https://cdn/Poster.jpg".into())],
+        )]];
+        assert_eq!(queued_artwork(&jobs, is_series).await, poster);
+        assert!(queued_artwork(&jobs, is_season).await.is_empty());
+        assert_eq!(queued_artwork(&jobs, is_episode).await, frame("/tv/Gamma S01E01 720p.mkv"));
     }
 
     #[tokio::test]
@@ -3852,12 +3908,12 @@ mod tests {
         .await;
 
         assert_eq!(catalog.list_movies(page()).await.unwrap().total, 1);
-        assert_eq!(count_kind(&jobs, JobKind::Artwork).await, 0);
+        assert_eq!(queued_artwork(&jobs, is_movie).await, frame("/m/The Matrix (1999) 1080p.mkv"));
         assert_eq!(count_kind(&jobs, JobKind::Trickplay).await, 1);
     }
 
     #[tokio::test]
-    async fn provider_empty_matches_enqueues_no_artwork() {
+    async fn provider_empty_matches_leave_the_movie_a_frame() {
         let catalog = MockCatalogRepo::new();
         let jobs = MockJobStore::new();
         let svc = enricher(
@@ -3874,7 +3930,7 @@ mod tests {
         .await;
 
         assert_eq!(catalog.list_movies(page()).await.unwrap().total, 1);
-        assert_eq!(count_kind(&jobs, JobKind::Artwork).await, 0);
+        assert_eq!(queued_artwork(&jobs, is_movie).await, frame("/m/The Matrix (1999) 1080p.mkv"));
         assert_eq!(count_kind(&jobs, JobKind::Trickplay).await, 1);
     }
 
@@ -3895,12 +3951,12 @@ mod tests {
         )
         .await;
 
-        assert_eq!(count_kind(&jobs, JobKind::Artwork).await, 0);
+        assert_eq!(queued_artwork(&jobs, is_movie).await, frame("/m/The Matrix (1999) 1080p.mkv"));
         assert_eq!(count_kind(&jobs, JobKind::Trickplay).await, 1);
     }
 
     #[tokio::test]
-    async fn artwork_without_poster_or_backdrop_enqueues_no_artwork() {
+    async fn artwork_without_poster_or_backdrop_leaves_the_movie_a_frame() {
         let catalog = MockCatalogRepo::new();
         let jobs = MockJobStore::new();
         let svc = enricher(
@@ -3916,7 +3972,7 @@ mod tests {
         )
         .await;
 
-        assert_eq!(count_kind(&jobs, JobKind::Artwork).await, 0);
+        assert_eq!(queued_artwork(&jobs, is_movie).await, frame("/m/The Matrix (1999) 1080p.mkv"));
         assert_eq!(count_kind(&jobs, JobKind::Trickplay).await, 1);
     }
 
@@ -4472,6 +4528,35 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn two_shows_fetched_under_names_in_another_script_stay_apart() {
+        let catalog = MockCatalogRepo::new();
+        let svc = enricher(catalog.clone(), None, MockJobStore::new());
+        let tv = library(LibraryKind::Tv);
+
+        for (path, show) in [
+            ("/tv/霓虹港/Season 01/霓虹港 - S01E01 - 第一集.mkv", "霓虹港"),
+            ("/tv/纸天空/Season 01/纸天空 - S01E01 - 开始.mkv", "纸天空"),
+        ] {
+            let parsed =
+                ParsedMedia { title: show.into(), ..fetched_episode(1, "第一集", None) };
+            svc.ingest_fetched(&tv, &discovered(path), &parsed, &SiteDetails::default(), None)
+                .await
+                .unwrap();
+        }
+
+        let series = catalog.list_series(page()).await.unwrap();
+        assert_eq!(series.total, 2);
+        for show in &series.items {
+            let season = catalog.list_seasons(&show.id).await.unwrap()[0].clone();
+            let episodes = catalog.list_episodes(&season.id).await.unwrap();
+            assert_eq!(episodes.len(), 1);
+            let episode = TitleId::Episode(episodes[0].id.clone());
+            let versions = catalog.list_versions(&episode, page()).await.unwrap();
+            assert_eq!(versions.total, 1, "{}", show.title);
+        }
+    }
+
     fn site() -> SiteDetails {
         SiteDetails {
             thumbnails: vec!["https://i.ytimg.com/vi/abc/maxresdefault.jpg".into()],
@@ -4737,12 +4822,191 @@ mod tests {
         assert!(episodes.contains(&thumbnail_then_frame(second)));
     }
 
+    fn frame(path: &str) -> Vec<Vec<(ArtworkKind, Vec<ArtworkSource>)>> {
+        vec![vec![(
+            ArtworkKind::Backdrop,
+            vec![ArtworkSource::Frame { path: path.into(), offset_ms: 100 }],
+        )]]
+    }
+
+    const HARBOUR: &str = "/tv/Gamma/Season 01/Gamma - S01E03 - Harbour.mkv";
+
     #[tokio::test]
-    async fn a_scanned_episode_gets_no_site_art() {
+    async fn a_scanned_episode_without_tmdb_art_gets_a_frame_and_no_thumbnail() {
         let jobs = MockJobStore::new();
         let svc = enricher(MockCatalogRepo::new(), None, jobs.clone());
 
         svc.enrich(&library(LibraryKind::Tv), &report(&[PILOT]), None).await;
+
+        assert_eq!(queued_artwork(&jobs, is_episode).await, frame(PILOT));
+        assert_eq!(queued_artwork(&jobs, is_series).await, frame(PILOT));
+        assert!(queued_artwork(&jobs, is_season).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_scanned_movie_without_tmdb_art_gets_a_frame() {
+        let jobs = MockJobStore::new();
+        let svc = enricher(MockCatalogRepo::new(), None, jobs.clone());
+        let path = "/m/Paper Skies (2011).mkv";
+
+        svc.enrich(&library(LibraryKind::Movie), &report(&[path]), None).await;
+
+        assert_eq!(queued_artwork(&jobs, is_movie).await, frame(path));
+    }
+
+    #[tokio::test]
+    async fn a_scanned_episode_tmdb_has_a_still_for_gets_no_frame() {
+        let jobs = MockJobStore::new();
+        let metadata = TitleMetadata {
+            title: "Gamma".into(),
+            external_ids: vec![ExternalId { source: "tmdb".into(), value: "tv/1399".into() }],
+            artwork: vec![art(ArtworkKind::Poster)],
+            ..TitleMetadata::default()
+        };
+        let season = SeasonArtwork {
+            number: 1,
+            episodes: vec![EpisodeArtwork {
+                number: 2,
+                artwork: vec![art(ArtworkKind::Backdrop)],
+                ..EpisodeArtwork::default()
+            }],
+            ..SeasonArtwork::default()
+        };
+        let provider = MockProvider { mode: ProviderMode::Season(Box::new(metadata), season) };
+        let svc = enricher(MockCatalogRepo::new(), Some(provider), jobs.clone());
+
+        svc.enrich(&library(LibraryKind::Tv), &report(&[PILOT]), None).await;
+
+        let tmdb = |kind: ArtworkKind| {
+            vec![vec![(kind, vec![ArtworkSource::Provider(format!("https://cdn/{kind:?}.jpg"))])]]
+        };
+        assert_eq!(queued_artwork(&jobs, is_episode).await, tmdb(ArtworkKind::Backdrop));
+        assert_eq!(queued_artwork(&jobs, is_series).await, tmdb(ArtworkKind::Poster));
+    }
+
+    #[tokio::test]
+    async fn a_second_scanned_episode_queues_no_frame_for_the_series() {
+        let jobs = MockJobStore::new();
+        let svc = enricher(MockCatalogRepo::new(), None, jobs.clone());
+        let tv = library(LibraryKind::Tv);
+
+        svc.enrich(&tv, &report(&[PILOT]), None).await;
+        svc.enrich(&tv, &report(&[PILOT, HARBOUR]), None).await;
+
+        assert_eq!(queued_artwork(&jobs, is_series).await, frame(PILOT));
+        let mut episodes = queued_artwork(&jobs, is_episode).await;
+        episodes.sort_by_key(|items| format!("{items:?}"));
+        assert_eq!(episodes, [frame(PILOT), frame(HARBOUR)].concat());
+    }
+
+    #[tokio::test]
+    async fn a_reread_frames_an_episode_and_its_series_that_have_no_art_once_each() {
+        let catalog = MockCatalogRepo::new();
+        let tv = library(LibraryKind::Tv);
+        let scan = report(&[PILOT, HARBOUR]);
+        enricher(catalog.clone(), None, MockJobStore::new()).enrich(&tv, &scan, None).await;
+        let jobs = MockJobStore::new();
+        let svc = enricher(catalog, None, jobs.clone());
+
+        svc.reread(&tv, &scan).await;
+
+        let mut episodes = queued_artwork(&jobs, is_episode).await;
+        episodes.sort_by_key(|items| format!("{items:?}"));
+        assert_eq!(episodes, [frame(PILOT), frame(HARBOUR)].concat());
+        assert_eq!(queued_artwork(&jobs, is_series).await, frame(PILOT));
+        assert!(queued_artwork(&jobs, is_season).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_reread_frames_a_movie_that_has_no_art() {
+        let catalog = MockCatalogRepo::new();
+        let movies = library(LibraryKind::Movie);
+        let scan = report(&["/m/Paper Skies (2011).mkv"]);
+        enricher(catalog.clone(), None, MockJobStore::new()).enrich(&movies, &scan, None).await;
+        let jobs = MockJobStore::new();
+        let svc = enricher(catalog, None, jobs.clone());
+
+        svc.reread(&movies, &scan).await;
+
+        assert_eq!(queued_artwork(&jobs, is_movie).await, frame("/m/Paper Skies (2011).mkv"));
+    }
+
+    #[tokio::test]
+    async fn a_reread_leaves_an_owner_that_has_art_alone() {
+        let catalog = MockCatalogRepo::new();
+        let tv = library(LibraryKind::Tv);
+        let scan = report(&[PILOT]);
+        enricher(catalog.clone(), None, MockJobStore::new()).enrich(&tv, &scan, None).await;
+        let series = catalog.list_series(page()).await.unwrap().items[0].id.clone();
+        let episode = fetched_episode_row(&catalog).await.id;
+        store_art(&catalog, &ArtworkOwner::Series(series)).await;
+        store_art(&catalog, &ArtworkOwner::Episode(episode)).await;
+        let jobs = MockJobStore::new();
+        let svc = enricher(catalog, None, jobs.clone());
+
+        svc.reread(&tv, &scan).await;
+
+        assert!(queued_artwork(&jobs, |_| true).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_reread_queues_no_frame_while_an_artwork_job_waits_for_the_owner() {
+        let jobs = MockJobStore::new();
+        let svc = enricher(MockCatalogRepo::new(), None, jobs.clone());
+        let tv = library(LibraryKind::Tv);
+        let scan = report(&[PILOT]);
+        svc.enrich(&tv, &scan, None).await;
+
+        svc.reread(&tv, &scan).await;
+        svc.reread(&tv, &scan).await;
+
+        assert_eq!(queued_artwork(&jobs, is_episode).await, frame(PILOT));
+        assert_eq!(queued_artwork(&jobs, is_series).await, frame(PILOT));
+    }
+
+    #[tracing_test::traced_test]
+    #[tokio::test]
+    async fn a_reread_that_cannot_frame_still_refreshes_and_prepares_the_file() {
+        let catalog = MockCatalogRepo::new();
+        let movies = library(LibraryKind::Movie);
+        let path = "/m/Paper Skies (2011).mkv";
+        enricher(catalog.clone(), None, MockJobStore::new())
+            .enrich(&movies, &report(&[path]), None)
+            .await;
+        catalog.set_fail_artwork_reads();
+        let jobs = MockJobStore::new();
+        let svc = enricher(catalog.clone(), None, jobs.clone());
+        let mut resized = discovered(path);
+        resized.size_bytes = 99;
+        let scan = ScanReport {
+            discovered: vec![resized],
+            skipped: Vec::new(),
+            total_candidates: 1,
+            offline: Vec::new(),
+        };
+
+        svc.reread(&movies, &scan).await;
+
+        assert_eq!(stored_version(&catalog, path).await.size_bytes, 99);
+        assert_eq!(playback_preps(&jobs).await.len(), 1);
+        assert!(queued_artwork(&jobs, |_| true).await.is_empty());
+        assert!(logs_contain("queuing a frame for a title without artwork failed"));
+    }
+
+    #[tokio::test]
+    async fn a_reread_frames_nothing_for_a_file_whose_title_is_gone() {
+        let catalog = MockCatalogRepo::new();
+        let movies = library(LibraryKind::Movie);
+        let path = "/m/Paper Skies (2011).mkv";
+        let scan = report(&[path]);
+        enricher(catalog.clone(), None, MockJobStore::new()).enrich(&movies, &scan, None).await;
+        let version = stored_version(&catalog, path).await;
+        let orphan = TitleId::Movie(MovieId("gone".into()));
+        catalog.upsert_version(Version { title: orphan, ..version }).await.unwrap();
+        let jobs = MockJobStore::new();
+        let svc = enricher(catalog, None, jobs.clone());
+
+        svc.reread(&movies, &scan).await;
 
         assert!(queued_artwork(&jobs, |_| true).await.is_empty());
     }

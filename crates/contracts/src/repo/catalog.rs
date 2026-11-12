@@ -1002,6 +1002,28 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
     );
     assert!(repo.live_artwork_paths(&[]).await.unwrap().is_empty());
 
+    let frame = ArtworkRef {
+        id: ArtworkId("art-frame".into()),
+        kind: ArtworkKind::Backdrop,
+        widths: vec![ArtworkWidth::new(480, "/art/art-frame/480.jpg")],
+    };
+    let framed = ArtworkOwner::Episode(EpisodeId("framed".into()));
+    assert!(
+        !repo
+            .set_artwork_if_empty(
+                &ArtworkOwner::Series(SeriesId("s1".into())),
+                std::slice::from_ref(&frame)
+            )
+            .await
+            .unwrap(),
+        "an owner with art keeps it"
+    );
+    assert_eq!(repo.get_series(&SeriesId("s1".into())).await.unwrap().unwrap().artwork.len(), 1);
+    assert!(repo.set_artwork_if_empty(&framed, std::slice::from_ref(&frame)).await.unwrap());
+    assert_eq!(repo.list_artwork(&framed).await.unwrap(), vec![frame.clone()]);
+    assert!(!repo.set_artwork_if_empty(&framed, &[]).await.unwrap(), "the frame is art now");
+    repo.set_artwork(&framed, &[]).await.unwrap();
+
     repo.upsert_movie(Movie {
         id: MovieId("um1".into()),
         title: "Ingested".into(),
