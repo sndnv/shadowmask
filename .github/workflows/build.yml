@@ -112,11 +112,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up JDK 17
+      - name: Set up JDK 21
         if: matrix.target == 'android'
         uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad
         with:
-          java-version: '17'
+          java-version: '21'
           distribution: temurin
 
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
