@@ -1633,9 +1633,9 @@ abstract final class Strings {
   static const String confirmRereadFilesBody =
       'Read every file in this library again and update its quality, size, '
       'duration and tracks.\n\n'
-      'Titles, metadata, artwork, trickplay and subtitles are kept, and no '
-      'other jobs are queued. Files not seen before are added as a normal '
-      'scan would.';
+      'Titles, metadata, artwork, trickplay and subtitles are kept. Trickplay '
+      'a file lacks is made, and a title with no artwork gets a frame from '
+      'its file. Files not seen before are added as a normal scan would.';
   static const String confirmRefreshLibraryBody =
       'Re-fetch the description, ratings and artwork for every title in this '
       'library. Existing metadata and artwork are replaced.\n\n'

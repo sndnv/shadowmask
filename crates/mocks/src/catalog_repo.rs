@@ -345,6 +345,7 @@ pub struct MockCatalogRepo {
     fail: Arc<AtomicBool>,
     fail_writes: Arc<AtomicBool>,
     fail_keyframes: Arc<AtomicBool>,
+    fail_artwork_reads: Arc<AtomicBool>,
     clear_subtitles_after_read: Arc<AtomicBool>,
     episode_lookups: Arc<AtomicUsize>,
     detail_lookups: Arc<AtomicUsize>,
@@ -481,6 +482,10 @@ impl MockCatalogRepo {
 
     pub fn set_fail_keyframes(&self) {
         self.fail_keyframes.store(true, Ordering::Relaxed);
+    }
+
+    pub fn set_fail_artwork_reads(&self) {
+        self.fail_artwork_reads.store(true, Ordering::Relaxed);
     }
 
     pub fn clear_subtitles_after_next_read(&self) {
@@ -1086,8 +1091,25 @@ impl CatalogRepository for MockCatalogRepo {
         Ok(())
     }
 
+    async fn set_artwork_if_empty(
+        &self,
+        owner: &ArtworkOwner,
+        refs: &[ArtworkRef],
+    ) -> Result<bool, RepositoryError> {
+        self.guard()?;
+        let mut state = self.state.lock().unwrap();
+        if !state.artwork_for(owner).is_empty() {
+            return Ok(false);
+        }
+        state.artwork.insert(owner.clone(), refs.to_vec());
+        Ok(true)
+    }
+
     async fn list_artwork(&self, owner: &ArtworkOwner) -> Result<Vec<ArtworkRef>, RepositoryError> {
         self.guard()?;
+        if self.fail_artwork_reads.load(Ordering::Relaxed) {
+            return Err(RepositoryError::Backend("mock artwork read failure".to_owned()));
+        }
         Ok(self.state.lock().unwrap().artwork_for(owner))
     }
 
@@ -2422,6 +2444,18 @@ mod tests {
 
         assert!(repo.keyframes_us(&v1).await.is_err());
         assert!(repo.version_detail(&v1).await.unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn a_failing_artwork_read_leaves_the_version_readable() {
+        let repo = MockCatalogRepo::new();
+        repo.add_version(version("v1"));
+
+        repo.set_fail_artwork_reads();
+
+        let owner = ArtworkOwner::Movie(MovieId("m1".into()));
+        assert!(repo.list_artwork(&owner).await.is_err());
+        assert!(repo.version_detail(&VersionId("v1".into())).await.unwrap().is_some());
     }
 
     #[tokio::test]

@@ -2,11 +2,33 @@ use unicode_normalization::UnicodeNormalization;
 use unicode_normalization::char::is_combining_mark;
 
 pub fn normalize_title(title: &str) -> String {
-    let mapped: String = title
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { ' ' })
+    let lowered = title.to_lowercase().replace('ς', "σ");
+    let mut on_letter = false;
+    let mapped: String = fold_latin_accents(&lowered)
+        .map(|c| {
+            let kept = if is_combining_mark(c) {
+                on_letter
+            } else {
+                on_letter = c.is_alphabetic();
+                c.is_alphanumeric()
+            };
+            if kept { c } else { ' ' }
+        })
         .collect();
     mapped.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn fold_latin_accents(text: &str) -> impl Iterator<Item = char> + '_ {
+    let mut on_latin = false;
+    text.nfd()
+        .filter(move |&c| {
+            if is_combining_mark(c) {
+                return !on_latin;
+            }
+            on_latin = c.is_ascii_alphabetic();
+            true
+        })
+        .nfc()
 }
 
 pub fn fold_diacritics(title: &str) -> String {
@@ -66,11 +88,11 @@ fn search_chunks(text: &str) -> Vec<Vec<String>> {
 }
 
 pub fn sort_title(title: &str, articles: &[String]) -> String {
-    let normalized = normalize_title(&fold_diacritics(title));
+    let normalized = normalize_title(title);
     let Some((first, rest)) = normalized.split_once(' ') else {
         return normalized;
     };
-    if articles.iter().any(|article| normalize_title(&fold_diacritics(article)) == first) {
+    if articles.iter().any(|article| normalize_title(article) == first) {
         format!("{rest}, {first}")
     } else {
         normalized
@@ -91,6 +113,51 @@ mod tests {
     }
 
     #[test]
+    fn normalize_keeps_letters_of_every_script() {
+        assert_eq!(normalize_title("霓虹港"), "霓虹港");
+        assert_ne!(normalize_title("霓虹港"), normalize_title("纸天空"));
+        assert_ne!(normalize_title("霓虹港 2"), normalize_title("纸天空 2"));
+        assert_eq!(normalize_title("Дрейф"), "дрейф");
+        assert_eq!(normalize_title("Deep.Field.2½"), "deep field 2½");
+    }
+
+    #[test]
+    fn normalize_keeps_the_marks_other_scripts_spell_with() {
+        assert_eq!(normalize_title("ガンダム"), "ガンダム");
+        assert_ne!(normalize_title("ガ"), normalize_title("カ"));
+        assert_ne!(normalize_title("कल"), normalize_title("काल"));
+        assert_eq!(normalize_title("Дре\u{438}\u{306}ф"), "дрейф");
+    }
+
+    #[test]
+    fn normalize_reads_a_word_final_sigma_whatever_follows_it() {
+        assert_eq!(normalize_title("ΟΔΟΣ:ΧΑ"), normalize_title("ΟΔΟΣ ΧΑ"));
+        assert_eq!(normalize_title("ΟΔΟΣ.ΧΑ"), "οδοσ χα");
+    }
+
+    #[test]
+    fn normalize_drops_a_mark_left_without_its_letter() {
+        assert_eq!(normalize_title("Lantern \u{2764}\u{fe0f}"), "lantern");
+        assert_eq!(normalize_title("Lantern \u{2764}"), "lantern");
+        assert_eq!(normalize_title("Lantern 1\u{fe0f}\u{20e3}"), "lantern 1");
+        assert_eq!(normalize_title("Lantern . \u{301}"), "lantern");
+    }
+
+    #[test]
+    fn sort_title_keeps_the_marks_other_scripts_spell_with() {
+        assert_eq!(sort_title("ガンダム", &[]), "ガンダム");
+        assert_eq!(sort_title("Дрейф", &[]), "дрейф");
+    }
+
+    #[test]
+    fn normalize_folds_accents_whichever_way_they_are_written() {
+        assert_eq!(normalize_title("Lant\u{e9}rn"), "lantern");
+        assert_eq!(normalize_title("Lante\u{301}rn"), "lantern");
+        assert_eq!(normalize_title("Lantern"), "lantern");
+        assert_eq!(normalize_title("\u{130}zmir"), "izmir");
+    }
+
+    #[test]
     fn fold_diacritics_strips_combining_marks() {
         assert_eq!(fold_diacritics("Élite"), "Elite");
         assert_eq!(fold_diacritics("Amélie"), "Amelie");
@@ -107,6 +174,7 @@ mod tests {
         assert_eq!(sort_title("Élite", &[]), "elite");
         assert_eq!(sort_title("Spider-Man", &[]), "spider man");
         assert_eq!(sort_title("2001: A Space Odyssey", &[]), "2001 a space odyssey");
+        assert_eq!(sort_title("霓虹港", &[]), "霓虹港");
     }
 
     #[test]
@@ -185,6 +253,23 @@ mod tests {
         fn normalize_title_is_idempotent(input in "\\PC*") {
             let once = normalize_title(&input);
             prop_assert_eq!(normalize_title(&once), once);
+        }
+
+        #[test]
+        fn an_ascii_title_keeps_the_key_it_had_before_other_scripts(input in "[ -~]*") {
+            let before: String = input
+                .chars()
+                .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { ' ' })
+                .collect();
+            let before = before.split_whitespace().collect::<Vec<_>>().join(" ");
+            prop_assert_eq!(normalize_title(&input), before);
+        }
+
+        #[test]
+        fn both_unicode_forms_of_a_title_give_one_key(input in "\\PC*") {
+            let composed: String = input.nfc().collect();
+            let decomposed: String = input.nfd().collect();
+            prop_assert_eq!(normalize_title(&composed), normalize_title(&decomposed));
         }
 
         #[test]
