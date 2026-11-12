@@ -26,16 +26,26 @@
     <interface>
         <field id="theme" type="assocarray" />
         <field id="kind" type="string" value="ok" />
-        <field id="message" type="string" onChange="show" />
+        <field id="message" type="string" alwaysNotify="true" onChange="show" />
         <field id="fontSize" type="float" value="28" />
-        <field id="holdSeconds" type="float" value="4" />
     </interface>
 
     <children>
         <Rectangle id="surface" visible="false">
-            <Rectangle id="edge" />
+            <Poster id="glyph" muteAudioGuide="true" />
             <Label id="message" />
         </Rectangle>
         <Timer id="hold" repeat="false" />
+        <Animation id="enter" duration="0.2" easeFunction="outCubic">
+            <Vector2DFieldInterpolator id="enterSlide" key="[0.0, 1.0]" fieldToInterp="surface.translation" />
+            <FloatFieldInterpolator key="[0.0, 1.0]" keyValue="[0.0, 1.0]" fieldToInterp="surface.opacity" />
+        </Animation>
+        <Animation id="shake" duration="0.4" easeFunction="linear">
+            <Vector2DFieldInterpolator id="shakeSlide" key="[0.0, 0.2, 0.4, 0.6, 0.8, 1.0]" fieldToInterp="surface.translation" />
+        </Animation>
+        <Animation id="dismiss" duration="0.2" easeFunction="inCubic">
+            <Vector2DFieldInterpolator id="dismissSlide" key="[0.0, 1.0]" fieldToInterp="surface.translation" />
+            <FloatFieldInterpolator key="[0.0, 1.0]" keyValue="[1.0, 0.0]" fieldToInterp="surface.opacity" />
+        </Animation>
     </children>
 </component>

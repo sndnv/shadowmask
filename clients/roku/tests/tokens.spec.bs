@@ -60,10 +60,132 @@ namespace tests
 
         @describe("toast")
 
-        @it("gives the message a space more than it measures, so a rounded-down width cannot cut it")
-        sub toastKeepsTheWholeMessage()
-            m.assertEqual(ToastLabelWidth(120, 7), 127)
-            m.assertTrue(ToastLabelWidth(TextWidth("Report sent.", 28), SpaceWidth(28)) > TextWidth("Report sent.", 28))
+        @it("keeps every toast as wide and stops long text at three lines")
+        sub toastWrapsToThreeLines()
+            toast = CreateObject("roSGNode", "Toast")
+            toast.theme = ThemeTokens("dark")
+            toast.message = "Queued."
+
+            surface = toast.FindNode("surface")
+            label = toast.FindNode("message")
+            m.assertEqual(Int(surface.width), ToastWidth())
+            m.assertEqual(label.maxLines, 1)
+
+            toast.message = "The server could not reach the subtitle provider in time, so no subtitles were found for this version; check the provider settings, the network and the server log, then try the search again later."
+
+            m.assertEqual(Int(surface.width), ToastWidth())
+            m.assertEqual(label.maxLines, ToastMaxLines())
+            m.assertTrue(label.wrap)
+            m.assertEqual(label.ellipsisText, "…")
+            m.assertEqual(Int(label.lineSpacing), TextLineSpacing())
+            m.assertEqual(Int(surface.height), TextBlockHeight(toast.fontSize, ToastMaxLines()) + SpacingScale().s3 * 2)
+        end sub
+
+        @it("keeps a spare line for text that only just fits, centred in the room it keeps")
+        sub toastSparesALineForATightFit()
+            toast = CreateObject("roSGNode", "Toast")
+            toast.theme = ThemeTokens("dark")
+            toast.message = "Queued."
+            size = toast.fontSize
+            inner = Int(toast.FindNode("message").width)
+
+            text = "a l"
+            for tries = 1 to 400
+                if TextLineCount(text, inner - SpaceWidth(size), size) > 1 then exit for
+                text = text + "l"
+            end for
+            m.assertEqual(TextLineCount(text, inner, size), 1)
+
+            toast.message = text
+
+            label = toast.FindNode("message")
+            m.assertEqual(label.maxLines, 2)
+            m.assertEqual(Int(label.height), TextBlockHeight(size, 2))
+            m.assertEqual(label.vertAlign, "center")
+        end sub
+
+        @it("paints a success in the ok colour with a check, an error in danger with a cross")
+        sub toastPaletteFollowsTheKind()
+            theme = ThemeTokens("retro")
+            m.assertEqual(ToastPalette("ok", theme), { ground: theme.ok, ink: theme.accentContrast, glyph: "icon-check" })
+            m.assertEqual(ToastPalette("err", theme), { ground: theme.danger, ink: theme.dangerContrast, glyph: "icon-close" })
+        end sub
+
+        @it("marks the toast with its kind's glyph")
+        sub toastShowsItsKindsGlyph()
+            toast = CreateObject("roSGNode", "Toast")
+            toast.theme = ThemeTokens("retro")
+            toast.message = "Queued."
+            glyph = toast.FindNode("glyph")
+            m.assertEqual(glyph.uri, GlyphUri("icon-check"))
+
+            toast.kind = "err"
+            toast.message = "Could not reach the server."
+
+            m.assertEqual(glyph.uri, GlyphUri("icon-close"))
+        end sub
+
+        @it("holds an error for 8 seconds and anything else for 4")
+        sub toastHoldsAnErrorLonger()
+            m.assertEqual(ToastHoldSeconds("err"), 8.0)
+            m.assertEqual(ToastHoldSeconds("ok"), 4.0)
+            m.assertEqual(ToastHoldSeconds(""), 4.0)
+        end sub
+
+        @it("shakes out and back, ending where it began")
+        sub toastShakeEndsAtRest()
+            stops = ToastShakeStops()
+            space = SpacingScale()
+            m.assertEqual(stops[0], 0)
+            m.assertEqual(stops[stops.Count() - 1], 0)
+            m.assertEqual(stops[1], space.s2)
+            m.assertEqual(stops[2], - space.s2)
+        end sub
+
+        @it("slides a toast in from the right edge to rest against it")
+        sub toastSlidesInFromTheRight()
+            toast = CreateObject("roSGNode", "Toast")
+            toast.theme = ThemeTokens("dark")
+            toast.message = "Queued."
+
+            surface = toast.FindNode("surface")
+            slide = toast.FindNode("enterSlide").keyValue
+            m.assertTrue(surface.visible)
+            m.assertEqual(slide[0][0], 0.0)
+            m.assertEqual(slide[1][0], - surface.width)
+            m.assertEqual(slide[1][1], - surface.height)
+            m.assertEqual(toast.FindNode("dismissSlide").keyValue[1][0], 0.0)
+            m.assertEqual(toast.FindNode("hold").duration, 4.0)
+        end sub
+
+        @it("shakes an error about where it rests and holds it for 8 seconds")
+        sub toastShakesAnError()
+            toast = CreateObject("roSGNode", "Toast")
+            toast.theme = ThemeTokens("dark")
+            toast.kind = "err"
+            toast.message = "Could not reach the server."
+
+            rest = - toast.FindNode("surface").width
+            swings = toast.FindNode("shakeSlide").keyValue
+            stops = ToastShakeStops()
+            m.assertEqual(swings.Count(), stops.Count())
+            for index = 0 to stops.Count() - 1
+                m.assertEqual(swings[index][0], rest + stops[index])
+            end for
+            m.assertEqual(toast.FindNode("hold").duration, 8.0)
+        end sub
+
+        @it("shows the same message again when it is raised again")
+        sub toastShowsARepeat()
+            toast = CreateObject("roSGNode", "Toast")
+            toast.theme = ThemeTokens("dark")
+            toast.message = "Queued."
+            surface = toast.FindNode("surface")
+            surface.visible = false
+
+            toast.message = "Queued."
+
+            m.assertTrue(surface.visible)
         end sub
 
         @describe("scales")
