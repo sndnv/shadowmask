@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import 'package:shadowmask/components/link_chip.dart';
 import 'package:shadowmask/model/catalog/detail_dimensions.dart';

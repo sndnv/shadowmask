@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
@@ -270,8 +270,7 @@ class _ShadowmaskAppState extends State<ShadowmaskApp>
   BrowserHistory _historyFor(GlobalKey<NavigatorState> navigator) =>
       BrowserHistory(
         navigatorKey: navigator,
-        onGenerateRoute: (RouteSettings settings) =>
-            _router.router.generator(settings),
+        onGenerateRoute: (RouteSettings settings) => _router.route(settings),
         onGenerateInitialRoutes: _initialRoutes,
         observers: <NavigatorObserver>[
           appRouteObserver,
@@ -347,8 +346,8 @@ class _ShadowmaskAppState extends State<ShadowmaskApp>
 
   List<Route<dynamic>> _initialRoutes(String initialRoute) {
     final Route<dynamic> route =
-        _router.router.generator(RouteSettings(name: initialRoute)) ??
-        _router.router.generator(const RouteSettings(name: '/'))!;
+        _router.route(RouteSettings(name: initialRoute)) ??
+        _router.route(const RouteSettings(name: '/'))!;
     return <Route<dynamic>>[route];
   }
 }

@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/api/report_admin_api.dart';

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import 'package:shadowmask/theme/breakpoints.dart';
 import 'package:shadowmask/theme/radii.dart';

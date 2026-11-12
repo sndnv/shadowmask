@@ -38,5 +38,6 @@
         <Poster id="brand" />
         <MarkupList id="list" itemComponentName="NavItem" />
         <Label id="identity" />
+        <Label id="version" />
     </children>
 </component>

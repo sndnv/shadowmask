@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:ui' show DisplayFeature, DisplayFeatureType;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import 'package:shadowmask/player/playback_log.dart';
 import 'package:shadowmask/player/player_controller.dart';

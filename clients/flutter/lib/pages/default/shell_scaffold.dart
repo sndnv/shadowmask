@@ -1,10 +1,11 @@
 import 'dart:math' as math;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 
 import 'package:shadowmask/api/account_api.dart';
 import 'package:shadowmask/api/api_client.dart';
+import 'package:shadowmask/components/app_version_footer.dart';
 import 'package:shadowmask/components/backdrop_scope.dart';
 import 'package:shadowmask/components/bottom_chrome.dart';
 import 'package:shadowmask/components/brand_mark.dart';
@@ -26,6 +27,7 @@ import 'package:shadowmask/theme/radii.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
+import 'package:shadowmask/util/app_version.dart';
 import 'package:shadowmask/util/page_director.dart';
 import 'package:shadowmask/util/scoped_value.dart';
 import 'package:shadowmask/view/shell_shortcuts.dart';
@@ -85,6 +87,7 @@ class ShellScaffold extends StatefulWidget {
     this.fullWidth = false,
     this.fitViewport = false,
     this.keepsBackdrop = false,
+    this.loadVersion = defaultVersion,
   });
 
   final ApiClient api;
@@ -94,6 +97,7 @@ class ShellScaffold extends StatefulWidget {
   final bool fullWidth;
   final bool fitViewport;
   final bool keepsBackdrop;
+  final VersionLoader loadVersion;
 
   @override
   State<ShellScaffold> createState() => _ShellScaffoldState();
@@ -234,6 +238,8 @@ class _ShellScaffoldState extends State<ShellScaffold> {
                       builder:
                           (BuildContext context, bool immersive, Widget? _) {
                             final bool bare = immersive || compact;
+                            final bool footer =
+                                !immersive && !widget.fitViewport;
                             final double maxWidth = immersive
                                 ? double.infinity
                                 : pageWidth;
@@ -255,7 +261,9 @@ class _ShellScaffoldState extends State<ShellScaffold> {
                                 : _kBodyPadding.add(
                                         EdgeInsets.only(
                                           top: bare ? safe.top : 0,
-                                          bottom: compact ? 0 : safe.bottom,
+                                          bottom: compact || footer
+                                              ? 0
+                                              : safe.bottom,
                                         ),
                                       )
                                       as EdgeInsets;
@@ -269,9 +277,7 @@ class _ShellScaffoldState extends State<ShellScaffold> {
                                 height: bodyHeight,
                               );
                             } else {
-                              bodyConstraints = BoxConstraints(
-                                minHeight: bodyHeight,
-                              );
+                              bodyConstraints = const BoxConstraints();
                             }
                             return CustomScrollView(
                               controller: _scroll,
@@ -312,6 +318,23 @@ class _ShellScaffoldState extends State<ShellScaffold> {
                                     ),
                                   ),
                                 ),
+                                if (footer)
+                                  SliverFillRemaining(
+                                    hasScrollBody: false,
+                                    child: Align(
+                                      alignment: Alignment.bottomCenter,
+                                      child: Padding(
+                                        padding: gutter.add(
+                                          EdgeInsets.only(
+                                            bottom: compact ? 0 : safe.bottom,
+                                          ),
+                                        ),
+                                        child: AppVersionFooter(
+                                          loadVersion: widget.loadVersion,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
                               ],
                             );
                           },

@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:fluro/fluro.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -83,5 +83,19 @@ void main() {
       handler?.handlerFunc(null, <String, List<String>>{}),
       isA<NotFoundPage>(),
     );
+  });
+
+  test('an unknown route opens as every page does, with no transition', () {
+    final AppRouter router = AppRouter(_api());
+
+    for (final String path in <String>['/nope', '/home']) {
+      final Route<dynamic>? route = router.route(RouteSettings(name: path));
+      expect(route, isA<PageRouteBuilder<dynamic>>(), reason: path);
+      expect(
+        (route! as PageRouteBuilder<dynamic>).transitionDuration,
+        Duration.zero,
+        reason: path,
+      );
+    }
   });
 }

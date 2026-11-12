@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -490,9 +490,73 @@ void main() {
   testWidgets('a subtitle with no text says so rather than reading blank', (
     WidgetTester tester,
   ) async {
-    await _openText(tester, body: <String, dynamic>{'content': '   \n'});
+    await _openText(tester, body: <String, dynamic>{'content': ''});
 
     expect(find.text(Strings.emptySubtitleText), findsOneWidget);
+  });
+
+  testWidgets('the subtitle text is numbered from 1 as the file has it', (
+    WidgetTester tester,
+  ) async {
+    await _openText(
+      tester,
+      body: <String, dynamic>{'content': '\n\nWEBVTT\r\n\r\n1\r  Hi\n'},
+    );
+
+    final Finder numbers = find.text('1\n2\n3\n4\n5\n6\n7');
+    final Finder text = find.text('\n\nWEBVTT\n\n1\n  Hi\n');
+    expect(numbers, findsOneWidget);
+    expect(text, findsOneWidget);
+    expect(tester.getSize(numbers).height, tester.getSize(text).height);
+    for (final Finder column in <Finder>[numbers, text]) {
+      expect(tester.widget<Text>(column).strutStyle?.forceStrutHeight, isTrue);
+    }
+  });
+
+  testWidgets('a long subtitle line scrolls sideways rather than wrapping', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(360, 740);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final String line = List<String>.filled(40, 'Dialogue').join(' ');
+    await _openText(tester, body: <String, dynamic>{'content': '1\n$line'});
+
+    final Finder text = find.text('1\n$line');
+    expect(
+      tester.getSize(text).height,
+      tester.getSize(find.text('1\n2')).height,
+    );
+    expect(
+      find.ancestor(
+        of: text,
+        matching: find.byWidgetPredicate(
+          (Widget w) =>
+              w is SingleChildScrollView &&
+              w.scrollDirection == Axis.horizontal,
+        ),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('copies and screen readers get the text without the numbers', (
+    WidgetTester tester,
+  ) async {
+    final SemanticsHandle semantics = tester.ensureSemantics();
+    await _openText(tester, body: <String, dynamic>{'content': 'WEBVTT\n'});
+
+    expect(find.bySemanticsLabel('WEBVTT\n'), findsOneWidget);
+    expect(find.bySemanticsLabel('1\n2'), findsNothing);
+    expect(
+      SelectionContainer.maybeOf(tester.element(find.text('1\n2'))),
+      isNull,
+    );
+    expect(
+      SelectionContainer.maybeOf(tester.element(find.text('WEBVTT\n'))),
+      isNotNull,
+    );
+    semantics.dispose();
   });
 
   testWidgets('a subtitle that cannot be read reports the failure', (

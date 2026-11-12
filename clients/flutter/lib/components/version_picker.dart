@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import 'package:shadowmask/api/admin_api.dart';
 import 'package:shadowmask/api/catalog_api.dart';
@@ -11,6 +11,7 @@ import 'package:shadowmask/components/long_menu_item.dart';
 import 'package:shadowmask/components/outline_pill.dart';
 import 'package:shadowmask/components/play_on_button.dart';
 import 'package:shadowmask/components/toast_host.dart';
+import 'package:shadowmask/components/toggle_button.dart';
 import 'package:shadowmask/components/version_job_lines.dart';
 import 'package:shadowmask/components/version_label.dart';
 import 'package:shadowmask/l10n/strings.dart';
@@ -23,6 +24,7 @@ import 'package:shadowmask/model/catalog/version_detail.dart';
 import 'package:shadowmask/nav/routes.dart';
 import 'package:shadowmask/theme/app_menu.dart';
 import 'package:shadowmask/theme/app_theme.dart';
+import 'package:shadowmask/theme/breakpoints.dart';
 import 'package:shadowmask/theme/radii.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
@@ -36,6 +38,12 @@ import 'package:shadowmask/view/failure_reason.dart';
 import 'package:shadowmask/view/version_job_status.dart';
 import 'package:shadowmask/view/version_jobs_watch.dart';
 import 'package:shadowmask/view/version_order.dart';
+
+const ButtonStyle _kIconPlay = ButtonStyle(
+  padding: WidgetStatePropertyAll<EdgeInsetsGeometry>(EdgeInsets.zero),
+  minimumSize: WidgetStatePropertyAll<Size>(Size.square(kActionControlHeight)),
+  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+);
 
 Iterable<String> _subtitleLanguageCodes(VersionDetail d) => <String?>[
   for (final SubtitleTrack s in d.subtitles) s.language,
@@ -238,8 +246,6 @@ class _VersionRowState extends State<_VersionRow> {
     }
   }
 
-  bool get _hasMore => widget.version.available || widget.adminPages;
-
   List<Widget> _tools(
     BuildContext context,
     Tokens t,
@@ -249,7 +255,13 @@ class _VersionRowState extends State<_VersionRow> {
     final AdminApi? admin = widget.admin;
     return <Widget>[
       if (admin != null) _subtitlesMenu(context, t, admin, v, d),
-      if (_hasMore) _moreMenu(context, t, v),
+      if (widget.adminPages)
+        IconButton(
+          tooltip: Strings.openVersion,
+          onPressed: () => Navigator.of(context).pushNamed(versionRoute(v.id)),
+          icon: Icon(Icons.settings_outlined, color: t.muted),
+        ),
+      if (v.available) _moreMenu(context, t, v),
     ];
   }
 
@@ -261,30 +273,22 @@ class _VersionRowState extends State<_VersionRow> {
       alignmentOffset: kMenuOffset,
       style: appMenuStyle(t),
       menuChildren: <Widget>[
-        if (v.available)
-          MenuItemButton(
-            leadingIcon: const Icon(Icons.download_outlined),
-            onPressed: _busyDownload ? null : _download,
-            child: const Text(Strings.downloadVersion),
-          ),
-        if (v.available && playOn != null && widget.playOnDevices.isNotEmpty)
+        MenuItemButton(
+          leadingIcon: const Icon(Icons.download_outlined),
+          onPressed: _busyDownload ? null : _download,
+          child: const Text(Strings.downloadVersion),
+        ),
+        if (playOn != null && widget.playOnDevices.isNotEmpty)
           PlayOnSubmenu(
             playOn: playOn,
             devices: widget.playOnDevices,
             version: v,
           ),
-        if (v.available && _positionMs > 0)
+        if (_positionMs > 0)
           MenuItemButton(
             leadingIcon: const Icon(Icons.close),
             onPressed: _busyDismiss ? null : _dismiss,
             child: const Text(Strings.dismissResume),
-          ),
-        if (widget.adminPages)
-          MenuItemButton(
-            leadingIcon: const Icon(Icons.settings_outlined),
-            onPressed: () =>
-                Navigator.of(context).pushNamed(versionRoute(v.id)),
-            child: const Text(Strings.openVersion),
           ),
       ],
       child: IconButton(
@@ -552,24 +556,43 @@ class _VersionRowState extends State<_VersionRow> {
     );
   }
 
-  Widget _play(BuildContext context, Version v) {
+  Widget _play(BuildContext context, Version v, bool compact) {
+    void watch() => Navigator.of(context).pushNamed(watchRoute(v.id));
     if (_positionMs > 0) {
+      final String resume = Strings.resume(_percent);
       return Tooltip(
-        message: Strings.resume(_percent),
-        child: FilledButton.icon(
-          onPressed: _busyDismiss
-              ? null
-              : () => Navigator.of(context).pushNamed(watchRoute(v.id)),
-          style: kActionButtonStyle,
-          icon: const Icon(Icons.play_arrow, size: 20),
-          label: const Text(Strings.resumeAction),
+        message: resume,
+        excludeFromSemantics: compact,
+        child: compact
+            ? FilledButton(
+                onPressed: _busyDismiss ? null : watch,
+                style: _kIconPlay,
+                child: Icon(Icons.play_arrow, size: 20, semanticLabel: resume),
+              )
+            : FilledButton.icon(
+                onPressed: _busyDismiss ? null : watch,
+                style: kActionButtonStyle,
+                icon: const Icon(Icons.play_arrow, size: 20),
+                label: const Text(Strings.resumeAction),
+              ),
+      );
+    }
+    if (compact) {
+      return Tooltip(
+        message: Strings.play,
+        excludeFromSemantics: true,
+        child: OutlinedButton(
+          onPressed: watch,
+          style: _kIconPlay,
+          child: const Icon(
+            Icons.play_arrow,
+            size: 20,
+            semanticLabel: Strings.play,
+          ),
         ),
       );
     }
-    return OutlinedButton(
-      onPressed: () => Navigator.of(context).pushNamed(watchRoute(v.id)),
-      child: const Text(Strings.play),
-    );
+    return OutlinedButton(onPressed: watch, child: const Text(Strings.play));
   }
 
   Widget _ccPill(int count) => OutlinePill(
@@ -601,18 +624,27 @@ class _VersionRowState extends State<_VersionRow> {
             if (available ||
                 widget.admin != null ||
                 widget.adminPages) ...<Widget>[
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: <Widget>[
-                  if (available)
-                    Flexible(child: _play(context, v))
-                  else
-                    const Spacer(),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: _tools(context, t, v, d),
-                  ),
-                ],
+              LayoutBuilder(
+                builder: (BuildContext context, BoxConstraints constraints) =>
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: <Widget>[
+                        if (available)
+                          Flexible(
+                            child: _play(
+                              context,
+                              v,
+                              constraints.maxWidth < Breakpoints.sm,
+                            ),
+                          )
+                        else
+                          const Spacer(),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: _tools(context, t, v, d),
+                        ),
+                      ],
+                    ),
               ),
               const SizedBox(height: Space.s3),
             ],

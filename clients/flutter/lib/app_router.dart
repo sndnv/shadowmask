@@ -45,6 +45,15 @@ class AppRouter {
   final ApiClient api;
   final FluroRouter router = FluroRouter();
 
+  Route<dynamic>? route(RouteSettings settings) => router
+      .matchRoute(
+        null,
+        settings.name,
+        routeSettings: settings,
+        transitionType: TransitionType.none,
+      )
+      .route;
+
   Handler _page(Widget Function(Map<String, String> args) build) => Handler(
     handlerFunc: (BuildContext? context, Map<String, List<String>> params) =>
         build(routeArgs(params)),

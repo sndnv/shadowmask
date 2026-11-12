@@ -4,7 +4,7 @@ import 'dart:ui' show FlutterView;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter/widgets.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:window_manager/window_manager.dart';
@@ -30,6 +30,13 @@ Future<void> preparePlayer() async {
 
 PlayerController makePlayerController(String baseUrl) =>
     NativePlayerController(baseUrl);
+
+final TextStyle _subtitleStyle = const SubtitleViewConfiguration().style;
+
+TextStyle subtitleTextStyle(BuildContext context, double fontSize) =>
+    (Theme.of(context).textTheme.bodyMedium ?? const TextStyle()).merge(
+      _subtitleStyle.copyWith(fontSize: fontSize),
+    );
 
 class NativePlayerController implements PlayerController {
   NativePlayerController(this._baseUrl)
@@ -102,8 +109,6 @@ class NativePlayerController implements PlayerController {
   final ValueNotifier<SubtitleSize> _subtitleSize = ValueNotifier<SubtitleSize>(
     SubtitleSize.deviceDefault,
   );
-  static final TextStyle _subtitleStyle =
-      const SubtitleViewConfiguration().style;
 
   @override
   ValueListenable<PlayerSnapshot> get snapshot => _snapshot;
@@ -198,8 +203,9 @@ class NativePlayerController implements PlayerController {
             fit: BoxFit.contain,
             pauseUponEnteringBackgroundMode: false,
             subtitleViewConfiguration: SubtitleViewConfiguration(
-              style: _subtitleStyle.copyWith(
-                fontSize: subtitleFontSize(c.maxHeight, size),
+              style: subtitleTextStyle(
+                context,
+                subtitleFontSize(c.maxHeight, size),
               ),
               textScaler: TextScaler.noScaling,
             ),

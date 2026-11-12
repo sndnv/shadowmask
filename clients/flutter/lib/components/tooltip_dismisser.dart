@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 class TooltipDismisser extends StatefulWidget {
   const TooltipDismisser({super.key, required this.child});

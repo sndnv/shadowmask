@@ -1,5 +1,5 @@
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -17,6 +17,8 @@ import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
 import 'package:shadowmask/view/card_aspect.dart';
 import 'package:shadowmask/view/catalog_card.dart';
+
+import '../support/finders.dart';
 
 void main() {
   _tooltipTests();
@@ -228,9 +230,9 @@ void _tooltipTests() {
 
     const String tip =
         'A rather long title that the card has to cut short\n2016';
-    expect(find.byTooltip(tip), findsWidgets);
+    expect(tooltipNamed(tip), findsWidgets);
     expect(
-      find.descendant(of: find.byTooltip(tip), matching: find.byType(CardArt)),
+      find.descendant(of: tooltipNamed(tip), matching: find.byType(CardArt)),
       findsOneWidget,
       reason: 'hovering the poster must show it, not just the caption',
     );
@@ -250,7 +252,7 @@ void _tooltipTests() {
       ),
     );
 
-    expect(find.byTooltip('Arrival\n2016\nResume at 40%'), findsWidgets);
+    expect(tooltipNamed('Arrival\n2016\nResume at 40%'), findsWidgets);
   });
 
   testWidgets('the dismiss button keeps its own tooltip, not the card text', (
@@ -268,7 +270,7 @@ void _tooltipTests() {
     );
 
     expect(find.byTooltip(Strings.dismiss), findsOneWidget);
-    expect(find.byTooltip('Arrival\n2016'), findsNWidgets(2));
+    expect(tooltipNamed('Arrival\n2016'), findsNWidgets(2));
   });
 }
 
