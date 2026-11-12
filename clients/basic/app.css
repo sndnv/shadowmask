@@ -642,16 +642,27 @@ tbody tr.sm-detail-row select {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-width: min(360px, 90vw);
+  width: min(360px, 90vw);
 }
 
 .sm-toast {
-  padding: 10px 14px;
+  padding: 0 14px;
+  border-block: 10px solid transparent;
   border-radius: var(--radius);
   background: var(--text);
   color: var(--surface);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
   font-size: 0.9rem;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+
+@media (forced-colors: active) {
+  .sm-toast {
+    border-block-color: Canvas;
+  }
 }
 
 .sm-toast-ok {

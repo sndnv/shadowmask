@@ -179,7 +179,7 @@ sub ApplyTheme()
 
     m.toast.theme = m.theme
     m.toast.fontSize = TypeScale().textBase
-    m.toast.translation = [ContentLeft(), CanvasHeight() - space.s10 - space.s6]
+    m.toast.translation = [ContentLeft() + ContentWidth(), CanvasHeight() - space.s6 - space.s5]
 
     m.choice.theme = m.theme
 

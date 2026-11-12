@@ -526,8 +526,27 @@ function LabelTextWidth(value as string, size as integer, bold as boolean) as in
     return Int(label.boundingRect().width)
 end function
 
-function ToastLabelWidth(measured as integer, slack as integer) as integer
-    return measured + slack
+function ToastWidth() as integer
+    return Px(700)
+end function
+
+function ToastMaxLines() as integer
+    return 3
+end function
+
+function ToastPalette(kind as string, theme as object) as object
+    if kind = "err" then return { ground: theme.danger, ink: theme.dangerContrast, glyph: "icon-close" }
+    return { ground: theme.ok, ink: theme.accentContrast, glyph: "icon-check" }
+end function
+
+function ToastHoldSeconds(kind as string) as float
+    if kind = "err" then return 8
+    return 4
+end function
+
+function ToastShakeStops() as object
+    space = SpacingScale()
+    return [0, space.s2, - space.s2, space.s1, - space.s1, 0]
 end function
 
 function SpaceWidth(size as integer) as integer

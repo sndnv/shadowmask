@@ -128,13 +128,6 @@ class _LinkCodePageState extends State<LinkCodePage> {
                     textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.headlineMedium,
                   ),
-                  const SizedBox(height: Space.s3),
-                  Text(
-                    Strings.linkDeviceHelp,
-                    style: Theme.of(
-                      context,
-                    ).textTheme.bodySmall?.copyWith(color: t.muted),
-                  ),
                   const SizedBox(height: Space.s4),
                   TextField(
                     controller: _code,

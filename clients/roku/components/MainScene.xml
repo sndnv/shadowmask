@@ -42,7 +42,7 @@
             <Poster id="navHintChevron" />
         </Group>
         <NavRail id="rail" visible="false" />
-        <Toast id="toast" />
         <ChoiceDialog id="choice" visible="false" />
+        <Toast id="toast" />
     </children>
 </component>

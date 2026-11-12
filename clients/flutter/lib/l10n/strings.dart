@@ -43,10 +43,6 @@ abstract final class Strings {
   static String signInFailed(String detail) => 'Sign in failed ($detail).';
 
   static const String linkDeviceTitle = 'Link this device';
-  static const String linkDeviceHelp =
-      'Ask someone with an account to create a link code for you, then enter '
-      'it here. This device can browse and play, and no password is kept on '
-      'it.';
   static const String linkCodeLabel = 'Link code';
   static const String deviceNameLabel = 'Device name';
   static const String deviceNameFallback = 'This device';
@@ -55,8 +51,8 @@ abstract final class Strings {
   static const String linkDeviceAction = 'Link';
   static const String linking = 'Linking…';
   static String linkFailed(String detail) => 'Linking failed ($detail).';
-  static const String useLinkCode = 'Use a link code instead';
-  static const String usePassword = 'Sign in with a password instead';
+  static const String useLinkCode = 'Use a link code';
+  static const String usePassword = 'Sign in with a password';
 
   static const String serverHeading = 'Server';
   static const String serverAddress = 'Server address';

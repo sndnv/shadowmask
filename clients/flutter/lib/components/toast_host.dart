@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/semantics.dart';
@@ -14,10 +15,33 @@ import 'package:shadowmask/util/scoped_value.dart';
 
 const Duration kToastDuration = Duration(milliseconds: 3200);
 const Duration kErrorToastDuration = Duration(milliseconds: 8000);
+const Duration kToastMotionDuration = Duration(milliseconds: 200);
+const Duration kToastShakeDuration = Duration(milliseconds: 400);
 
-const double kToastMinWidth = 320;
-const double kToastMaxWidth = 400;
+const List<double> kToastShakeStops = <double>[
+  0,
+  Space.s2,
+  -Space.s2,
+  Space.s1,
+  -Space.s1,
+  0,
+];
+
+final Animatable<double> _shakeOffset =
+    TweenSequence<double>(<TweenSequenceItem<double>>[
+      for (int i = 1; i < kToastShakeStops.length; i++)
+        TweenSequenceItem<double>(
+          tween: Tween<double>(
+            begin: kToastShakeStops[i - 1],
+            end: kToastShakeStops[i],
+          ),
+          weight: 1,
+        ),
+    ]);
+
+const double kToastWidth = 400;
 const double kToastMinHeight = 56;
+const int kToastMaxLines = 3;
 
 enum ToastSeverity { success, error, warning, info }
 
@@ -32,6 +56,7 @@ class ToastHost extends StatefulWidget {
 
 class _ToastHostState extends State<ToastHost> {
   final List<_ToastEntry> _toasts = <_ToastEntry>[];
+  final Set<int> _leaving = <int>{};
   final Map<int, Timer> _timers = <int, Timer>{};
   final ScopedValue<double> _bottomChrome = ScopedValue<double>(0);
   int _seq = 0;
@@ -49,7 +74,10 @@ class _ToastHostState extends State<ToastHost> {
   void _show(String message, String? emphasis, ToastSeverity severity) {
     final int id = _seq++;
     final bool failed = severity == ToastSeverity.error;
-    setState(() => _toasts.add(_ToastEntry(id, message, emphasis, severity)));
+    final bool still = MediaQuery.disableAnimationsOf(context);
+    setState(
+      () => _toasts.add(_ToastEntry(id, message, emphasis, severity, still)),
+    );
     SemanticsService.sendAnnouncement(
       View.of(context),
       message,
@@ -67,16 +95,25 @@ class _ToastHostState extends State<ToastHost> {
     if (!mounted) {
       return;
     }
-    setState(() => _toasts.removeWhere((_ToastEntry e) => e.id == id));
+    if (_toasts.any((_ToastEntry e) => e.id == id && e.still)) {
+      _remove(id);
+      return;
+    }
+    setState(() => _leaving.add(id));
+  }
+
+  void _remove(int id) {
+    setState(() {
+      _leaving.remove(id);
+      _toasts.removeWhere((_ToastEntry e) => e.id == id);
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final bool narrow = MediaQuery.sizeOf(context).width < Breakpoints.sm;
     final EdgeInsets safe = MediaQuery.paddingOf(context);
-    final List<_ToastEntry> ordered = narrow
-        ? _toasts
-        : _toasts.reversed.toList();
+    final double keyboard = MediaQuery.viewInsetsOf(context).bottom;
     return _ToastScope(
       state: this,
       child: Stack(
@@ -86,8 +123,7 @@ class _ToastHostState extends State<ToastHost> {
             valueListenable: _bottomChrome,
             builder: (BuildContext context, double chrome, Widget? toasts) =>
                 Positioned(
-                  top: narrow ? null : kShellHeaderHeight + Space.s4 + safe.top,
-                  bottom: narrow ? Space.s4 + safe.bottom + chrome : null,
+                  bottom: Space.s4 + math.max(safe.bottom + chrome, keyboard),
                   left: narrow ? Space.s4 + safe.left : null,
                   right: Space.s4 + safe.right,
                   child: toasts!,
@@ -103,16 +139,24 @@ class _ToastHostState extends State<ToastHost> {
                       ? CrossAxisAlignment.center
                       : CrossAxisAlignment.end,
                   children: <Widget>[
-                    for (final _ToastEntry e in ordered)
-                      Padding(
-                        padding: const EdgeInsets.only(top: Space.s2),
-                        child: _ToastCard(
-                          message: e.message,
-                          emphasis: e.emphasis,
-                          severity: e.severity,
-                          onDismiss: e.severity == ToastSeverity.error
-                              ? () => _dismiss(e.id)
-                              : null,
+                    for (final _ToastEntry e in _toasts)
+                      _ToastMotion(
+                        key: ValueKey<int>(e.id),
+                        from: narrow ? const Offset(0, 1) : const Offset(1, 0),
+                        still: e.still,
+                        shake: e.severity == ToastSeverity.error,
+                        leaving: _leaving.contains(e.id),
+                        onGone: () => _remove(e.id),
+                        child: Padding(
+                          padding: const EdgeInsets.only(top: Space.s2),
+                          child: _ToastCard(
+                            message: e.message,
+                            emphasis: e.emphasis,
+                            severity: e.severity,
+                            onDismiss: e.severity == ToastSeverity.error
+                                ? () => _dismiss(e.id)
+                                : null,
+                          ),
                         ),
                       ),
                   ],
@@ -127,12 +171,120 @@ class _ToastHostState extends State<ToastHost> {
 }
 
 class _ToastEntry {
-  const _ToastEntry(this.id, this.message, this.emphasis, this.severity);
+  const _ToastEntry(
+    this.id,
+    this.message,
+    this.emphasis,
+    this.severity,
+    this.still,
+  );
 
   final int id;
   final String message;
   final String? emphasis;
   final ToastSeverity severity;
+  final bool still;
+}
+
+class _ToastMotion extends StatefulWidget {
+  const _ToastMotion({
+    super.key,
+    required this.from,
+    required this.still,
+    required this.shake,
+    required this.leaving,
+    required this.onGone,
+    required this.child,
+  });
+
+  final Offset from;
+  final bool still;
+  final bool shake;
+  final bool leaving;
+  final VoidCallback onGone;
+  final Widget child;
+
+  @override
+  State<_ToastMotion> createState() => _ToastMotionState();
+}
+
+class _ToastMotionState extends State<_ToastMotion>
+    with TickerProviderStateMixin {
+  late final AnimationController _motion = AnimationController(
+    vsync: this,
+    duration: kToastMotionDuration,
+    value: widget.still ? 1 : 0,
+  )..addStatusListener(_settled);
+
+  late final AnimationController _shake = AnimationController(
+    vsync: this,
+    duration: kToastShakeDuration,
+  );
+
+  late final Animation<double> _eased = CurvedAnimation(
+    parent: _motion,
+    curve: Easing.standard,
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    if (!widget.still) {
+      _motion.forward();
+    }
+  }
+
+  @override
+  void didUpdateWidget(_ToastMotion oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.leaving && !oldWidget.leaving) {
+      _shake.stop();
+      _motion.reverse();
+    }
+  }
+
+  void _settled(AnimationStatus status) {
+    if (status == AnimationStatus.completed && widget.shake) {
+      _shake.forward();
+    } else if (status == AnimationStatus.dismissed && widget.leaving) {
+      widget.onGone();
+    }
+  }
+
+  @override
+  void dispose() {
+    _motion.dispose();
+    _shake.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: _eased,
+    builder: (BuildContext context, Widget? card) => Align(
+      alignment: Alignment.bottomCenter,
+      widthFactor: 1,
+      heightFactor: _eased.value,
+      child: card,
+    ),
+    child: SlideTransition(
+      position: _eased.drive(
+        Tween<Offset>(begin: widget.from, end: Offset.zero),
+      ),
+      child: FadeTransition(
+        opacity: _eased,
+        alwaysIncludeSemantics: true,
+        child: AnimatedBuilder(
+          animation: _shake,
+          builder: (BuildContext context, Widget? card) => Transform.translate(
+            offset: Offset(_shakeOffset.evaluate(_shake), 0),
+            child: card,
+          ),
+          child: widget.child,
+        ),
+      ),
+    ),
+  );
 }
 
 class _ToastScope extends InheritedWidget {
@@ -198,11 +350,8 @@ class _ToastCard extends StatelessWidget {
     };
     final VoidCallback? dismiss = onDismiss;
     final Widget card = Container(
-      constraints: const BoxConstraints(
-        minWidth: kToastMinWidth,
-        maxWidth: kToastMaxWidth,
-        minHeight: kToastMinHeight,
-      ),
+      width: kToastWidth,
+      constraints: const BoxConstraints(minHeight: kToastMinHeight),
       padding: EdgeInsets.fromLTRB(
         Space.s4,
         Space.s3,
@@ -246,7 +395,12 @@ class _ToastCard extends StatelessWidget {
     final String? term = emphasis;
     final int index = term == null || term.isEmpty ? -1 : message.indexOf(term);
     if (index < 0) {
-      return Text(message, style: style);
+      return Text(
+        message,
+        style: style,
+        maxLines: kToastMaxLines,
+        overflow: TextOverflow.ellipsis,
+      );
     }
     return Text.rich(
       TextSpan(
@@ -260,6 +414,8 @@ class _ToastCard extends StatelessWidget {
           TextSpan(text: message.substring(index + term.length)),
         ],
       ),
+      maxLines: kToastMaxLines,
+      overflow: TextOverflow.ellipsis,
     );
   }
 }
