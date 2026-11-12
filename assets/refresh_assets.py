@@ -171,6 +171,8 @@ def main():
             {'asset': 'icons/roku/icon-play-large.png', 'target': 'images/icon-play-large.png'},
             {'asset': 'icons/roku/icon-replay.png', 'target': 'images/icon-replay.png'},
             {'asset': 'icons/roku/icon-replay-large.png', 'target': 'images/icon-replay-large.png'},
+            {'asset': 'icons/roku/icon-rewind-large.png', 'target': 'images/icon-rewind-large.png'},
+            {'asset': 'icons/roku/icon-forward-large.png', 'target': 'images/icon-forward-large.png'},
             {'asset': 'icons/roku/icon-previous.png', 'target': 'images/icon-previous.png'},
             {'asset': 'icons/roku/icon-next.png', 'target': 'images/icon-next.png'},
             {'asset': 'icons/roku/icon-subtitles.png', 'target': 'images/icon-subtitles.png'},

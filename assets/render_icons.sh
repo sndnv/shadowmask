@@ -67,6 +67,8 @@ done
 
 rsvg-convert -w 96 -h 96 "$glyphs/icon-play.svg"   -o "$roku/icon-play-large.png"
 rsvg-convert -w 96 -h 96 "$glyphs/icon-replay.svg" -o "$roku/icon-replay-large.png"
+rsvg-convert -w 96 -h 96 "$glyphs/icon-rewind.svg"  -o "$roku/icon-rewind-large.png"
+rsvg-convert -w 96 -h 96 "$glyphs/icon-forward.svg" -o "$roku/icon-forward-large.png"
 
 rsvg-convert -w 24 -h 48 "$glyphs/chip-cap-left.svg"       -o "$roku/chip-cap-left.png"
 rsvg-convert -w 24 -h 48 "$glyphs/chip-cap-right.svg"      -o "$roku/chip-cap-right.png"

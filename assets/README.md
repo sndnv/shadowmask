@@ -116,6 +116,9 @@ because each platform masks differently.
   sliders, which Flutter shows as `Icons.tune`. Audio is a beamed pair of notes, which Material has
   no icon for, so Flutter draws this file itself (`assets/glyphs/icon-audio.svg`, through
   `flutter_svg`). Authored here for the same licence reason as the rest.
+- `glyphs/icon-{rewind,forward}.svg` - the Roku player's centre badge while a held left or right
+  seeks, two filled triangles pointing the way it moves. Rendered only at 96px
+  (`icon-{rewind,forward}-large.png`). Authored here for the same licence reason as the rest.
 - `glyphs/icon-shuffle.svg` - the Random action on a series or season, two crossed arrows. Authored
   here rather than taken from Material Icons, for the same licence reason as the `art-*` glyphs.
 - `glyphs/icon-{sort,filter,library}.svg` - the marks on the Roku browse toolbar chips: three

@@ -273,14 +273,14 @@ namespace tests
 
         @describe("HoldStepMs")
 
-        @it("starts at ten seconds and escalates every three seconds held")
+        @it("starts at ten seconds and climbs after one, three and six seconds held")
         sub holdStepClimbs()
             m.assertEqual(HoldStepMs(0), 10000)
-            m.assertEqual(HoldStepMs(2), 10000)
-            m.assertEqual(HoldStepMs(3), 30000)
-            m.assertEqual(HoldStepMs(5), 30000)
-            m.assertEqual(HoldStepMs(6), 50000)
-            m.assertEqual(HoldStepMs(9), 100000)
+            m.assertEqual(HoldStepMs(1), 30000)
+            m.assertEqual(HoldStepMs(2), 30000)
+            m.assertEqual(HoldStepMs(3), 50000)
+            m.assertEqual(HoldStepMs(5), 50000)
+            m.assertEqual(HoldStepMs(6), 100000)
         end sub
 
         @it("stays at the fastest rung however long the key is held")
@@ -294,10 +294,11 @@ namespace tests
         @it("reports the multiplier behind the step")
         sub holdSpeedRungs()
             m.assertEqual(HoldSpeedAt(0), 1)
-            m.assertEqual(HoldSpeedAt(2), 1)
-            m.assertEqual(HoldSpeedAt(3), 3)
-            m.assertEqual(HoldSpeedAt(6), 5)
-            m.assertEqual(HoldSpeedAt(9), 10)
+            m.assertEqual(HoldSpeedAt(1), 3)
+            m.assertEqual(HoldSpeedAt(2), 3)
+            m.assertEqual(HoldSpeedAt(3), 5)
+            m.assertEqual(HoldSpeedAt(5), 5)
+            m.assertEqual(HoldSpeedAt(6), 10)
             m.assertEqual(HoldSpeedAt(600), 10)
         end sub
 
@@ -314,16 +315,56 @@ namespace tests
             m.assertEqual(first, HoldStepMs(0))
 
             fastest = 0
-            for tick = 36 to 39
+            for tick = 24 to 27
                 fastest = fastest + HoldTickStepMs(tick)
             end for
-            m.assertEqual(fastest, HoldStepMs(9))
+            m.assertEqual(fastest, HoldStepMs(6))
         end sub
 
         @it("escalates on held seconds, not on tick count")
         sub holdTickEscalatesOnSeconds()
-            m.assertEqual(HoldTickStepMs(11), 2500)
-            m.assertEqual(HoldTickStepMs(12), 7500)
+            m.assertEqual(HoldTickStepMs(3), 2500)
+            m.assertEqual(HoldTickStepMs(4), 7500)
+        end sub
+
+        @describe("HoldAfterFocusLoss")
+
+        @it("keeps a hold while the player keeps the keys")
+        sub holdSurvivesInFocus()
+            m.assertEqual(HoldAfterFocusLoss("right", true, true), "")
+            m.assertEqual(HoldAfterFocusLoss("", true, false), "")
+        end sub
+
+        @it("ends a hold the player loses the keys to, resuming what the hold paused")
+        sub holdEndsOnFocusLoss()
+            m.assertEqual(HoldAfterFocusLoss("right", true, false), "resume")
+            m.assertEqual(HoldAfterFocusLoss("left", false, false), "drop")
+        end sub
+
+        @describe("HoldBadge")
+
+        @it("shows nothing until a hold's first tick, so a single press keeps the badge it had")
+        sub holdBadgeWaitsForATick()
+            m.assertEqual(HoldBadge("right", 0), { glyph: "", speed: "" })
+            m.assertEqual(HoldBadge("", 5), { glyph: "", speed: "" })
+        end sub
+
+        @it("points the way the hold moves")
+        sub holdBadgePointsTheWay()
+            m.assertEqual(HoldBadge("left", 1).glyph, "icon-rewind-large")
+            m.assertEqual(HoldBadge("right", 1).glyph, "icon-forward-large")
+        end sub
+
+        @it("names the speed of the last step once it is past 1x")
+        sub holdBadgeNamesTheSpeed()
+            m.assertEqual(HoldBadge("right", 1).speed, "")
+            m.assertEqual(HoldBadge("right", 4).speed, "")
+            m.assertEqual(HoldBadge("right", 5).speed, "3×")
+            m.assertEqual(HoldBadge("left", 12).speed, "3×")
+            m.assertEqual(HoldBadge("left", 13).speed, "5×")
+            m.assertEqual(HoldBadge("left", 24).speed, "5×")
+            m.assertEqual(HoldBadge("left", 25).speed, "10×")
+            m.assertEqual(HoldBadge("right", 600).speed, "10×")
         end sub
 
         @describe("PlayerButtons")

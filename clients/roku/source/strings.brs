@@ -219,6 +219,7 @@ function BuildStringTable() as object
         "player.slow": "Taking longer than usual.",
         "player.changeFailed": "Could not switch playback options.",
         "player.seekFailed": "Could not jump to that point.",
+        "player.holdSpeed": "{speed}×",
         "player.play": "Play",
         "player.pause": "Pause",
         "player.replay": "Watch again",
