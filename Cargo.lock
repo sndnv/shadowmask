@@ -95,7 +95,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "api"
-version = "0.0.14"
+version = "0.0.15-SNAPSHOT"
 dependencies = [
  "axum",
  "contracts",
@@ -608,7 +608,7 @@ checksum = "a6ef517f0926dd24a1582492c791b6a4818a4d94e789a334894aa15b0d12f55c"
 
 [[package]]
 name = "contracts"
-version = "0.0.14"
+version = "0.0.15-SNAPSHOT"
 dependencies = [
  "domain",
  "jiff",
@@ -985,7 +985,7 @@ dependencies = [
 
 [[package]]
 name = "domain"
-version = "0.0.14"
+version = "0.0.15-SNAPSHOT"
 dependencies = [
  "isolang",
  "jiff",
@@ -1111,7 +1111,7 @@ dependencies = [
 
 [[package]]
 name = "fetch"
-version = "0.0.14"
+version = "0.0.15-SNAPSHOT"
 dependencies = [
  "domain",
  "serde",
@@ -1775,7 +1775,7 @@ dependencies = [
 
 [[package]]
 name = "inference"
-version = "0.0.14"
+version = "0.0.15-SNAPSHOT"
 dependencies = [
  "ct2rs",
  "domain",
@@ -1978,7 +1978,7 @@ dependencies = [
 
 [[package]]
 name = "jobs"
-version = "0.0.14"
+version = "0.0.15-SNAPSHOT"
 dependencies = [
  "domain",
  "jiff",
@@ -2217,7 +2217,7 @@ dependencies = [
 
 [[package]]
 name = "media"
-version = "0.0.14"
+version = "0.0.15-SNAPSHOT"
 dependencies = [
  "domain",
  "hex",
@@ -2261,7 +2261,7 @@ checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
 name = "metadata"
-version = "0.0.14"
+version = "0.0.15-SNAPSHOT"
 dependencies = [
  "domain",
  "http-body-util",
@@ -2372,7 +2372,7 @@ dependencies = [
 
 [[package]]
 name = "mocks"
-version = "0.0.14"
+version = "0.0.15-SNAPSHOT"
 dependencies = [
  "domain",
  "jiff",
@@ -2806,7 +2806,7 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "persistence"
-version = "0.0.14"
+version = "0.0.15-SNAPSHOT"
 dependencies = [
  "contracts",
  "domain",
@@ -3797,7 +3797,7 @@ dependencies = [
 
 [[package]]
 name = "server"
-version = "0.0.14"
+version = "0.0.15-SNAPSHOT"
 dependencies = [
  "anstream",
  "api",
@@ -3840,7 +3840,7 @@ dependencies = [
 
 [[package]]
 name = "services"
-version = "0.0.14"
+version = "0.0.15-SNAPSHOT"
 dependencies = [
  "argon2",
  "domain",
