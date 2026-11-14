@@ -39,7 +39,7 @@
                 <Group id="frame">
                     <Rectangle id="plate" />
                     <Rectangle id="art" />
-                    <Poster id="poster" />
+                    <Poster id="poster" loadDisplayMode="scaleToZoom" />
                     <Poster id="glyph" visible="false" />
                     <Rectangle id="progressTrack" visible="false" />
                     <Rectangle id="progressFill" visible="false" />

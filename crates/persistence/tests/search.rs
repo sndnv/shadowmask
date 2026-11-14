@@ -22,6 +22,9 @@ async fn search_index_contract_holds_for_sqlite() {
             repo.insert_season(season).await.unwrap();
         }
         for episode in seed.episodes {
+            repo.set_artwork(&ArtworkOwner::Episode(episode.id.clone()), &episode.artwork)
+                .await
+                .unwrap();
             repo.insert_episode(episode).await.unwrap();
         }
         for person in seed.people {

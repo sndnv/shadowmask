@@ -9,6 +9,10 @@ function ArtSizeTolerance() as float
     return 0.95
 end function
 
+function PortraitBackdropScale() as float
+    return 8 / 3
+end function
+
 function BackdropImageWidth() as integer
     return 1920
 end function
@@ -160,7 +164,9 @@ function CardImageUrl(serverBase as string, card as dynamic, wanted as integer) 
     if aspect = LandscapeAspect() then order = ["backdrops", "posters"]
 
     for each name in order
-        url = ArtworkUrl(serverBase, artwork, name, wanted)
+        width = wanted
+        if aspect <> LandscapeAspect() and name = "backdrops" then width = Int(wanted * PortraitBackdropScale() + 0.5)
+        url = ArtworkUrl(serverBase, artwork, name, width)
         if url <> invalid then return url
     end for
 

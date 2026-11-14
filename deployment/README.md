@@ -379,10 +379,11 @@ an episode TMDB lists shows TMDB's name and the typed title only names the file.
 names, characters a file name cannot hold and `$` become spaces, runs of spaces become one, and
 trailing dots are dropped; a title with nothing left after that is refused. A fetch that writes a
 title's details (a new title, or one TMDB resolves) also fills its art when TMDB has no poster or
-backdrop: an episode or movie with no artwork yet and a series the fetch creates get one
-backdrop, the first site thumbnail that is a JPEG of at most 20 MiB (up to three the site lists
-as `.jpg` or `.jpeg` with a size of at least 640 pixels wide and 16:10 or wider, best first, or
-the site's preferred one when it lists none), otherwise a frame from the downloaded video. The
+backdrop: an episode or movie with no artwork yet gets one backdrop, the first site thumbnail
+that is a JPEG of at most 20 MiB (up to three the site lists as `.jpg` or `.jpeg` with a size of
+at least 640 pixels wide and 16:10 or wider, best first, or the site's preferred one when it
+lists none), otherwise a frame from the downloaded video. A series or season with no artwork of
+its own shows its earliest episode's, regular seasons before specials. The
 site's upload date becomes an episode's air date when TMDB gives none; a direct link to a file
 or a page with a plain `<video>` tag has none. Override the binary location with
 `SHADOWMASK_FETCH_PROVIDERS_YT_DLP_BINARY` if you mount your own.

@@ -57,6 +57,20 @@ const EPISODES_BY_SEASON_SQL: &str = "SELECT e.id AS episode_id, e.season_id AS 
      FROM episodes e WHERE e.season_id IN ({}) ORDER BY e.number, e.id";
 const REGULAR_SEASON_COUNTS_SQL: &str = "SELECT series_id, COUNT(*) AS n FROM seasons \
      WHERE number > 0 AND series_id IN ({}) GROUP BY series_id";
+const MOVIE_RATING_SQL: &str = "SELECT rating_system, rating_code FROM movies WHERE id = ?";
+const EPISODE_RATING_SQL: &str = "SELECT s.rating_system, s.rating_code FROM episodes e \
+     JOIN seasons se ON se.id = e.season_id JOIN series s ON s.id = se.series_id WHERE e.id = ?";
+const FIRST_ILLUSTRATED_EPISODE_BY_SERIES_SQL: &str = "SELECT parent, episode_id FROM ( \
+     SELECT sn.series_id AS parent, e.id AS episode_id, ROW_NUMBER() OVER ( \
+     PARTITION BY sn.series_id ORDER BY sn.number = 0, sn.number, e.number, e.id) AS rank \
+     FROM episodes e JOIN seasons sn ON sn.id = e.season_id \
+     WHERE sn.series_id IN ({}) AND EXISTS (SELECT 1 FROM artwork a \
+     WHERE a.title_kind = 'episode' AND a.title_id = e.id)) WHERE rank = 1";
+const FIRST_ILLUSTRATED_EPISODE_BY_SEASON_SQL: &str = "SELECT parent, episode_id FROM ( \
+     SELECT e.season_id AS parent, e.id AS episode_id, ROW_NUMBER() OVER ( \
+     PARTITION BY e.season_id ORDER BY e.number, e.id) AS rank FROM episodes e \
+     WHERE e.season_id IN ({}) AND EXISTS (SELECT 1 FROM artwork a \
+     WHERE a.title_kind = 'episode' AND a.title_id = e.id)) WHERE rank = 1";
 
 const BIND_CHUNK: usize = 500;
 
@@ -729,7 +743,7 @@ impl SqliteCatalogRepo {
         }
         let mut loaded: HashMap<&str, HashMap<String, Vec<ArtworkRef>>> = HashMap::new();
         for (kind, group) in &ids {
-            loaded.insert(kind, self.load_artwork_batch(kind, group).await?);
+            loaded.insert(kind, self.load_shown_artwork_batch(kind, group).await?);
         }
         for item in items.iter_mut() {
             let (kind, id) = search_artwork_owner(item);
@@ -760,7 +774,7 @@ impl SqliteCatalogRepo {
         if ids.is_empty() {
             return Ok(());
         }
-        let loaded = self.load_artwork_batch("series", &ids).await?;
+        let loaded = self.load_shown_artwork_batch("series", &ids).await?;
         for item in items.iter_mut() {
             if let SearchResult::Episode(card) = item
                 && let Some(series) = &card.series
@@ -803,6 +817,46 @@ impl SqliteCatalogRepo {
             out.extend(self.load_artwork_chunk(title_kind, chunk).await?);
         }
         Ok(out)
+    }
+
+    async fn load_shown_artwork_batch(
+        &self,
+        title_kind: &str,
+        ids: &[String],
+    ) -> Result<HashMap<String, Vec<ArtworkRef>>, RepositoryError> {
+        let mut shown = self.load_artwork_batch(title_kind, ids).await?;
+        let template = match title_kind {
+            "series" => FIRST_ILLUSTRATED_EPISODE_BY_SERIES_SQL,
+            "season" => FIRST_ILLUSTRATED_EPISODE_BY_SEASON_SQL,
+            _ => return Ok(shown),
+        };
+        let bare: Vec<&str> =
+            ids.iter().map(String::as_str).filter(|id| !shown.contains_key(*id)).collect();
+        if bare.is_empty() {
+            return Ok(shown);
+        }
+        let first = self.grouped_episode_ids(template, &bare).await?;
+        let episodes: Vec<String> =
+            first.values().flatten().map(|episode| episode.0.clone()).collect();
+        let mut lent = self.load_artwork_batch("episode", &episodes).await?;
+        for (owner, episode) in first {
+            if let Some(artwork) = episode.first().and_then(|episode| lent.remove(&episode.0)) {
+                shown.insert(owner, artwork);
+            }
+        }
+        Ok(shown)
+    }
+
+    async fn load_shown_artwork(
+        &self,
+        title_kind: &str,
+        title_id: &str,
+    ) -> Result<Vec<ArtworkRef>, RepositoryError> {
+        Ok(self
+            .load_shown_artwork_batch(title_kind, std::slice::from_ref(&title_id.to_owned()))
+            .await?
+            .remove(title_id)
+            .unwrap_or_default())
     }
 
     async fn load_artwork_widths(
@@ -905,7 +959,7 @@ impl SqliteCatalogRepo {
     async fn hydrate_series(&self, rows: Vec<SqliteRow>) -> Result<Vec<Series>, RepositoryError> {
         let mut items = rows.iter().map(row_to_series).collect::<Result<Vec<_>, _>>()?;
         let ids: Vec<String> = items.iter().map(|series| series.id.0.clone()).collect();
-        let mut artwork = self.load_artwork_batch("series", &ids).await?;
+        let mut artwork = self.load_shown_artwork_batch("series", &ids).await?;
         for series in &mut items {
             series.artwork = artwork.remove(&series.id.0).unwrap_or_default();
         }
@@ -2050,8 +2104,21 @@ impl CatalogRepository for SqliteCatalogRepo {
             .map_err(backend)?;
         let Some(row) = row else { return Ok(None) };
         let mut series = row_to_series(&row)?;
-        series.artwork = self.load_artwork("series", &series.id.0).await?;
+        series.artwork = self.load_shown_artwork("series", &series.id.0).await?;
         Ok(Some(series))
+    }
+
+    async fn title_rating(
+        &self,
+        title: &TitleId,
+    ) -> Result<Option<ContentRating>, RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "title_rating");
+        let (sql, id) = match title {
+            TitleId::Movie(id) => (MOVIE_RATING_SQL, id.0.as_str()),
+            TitleId::Episode(id) => (EPISODE_RATING_SQL, id.0.as_str()),
+        };
+        let row = sqlx::query(sql).bind(id).fetch_optional(&self.pool).await.map_err(backend)?;
+        Ok(row.as_ref().map(content_rating).transpose()?.flatten())
     }
 
     async fn series_by_ids(&self, ids: &[SeriesId]) -> Result<Vec<Series>, RepositoryError> {
@@ -2102,7 +2169,7 @@ impl CatalogRepository for SqliteCatalogRepo {
         let mut seasons =
             rows.iter().map(row_to_season).collect::<Result<Vec<_>, RepositoryError>>()?;
         let ids: Vec<String> = seasons.iter().map(|season| season.id.0.clone()).collect();
-        let mut artwork = self.load_artwork_batch("season", &ids).await?;
+        let mut artwork = self.load_shown_artwork_batch("season", &ids).await?;
         for season in &mut seasons {
             season.artwork = artwork.remove(&season.id.0).unwrap_or_default();
         }
@@ -2327,7 +2394,7 @@ impl CatalogRepository for SqliteCatalogRepo {
             .map_err(backend)?;
         let Some(row) = row else { return Ok(None) };
         let mut season = row_to_season(&row)?;
-        season.artwork = self.load_artwork("season", &season.id.0).await?;
+        season.artwork = self.load_shown_artwork("season", &season.id.0).await?;
         Ok(Some(season))
     }
 

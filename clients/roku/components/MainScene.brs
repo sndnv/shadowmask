@@ -33,7 +33,7 @@ sub init()
 
     m.backdrop.width = CanvasWidth()
     m.backdrop.height = CanvasHeight()
-    m.backdrop.loadDisplayMode = "scaleToFill"
+    m.backdrop.loadDisplayMode = "scaleToZoom"
     m.backdrop.loadWidth = CanvasWidth()
     m.backdrop.loadHeight = CanvasHeight()
     m.backdrop.ObserveField("loadStatus", "onBackdropLoaded")

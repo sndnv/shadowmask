@@ -83,13 +83,36 @@ impl State {
         movie
     }
 
+    fn first_illustrated_episode_artwork(&self, seasons: &[&Season]) -> Vec<ArtworkRef> {
+        self.episodes
+            .iter()
+            .filter_map(|episode| {
+                let season = seasons.iter().find(|season| season.id == episode.season)?;
+                let artwork = self.artwork_for(&ArtworkOwner::Episode(episode.id.clone()));
+                let rank =
+                    (season.number == 0, season.number, episode.number, episode.id.0.clone());
+                (!artwork.is_empty()).then_some((rank, artwork))
+            })
+            .min_by(|left, right| left.0.cmp(&right.0))
+            .map(|(_, artwork)| artwork)
+            .unwrap_or_default()
+    }
+
     fn hydrate_series(&self, mut series: Series) -> Series {
         series.artwork = self.artwork_for(&ArtworkOwner::Series(series.id.clone()));
+        if series.artwork.is_empty() {
+            let seasons: Vec<&Season> =
+                self.seasons.iter().filter(|season| season.series == series.id).collect();
+            series.artwork = self.first_illustrated_episode_artwork(&seasons);
+        }
         series
     }
 
     fn hydrate_season(&self, mut season: Season) -> Season {
         season.artwork = self.artwork_for(&ArtworkOwner::Season(season.id.clone()));
+        if season.artwork.is_empty() {
+            season.artwork = self.first_illustrated_episode_artwork(&[&season]);
+        }
         season
     }
 
@@ -600,16 +623,44 @@ impl CatalogRepository for MockCatalogRepo {
         Ok(state.series.iter().find(|s| &s.id == id).cloned().map(|s| state.hydrate_series(s)))
     }
 
+    async fn title_rating(
+        &self,
+        title: &TitleId,
+    ) -> Result<Option<ContentRating>, RepositoryError> {
+        self.guard()?;
+        let state = self.state.lock().unwrap();
+        let series = match title {
+            TitleId::Movie(id) => {
+                return Ok(state
+                    .movies
+                    .iter()
+                    .find(|movie| &movie.id == id)
+                    .and_then(|movie| movie.content_rating.clone()));
+            }
+            TitleId::Episode(id) => state
+                .episodes
+                .iter()
+                .find(|episode| &episode.id == id)
+                .and_then(|episode| state.seasons.iter().find(|season| season.id == episode.season))
+                .map(|season| season.series.clone()),
+        };
+        Ok(series
+            .and_then(|series| state.series.iter().find(|show| show.id == series))
+            .and_then(|show| show.content_rating.clone()))
+    }
+
     async fn list_seasons(&self, series: &SeriesId) -> Result<Vec<Season>, RepositoryError> {
         self.counted()?;
         let state = self.state.lock().unwrap();
-        Ok(state
+        let mut seasons: Vec<Season> = state
             .seasons
             .iter()
             .filter(|s| &s.series == series)
             .cloned()
             .map(|s| state.hydrate_season(s))
-            .collect())
+            .collect();
+        seasons.sort_by(|left, right| (left.number, &left.id.0).cmp(&(right.number, &right.id.0)));
+        Ok(seasons)
     }
 
     async fn list_episodes(&self, season: &SeasonId) -> Result<Vec<Episode>, RepositoryError> {

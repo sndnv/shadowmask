@@ -457,6 +457,7 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
     seed(&repo).await;
 
     random_picks_stay_inside_their_scope(&repo).await;
+    a_title_is_rated_by_the_movie_or_the_episodes_series(&repo).await;
 
     let movies = repo.list_movies(page(0, 10)).await.unwrap();
     assert_eq!(movies.total, 2);
@@ -1809,7 +1810,195 @@ pub async fn catalog_repository_contract<R: CatalogRepository>(repo: R, seed: im
     version_rows_and_deletes(&repo).await;
     manually_edited_survives_a_round_trip(&repo).await;
     season_counts_leave_out_specials(&repo).await;
+    artless_series_and_seasons_show_their_earliest_episode_art(&repo).await;
     super::catalog_purge::library_purge_takes_what_the_scan_derived(&repo).await;
+}
+
+async fn a_title_is_rated_by_the_movie_or_the_episodes_series<R: CatalogRepository>(repo: &R) {
+    let rating = async |title: TitleId| repo.title_rating(&title).await.unwrap();
+    assert_eq!(
+        rating(TitleId::Movie(MovieId("m1".into()))).await,
+        Some(ContentRating { system: "MPAA".into(), code: "PG-13".into() })
+    );
+    assert_eq!(rating(TitleId::Movie(MovieId("m2".into()))).await, None);
+    assert_eq!(rating(TitleId::Movie(MovieId("nope".into()))).await, None);
+    assert_eq!(
+        rating(TitleId::Episode(EpisodeId("e1".into()))).await,
+        Some(ContentRating { system: "US-TV".into(), code: "TV-PG".into() }),
+        "an episode carries its series' rating"
+    );
+    assert_eq!(rating(TitleId::Episode(EpisodeId("nope".into()))).await, None);
+}
+
+fn art_ids(artwork: &[ArtworkRef]) -> Vec<&str> {
+    artwork.iter().map(|art| art.id.0.as_str()).collect()
+}
+
+async fn artless_series_and_seasons_show_their_earliest_episode_art<R: CatalogRepository>(
+    repo: &R,
+) {
+    let still = |id: &str| ArtworkRef {
+        id: ArtworkId(id.into()),
+        kind: ArtworkKind::Backdrop,
+        widths: vec![ArtworkWidth::new(480, format!("/art/{id}/480.jpg"))],
+    };
+    let shows = ["lent", "only-specials", "owned", "bare"];
+    for show in shows {
+        repo.upsert_series(Series {
+            id: SeriesId(show.into()),
+            title: show.into(),
+            sort_title: show.into(),
+            year: None,
+            overview: None,
+            content_rating: None,
+            manually_edited: false,
+            added_at: ts(0),
+            updated_at: ts(0),
+            artwork: Vec::new(),
+        })
+        .await
+        .unwrap();
+    }
+    for (id, show, number) in [
+        ("lent-2", "lent", 2),
+        ("lent-1", "lent", 1),
+        ("lent-0", "lent", 0),
+        ("only-specials-0", "only-specials", 0),
+        ("owned-1", "owned", 1),
+        ("bare-1", "bare", 1),
+    ] {
+        repo.upsert_season(Season {
+            id: SeasonId(id.into()),
+            series: SeriesId(show.into()),
+            number,
+            title: None,
+            overview: None,
+            added_at: ts(0),
+            updated_at: ts(0),
+            artwork: Vec::new(),
+        })
+        .await
+        .unwrap();
+    }
+    for (id, season, number) in [
+        ("lent-2-3", "lent-2", 3),
+        ("lent-2-1", "lent-2", 1),
+        ("lent-1-2", "lent-1", 2),
+        ("lent-1-1", "lent-1", 1),
+        ("lent-0-1", "lent-0", 1),
+        ("only-specials-0-1", "only-specials-0", 1),
+        ("owned-1-1", "owned-1", 1),
+        ("bare-1-1", "bare-1", 1),
+    ] {
+        repo.upsert_episode(Episode {
+            id: EpisodeId(id.into()),
+            season: SeasonId(season.into()),
+            number,
+            title: id.into(),
+            overview: None,
+            runtime_minutes: None,
+            air_date: None,
+            manually_edited: false,
+            added_at: ts(0),
+            updated_at: ts(0),
+            artwork: Vec::new(),
+        })
+        .await
+        .unwrap();
+    }
+    for episode in
+        ["lent-2-3", "lent-2-1", "lent-1-2", "lent-0-1", "only-specials-0-1", "owned-1-1"]
+    {
+        repo.set_artwork(&ArtworkOwner::Episode(EpisodeId(episode.into())), &[still(episode)])
+            .await
+            .unwrap();
+    }
+    repo.set_artwork(&ArtworkOwner::Series(SeriesId("owned".into())), &[still("owned-poster")])
+        .await
+        .unwrap();
+    repo.set_artwork(&ArtworkOwner::Season(SeasonId("owned-1".into())), &[still("owned-1-poster")])
+        .await
+        .unwrap();
+
+    let lent = repo.get_series(&SeriesId("lent".into())).await.unwrap().unwrap();
+    assert_eq!(
+        art_ids(&lent.artwork),
+        ["lent-1-2"],
+        "a show without art shows its first regular season's first episode that has art"
+    );
+    let specials = repo.get_series(&SeriesId("only-specials".into())).await.unwrap().unwrap();
+    assert_eq!(art_ids(&specials.artwork), ["only-specials-0-1"], "specials are the last resort");
+    let owned = repo.get_series(&SeriesId("owned".into())).await.unwrap().unwrap();
+    assert_eq!(art_ids(&owned.artwork), ["owned-poster"], "a show's own art wins");
+    let bare = repo.get_series(&SeriesId("bare".into())).await.unwrap().unwrap();
+    assert!(bare.artwork.is_empty(), "with no episode art there is nothing to show");
+
+    let season_art =
+        async |id: &str| repo.get_season(&SeasonId(id.into())).await.unwrap().unwrap().artwork;
+    assert_eq!(art_ids(&season_art("lent-2").await), ["lent-2-1"], "by number, not by insertion");
+    assert_eq!(
+        art_ids(&season_art("lent-1").await),
+        ["lent-1-2"],
+        "an episode without art is passed over"
+    );
+    assert_eq!(art_ids(&season_art("lent-0").await), ["lent-0-1"]);
+    assert_eq!(
+        art_ids(&season_art("owned-1").await),
+        ["owned-1-poster"],
+        "a season's own art wins"
+    );
+    assert!(season_art("bare-1").await.is_empty());
+    let listed = repo.list_seasons(&SeriesId("lent".into())).await.unwrap();
+    assert_eq!(
+        listed.iter().map(|season| art_ids(&season.artwork)).collect::<Vec<_>>(),
+        [["lent-0-1"], ["lent-1-2"], ["lent-2-1"]],
+        "a listed season shows what the season page shows"
+    );
+
+    let asked = shows.map(|show| SeriesId(show.into()));
+    let batched = repo.series_by_ids(&asked).await.unwrap();
+    let listed = repo.list_series(page(0, 100)).await.unwrap().items;
+    for show in &asked {
+        let single = repo.get_series(show).await.unwrap().unwrap().artwork;
+        let from_batch = &batched.iter().find(|series| &series.id == show).unwrap().artwork;
+        let from_list = &listed.iter().find(|series| &series.id == show).unwrap().artwork;
+        assert_eq!(from_batch, &single, "a batched show shows what its page shows");
+        assert_eq!(from_list, &single, "a listed show shows what its page shows");
+    }
+    let detail = repo.series_detail(&SeriesId("lent".into())).await.unwrap().unwrap();
+    assert_eq!(art_ids(&detail.series.artwork), ["lent-1-2"]);
+
+    assert!(
+        repo.list_artwork(&ArtworkOwner::Series(SeriesId("lent".into()))).await.unwrap().is_empty(),
+        "the shown art is not the show's own, so a frame or TMDB art can still be stored"
+    );
+    assert!(
+        repo.list_artwork(&ArtworkOwner::Season(SeasonId("lent-1".into())))
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    repo.upsert_series(lent).await.unwrap();
+    repo.upsert_season(repo.get_season(&SeasonId("lent-1".into())).await.unwrap().unwrap())
+        .await
+        .unwrap();
+    assert!(
+        repo.list_artwork(&ArtworkOwner::Series(SeriesId("lent".into()))).await.unwrap().is_empty(),
+        "saving a show never stores the art it shows"
+    );
+    assert!(
+        repo.list_artwork(&ArtworkOwner::Season(SeasonId("lent-1".into())))
+            .await
+            .unwrap()
+            .is_empty()
+    );
+
+    repo.set_artwork(&ArtworkOwner::Episode(EpisodeId("lent-1-1".into())), &[still("lent-1-1")])
+        .await
+        .unwrap();
+    let lent = repo.get_series(&SeriesId("lent".into())).await.unwrap().unwrap();
+    assert_eq!(art_ids(&lent.artwork), ["lent-1-1"], "a first episode that gets art takes over");
+    assert_eq!(art_ids(&season_art("lent-1").await), ["lent-1-1"]);
 }
 
 async fn season_counts_leave_out_specials<R: CatalogRepository>(repo: &R) {

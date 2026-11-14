@@ -34,7 +34,7 @@
     <children>
         <Rectangle id="plate" />
         <Rectangle id="art" />
-        <Poster id="poster" />
+        <Poster id="poster" loadDisplayMode="scaleToZoom" />
         <Poster id="glyph" visible="false" />
         <FocusRing id="ring" />
         <Label id="line" />

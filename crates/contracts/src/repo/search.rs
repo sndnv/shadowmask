@@ -126,18 +126,28 @@ pub fn search_seed() -> SearchSeed {
             movie("m5", "Spider-Man: Far From Home"),
             movie("m6", "Amélie"),
         ],
-        series: vec![Series {
-            artwork: vec![poster("sr1-poster")],
-            content_rating: Some(ContentRating { system: "us-tv".into(), code: "tv-pg".into() }),
-            ..series("sr1", "The Matrix")
-        }],
-        seasons: vec![season("se1", "sr1")],
-        episodes: vec![episode("e1", "se1", "Matrix Origins")],
+        series: vec![
+            Series {
+                artwork: vec![poster("sr1-poster")],
+                content_rating: Some(ContentRating {
+                    system: "us-tv".into(),
+                    code: "tv-pg".into(),
+                }),
+                ..series("sr1", "The Matrix")
+            },
+            series("sr2", "Zion Chronicles"),
+        ],
+        seasons: vec![season("se1", "sr1"), season("se2", "sr2")],
+        episodes: vec![
+            episode("e1", "se1", "Matrix Origins"),
+            Episode { artwork: vec![poster("e2-still")], ..episode("e2", "se2", "Zion Dawn") },
+        ],
         people: vec![person("p1", "Neo Anderson")],
         versions: vec![
             version("v1", TitleId::Movie(MovieId("m1".into())), "lib1"),
             version("v2", TitleId::Movie(MovieId("m2".into())), "lib2"),
             version("ve1", TitleId::Episode(EpisodeId("e1".into())), "lib1"),
+            version("ve2", TitleId::Episode(EpisodeId("e2".into())), "lib1"),
         ],
     }
 }
@@ -284,6 +294,21 @@ pub async fn search_index_contract<R: SearchIndex>(index: R, seed: impl AsyncFn(
         ["sr1-poster"],
         "an episode still is landscape, so a portrait card needs the series poster to fall back on"
     );
+
+    let zion = index.search("zion", &[], &open(), page(0, 10)).await.unwrap();
+    for result in &zion.items {
+        let shown = match result {
+            SearchResult::Series(series) => &series.artwork,
+            SearchResult::Episode(card) => &card.series_artwork,
+            other => panic!("only the show and its episode match: {other:?}"),
+        };
+        assert_eq!(
+            shown.iter().map(|art| art.id.0.as_str()).collect::<Vec<_>>(),
+            ["e2-still"],
+            "a show without art shows its first episode's, as a result and behind its episodes"
+        );
+    }
+    assert_eq!(zion.items.len(), 2);
 
     let neo = index.search("neo", &[], &open(), page(0, 10)).await.unwrap();
     assert_eq!(titles(&neo), ["Neo Anderson"]);

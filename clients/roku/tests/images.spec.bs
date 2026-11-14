@@ -124,6 +124,25 @@ namespace tests
             m.assertEqual(CardImageUrl("http://host", backdropOnly, 480), "http://host/images/b1/480")
         end sub
 
+        @it("asks a portrait card's backdrop fallback for a width that covers the card's height")
+        sub widensBackdropForPortrait()
+            artwork = { backdrops: [{ base: "/images/b1", widths: [180, 480, 960] }] }
+            portrait = { kind: "series", aspect: PosterAspect(), artwork: artwork }
+
+            m.assertEqual(CardImageUrl("http://host", portrait, 172), "http://host/images/b1/480")
+            m.assertEqual(CardImageUrl("http://host", portrait, 214), "http://host/images/b1/960")
+        end sub
+
+        @it("keeps the card's width for a landscape card, backdrop or poster")
+        sub keepsWidthForLandscape()
+            widths = [180, 480, 960]
+            backdrop = { kind: "episode", aspect: LandscapeAspect(), artwork: { backdrops: [{ base: "/images/b1", widths: widths }] } }
+            poster = { kind: "episode", aspect: LandscapeAspect(), artwork: { posters: [{ base: "/images/p1", widths: widths }] } }
+
+            m.assertEqual(CardImageUrl("http://host", backdrop, 172), "http://host/images/b1/180")
+            m.assertEqual(CardImageUrl("http://host", poster, 172), "http://host/images/p1/180")
+        end sub
+
         @it("reports no artwork as blank, so the card can centre a glyph instead of stretching one")
         sub blankWhenNoArtwork()
             m.assertEqual(CardImageUrl("http://host", { kind: "movie", aspect: PosterAspect() }, 480), "")

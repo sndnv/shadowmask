@@ -45,9 +45,19 @@ void main() {
     expect(posterOrParent(null, null), isNull);
   });
 
-  test('posters follow the same rule as backdrops', () {
-    final Artwork own = _art(poster: true);
-    expect(posterOrParent(own, parent), same(own));
-    expect(posterOrParent(_art(backdrop: true), parent), same(parent));
-  });
+  test(
+    'a poster keeps the title\'s own art of either kind before the parent',
+    () {
+      final Artwork poster = _art(poster: true);
+      final Artwork backdrop = _art(backdrop: true);
+      expect(posterOrParent(poster, parent), same(poster));
+      expect(
+        posterOrParent(backdrop, parent),
+        same(backdrop),
+        reason:
+            'a season shows its own first episode\'s still, cropped, not the show\'s',
+      );
+      expect(posterOrParent(_art(), parent), same(parent));
+    },
+  );
 }
