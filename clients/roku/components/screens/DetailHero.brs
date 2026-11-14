@@ -56,10 +56,10 @@ function DrawHero(theme as object, content as object, width as integer) as integ
     hasArt = not IsBlank(artUri)
 
     m.hero.poster.visible = hasArt
+    m.hero.poster.loadDisplayMode = "scaleToZoom"
     m.hero.poster.uri = artUri
     m.hero.poster.width = artWidth
     m.hero.poster.height = artHeight
-    m.hero.poster.loadDisplayMode = "scaleToFill"
     m.hero.poster.translation = [0, 0]
 
     glyph = PlaceholderGlyphSize()

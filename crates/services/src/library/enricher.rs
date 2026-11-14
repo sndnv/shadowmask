@@ -591,14 +591,6 @@ where
             .or_else(|| site_air_date(plan.site));
         let episode_artwork = matched_episode.map(|ep| ep.artwork.clone()).unwrap_or_default();
         let fallback_art = fallback_artwork(plan.site, files);
-        let series_art = if writes_series
-            && !fallback_art.is_empty()
-            && self.catalog.get_series(&series_id).await?.is_none()
-        {
-            fallback_art.clone()
-        } else {
-            Vec::new()
-        };
 
         let series_title = display_title(metadata.as_ref(), &parsed.title);
         if writes_series {
@@ -670,9 +662,7 @@ where
         }
         if writes_series {
             let artwork = metadata.map(|m| m.artwork).unwrap_or_default();
-            self.enqueue
-                .enqueue_artwork_or(ArtworkOwner::Series(series_id), artwork, series_art, parent)
-                .await?;
+            self.enqueue.enqueue_artwork(ArtworkOwner::Series(series_id), artwork, parent).await?;
         }
         if writes_season {
             self.enqueue
@@ -873,14 +863,13 @@ where
                 .map(|_| ArtworkOwner::Movie(id.clone()))
                 .into_iter()
                 .collect()),
-            TitleId::Episode(id) => {
-                let Some(episode) = self.catalog.get_episode(id).await? else {
-                    return Ok(Vec::new());
-                };
-                let series = self.catalog.get_season(&episode.season).await?;
-                let series = series.map(|season| ArtworkOwner::Series(season.series));
-                Ok([ArtworkOwner::Episode(id.clone())].into_iter().chain(series).collect())
-            }
+            TitleId::Episode(id) => Ok(self
+                .catalog
+                .get_episode(id)
+                .await?
+                .map(|_| ArtworkOwner::Episode(id.clone()))
+                .into_iter()
+                .collect()),
         }
     }
 
@@ -4631,7 +4620,10 @@ mod tests {
         .unwrap();
 
         assert_eq!(queued_artwork(&jobs, is_episode).await, vec![thumbnail_then_frame(PILOT)]);
-        assert_eq!(queued_artwork(&jobs, is_series).await, vec![thumbnail_then_frame(PILOT)]);
+        assert!(
+            queued_artwork(&jobs, is_series).await.is_empty(),
+            "a show takes no site art; it shows its first episode's"
+        );
         assert!(queued_artwork(&jobs, is_season).await.is_empty(), "a season takes no site art");
     }
 
@@ -4657,7 +4649,7 @@ mod tests {
                 vec![ArtworkSource::Frame { path: PILOT.into(), offset_ms: 100 }],
             )]];
             assert_eq!(queued_artwork(&jobs, is_episode).await, frame);
-            assert_eq!(queued_artwork(&jobs, is_series).await, frame);
+            assert!(queued_artwork(&jobs, is_series).await.is_empty());
         }
     }
 
@@ -4793,7 +4785,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_series_created_by_an_earlier_fetch_keeps_its_art() {
+    async fn fetched_episodes_queue_art_for_themselves_and_none_for_their_series() {
         let jobs = MockJobStore::new();
         let svc = enricher(MockCatalogRepo::new(), None, jobs.clone());
         let tv = library(LibraryKind::Tv);
@@ -4811,11 +4803,7 @@ mod tests {
             .unwrap();
         }
 
-        assert_eq!(
-            queued_artwork(&jobs, is_series).await,
-            vec![thumbnail_then_frame(PILOT)],
-            "the series takes its art from the fetch that created it"
-        );
+        assert!(queued_artwork(&jobs, is_series).await.is_empty());
         let episodes = queued_artwork(&jobs, is_episode).await;
         assert_eq!(episodes.len(), 2);
         assert!(episodes.contains(&thumbnail_then_frame(PILOT)));
@@ -4839,7 +4827,7 @@ mod tests {
         svc.enrich(&library(LibraryKind::Tv), &report(&[PILOT]), None).await;
 
         assert_eq!(queued_artwork(&jobs, is_episode).await, frame(PILOT));
-        assert_eq!(queued_artwork(&jobs, is_series).await, frame(PILOT));
+        assert!(queued_artwork(&jobs, is_series).await.is_empty());
         assert!(queued_artwork(&jobs, is_season).await.is_empty());
     }
 
@@ -4885,7 +4873,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_second_scanned_episode_queues_no_frame_for_the_series() {
+    async fn each_scanned_episode_gets_its_own_frame_and_the_series_none() {
         let jobs = MockJobStore::new();
         let svc = enricher(MockCatalogRepo::new(), None, jobs.clone());
         let tv = library(LibraryKind::Tv);
@@ -4893,14 +4881,14 @@ mod tests {
         svc.enrich(&tv, &report(&[PILOT]), None).await;
         svc.enrich(&tv, &report(&[PILOT, HARBOUR]), None).await;
 
-        assert_eq!(queued_artwork(&jobs, is_series).await, frame(PILOT));
+        assert!(queued_artwork(&jobs, is_series).await.is_empty());
         let mut episodes = queued_artwork(&jobs, is_episode).await;
         episodes.sort_by_key(|items| format!("{items:?}"));
         assert_eq!(episodes, [frame(PILOT), frame(HARBOUR)].concat());
     }
 
     #[tokio::test]
-    async fn a_reread_frames_an_episode_and_its_series_that_have_no_art_once_each() {
+    async fn a_reread_frames_each_episode_that_has_no_art_and_not_its_series() {
         let catalog = MockCatalogRepo::new();
         let tv = library(LibraryKind::Tv);
         let scan = report(&[PILOT, HARBOUR]);
@@ -4913,7 +4901,7 @@ mod tests {
         let mut episodes = queued_artwork(&jobs, is_episode).await;
         episodes.sort_by_key(|items| format!("{items:?}"));
         assert_eq!(episodes, [frame(PILOT), frame(HARBOUR)].concat());
-        assert_eq!(queued_artwork(&jobs, is_series).await, frame(PILOT));
+        assert!(queued_artwork(&jobs, is_series).await.is_empty());
         assert!(queued_artwork(&jobs, is_season).await.is_empty());
     }
 
@@ -4937,9 +4925,7 @@ mod tests {
         let tv = library(LibraryKind::Tv);
         let scan = report(&[PILOT]);
         enricher(catalog.clone(), None, MockJobStore::new()).enrich(&tv, &scan, None).await;
-        let series = catalog.list_series(page()).await.unwrap().items[0].id.clone();
         let episode = fetched_episode_row(&catalog).await.id;
-        store_art(&catalog, &ArtworkOwner::Series(series)).await;
         store_art(&catalog, &ArtworkOwner::Episode(episode)).await;
         let jobs = MockJobStore::new();
         let svc = enricher(catalog, None, jobs.clone());
@@ -4961,7 +4947,7 @@ mod tests {
         svc.reread(&tv, &scan).await;
 
         assert_eq!(queued_artwork(&jobs, is_episode).await, frame(PILOT));
-        assert_eq!(queued_artwork(&jobs, is_series).await, frame(PILOT));
+        assert!(queued_artwork(&jobs, is_series).await.is_empty());
     }
 
     #[tracing_test::traced_test]

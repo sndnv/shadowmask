@@ -47,7 +47,6 @@ sub render()
     m.poster.loadWidth = inner
     m.poster.loadHeight = artHeight
     m.poster.uri = uri
-    m.poster.loadDisplayMode = "scaleToZoom"
     m.poster.translation = [edge, edge]
 
     glyph = PlaceholderGlyphSize()

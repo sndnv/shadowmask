@@ -11,7 +11,7 @@ use domain::common::{Page, PageRequest};
 use domain::error::CatalogError;
 use domain::library::LibraryId;
 use domain::metadata::{ArtworkKind, Genre, Person, PersonId};
-use domain::repository::{CatalogRepository, UserRepository, VersionCatalog};
+use domain::repository::{CatalogRepository, UserRepository};
 use domain::service::CatalogService;
 use domain::user::Principal;
 use jiff::Timestamp;
