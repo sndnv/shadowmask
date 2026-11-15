@@ -561,6 +561,25 @@ function HandledSectionKey(key as string) as boolean
     return false
 end function
 
+function IsLatestAnswer(reply as dynamic, latest as dynamic) as boolean
+    if reply = invalid or latest = invalid then return false
+    return latest.IsSameNode(reply)
+end function
+
+function EditsSnapshot(edits as dynamic) as object
+    snapshot = {}
+    if type(edits) = "roAssociativeArray" then snapshot.Append(edits)
+    return snapshot
+end function
+
+sub NoteEdit(edits as object, key as string)
+    edits[key] = Int(ValueAt(edits, key, 0)) + 1
+end sub
+
+function EditedSince(asked as dynamic, edits as dynamic, key as string) as boolean
+    return Int(ValueAt(asked, key, 0)) <> Int(ValueAt(edits, key, 0))
+end function
+
 function ScreenForKind(kind as dynamic) as string
     screens = {
         "movie": "TitleScreen",

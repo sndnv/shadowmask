@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:material_ui/material_ui.dart';
@@ -9,6 +10,7 @@ import 'package:shadowmask/components/episode_play_button.dart';
 import 'package:shadowmask/components/poster_play.dart';
 import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/l10n/strings.dart';
+import 'package:shadowmask/nav/route_observer.dart';
 import 'package:shadowmask/pages/viewer/title_page.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
@@ -32,11 +34,15 @@ ApiClient _api({
   String? inProgress,
   Duration lag = Duration.zero,
   List<int> seasons = const <int>[0, 1, 2],
+  List<Completer<void>> holds = const <Completer<void>>[],
 }) => ApiClient(
   baseUrl: 'http://test',
   httpClient: MockClient((http.Request req) async {
     final String path = req.url.path;
     seen?.add(path);
+    for (final Completer<void> hold in holds) {
+      await hold.future;
+    }
     if (path == '/api/v1/users/self') {
       return http.Response(
         jsonEncode(<String, dynamic>{
@@ -166,6 +172,7 @@ Future<void> _pump(
         theme: buildTheme(AppThemeVariant.dark).copyWith(platform: platform),
         builder: (BuildContext context, Widget? child) =>
             ToastHost(child: child ?? const SizedBox.shrink()),
+        navigatorObservers: <NavigatorObserver>[appRouteObserver],
         onGenerateRoute: (RouteSettings settings) => MaterialPageRoute<void>(
           builder: (_) => settings.name == null || settings.name == '/'
               ? TitlePage(api: api, kind: 'series', id: 's1')
@@ -293,5 +300,41 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('went to /watch?version=v1'), findsOneWidget);
+  });
+
+  testWidgets('coming back to the series reads it again without blanking it', (
+    WidgetTester tester,
+  ) async {
+    final List<String> seen = <String>[];
+    final List<Completer<void>> holds = <Completer<void>>[];
+    await _pump(tester, _api(seen: seen, holds: holds));
+    int reads() => seen.where((String p) => p == '/api/v1/series/s1').length;
+    final int before = reads();
+
+    final NavigatorState nav = tester.state<NavigatorState>(
+      find.byType(Navigator),
+    );
+    nav.push(
+      MaterialPageRoute<void>(
+        builder: (_) => const Scaffold(body: Text('the player')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final Completer<void> hold = Completer<void>();
+    holds.add(hold);
+
+    nav.pop();
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    expect(
+      find.text('Skyline'),
+      findsWidgets,
+      reason: 'the page stays as it was while it reads again',
+    );
+
+    hold.complete();
+    await tester.pumpAndSettle();
+    expect(reads(), before + 1);
+    expect(find.text('Skyline'), findsWidgets);
   });
 }

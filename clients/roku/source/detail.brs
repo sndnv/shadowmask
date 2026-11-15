@@ -780,6 +780,20 @@ function EpisodeNeighbours(episode as dynamic, seasons as dynamic, episodesBySea
     return neighbours
 end function
 
+function EpisodeSeasonCards(seasons as dynamic, seasonId as dynamic) as object
+    at = IndexOfId(seasons, seasonId)
+    if at < 0 then return []
+
+    return [SeasonCard(seasons[at])]
+end function
+
+function SeasonRailHeading(episode as dynamic) as string
+    series = TextOrBlank(ValueAt(episode, "series_title", ""))
+    if IsBlank(series) then return Phrase("heading.seasons")
+
+    return PhraseWith("heading.inCollection", { name: series })
+end function
+
 function FactPairs(pairs as dynamic) as object
     facts = []
     if type(pairs) <> "roArray" then return facts

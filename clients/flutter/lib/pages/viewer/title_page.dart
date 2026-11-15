@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
 
 import 'package:shadowmask/api/api_client.dart';
@@ -10,6 +13,7 @@ import 'package:shadowmask/components/breadcrumbs.dart';
 import 'package:shadowmask/components/crumb.dart';
 import 'package:shadowmask/components/facts_row.dart';
 import 'package:shadowmask/nav/nav_section.dart';
+import 'package:shadowmask/nav/refresh_on_return.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
 import 'package:shadowmask/view/card_aspect.dart';
@@ -117,21 +121,48 @@ typedef _MovieData = ({
   MovieDetail detail,
   List<Version> versions,
   ItemState state,
+  bool stateRead,
   Map<String, int> resumable,
 });
 
 class _MovieDetailBodyState extends State<_MovieDetailBody>
-    with Mutations<_MovieDetailBody> {
+    with
+        RouteAware,
+        Mutations<_MovieDetailBody>,
+        RefreshOnReturn<_MovieDetailBody> {
   late final CatalogApi _catalog = CatalogApi(widget.api);
   late final PlayOnApi? _playOn = playOnApi(widget.api);
   late final TitleRef _ref = TitleRef(type: TitleKind.movie, id: widget.id);
   final GlobalKey<PlayButtonState> _play = GlobalKey<PlayButtonState>();
   late Future<_MovieData> _future = _load();
+  int _generation = 0;
+  int _refreshes = 0;
 
   void _reload() {
     setState(() {
       _future = _load();
     });
+  }
+
+  @override
+  Future<void> refreshOnReturn() async {
+    final Future<_MovieData> before = _future;
+    final int asked = ++_refreshes;
+    final _MovieData data;
+    try {
+      data = await _load();
+    } catch (_) {
+      return;
+    }
+    if (data.stateRead &&
+        mounted &&
+        asked == _refreshes &&
+        identical(_future, before)) {
+      setState(() {
+        _generation++;
+        _future = SynchronousFuture<_MovieData>(data);
+      });
+    }
   }
 
   Future<void> _relink(List<Version> versions) async {
@@ -202,10 +233,9 @@ class _MovieDetailBodyState extends State<_MovieDetailBody>
     final Future<Paged<Version>> pendingVersions = _catalog.movieVersions(
       widget.id,
     );
-    final Future<ItemState> pendingState = _catalog.stateOne(
-      widget.user.id,
-      _ref,
-    );
+    final Future<ItemState?> pendingState = _catalog
+        .stateOne(widget.user.id, _ref)
+        .then<ItemState?>((ItemState s) => s, onError: (Object _) => null);
     final Future<ContinueFeed> pendingFeed = _catalog.continueFeed(
       widget.user.id,
     );
@@ -214,10 +244,9 @@ class _MovieDetailBodyState extends State<_MovieDetailBody>
     try {
       versions = (await pendingVersions).items;
     } catch (_) {}
-    ItemState state = ItemState(title: _ref);
-    try {
-      state = await pendingState;
-    } catch (_) {}
+    final ItemState? read = await pendingState;
+    final ItemState state = read ?? ItemState(title: _ref);
+    final bool stateRead = read != null;
     Map<String, int> resumable = const <String, int>{};
     try {
       resumable = (await pendingFeed).resumeProgress;
@@ -226,6 +255,7 @@ class _MovieDetailBodyState extends State<_MovieDetailBody>
       detail: detail,
       versions: versions,
       state: state,
+      stateRead: stateRead,
       resumable: resumable,
     );
   }
@@ -344,11 +374,13 @@ class _MovieDetailBodyState extends State<_MovieDetailBody>
                     catalog: _catalog,
                     userId: widget.user.id,
                     ref: _ref,
+                    revision: _generation,
                     title: d.title,
                     initialWatched: state.watched,
                     initialWatchlisted: state.watchlisted,
                     initialFavorite: state.favorite,
                     onWatchedChanged: (bool _) => _reload(),
+                    onSavedChanged: () => unawaited(refreshOnReturn()),
                     leading: PlayButton(
                       key: _play,
                       catalog: _catalog,
@@ -410,6 +442,7 @@ class _MovieDetailBodyState extends State<_MovieDetailBody>
               actors: actors,
               exclude: TitleRef(type: TitleKind.movie, id: d.id),
               movieId: d.id,
+              revision: _generation,
             ),
           ],
         );
@@ -454,6 +487,7 @@ class _RelatedRails extends StatefulWidget {
     required this.actors,
     required this.exclude,
     this.movieId,
+    this.revision = 0,
   });
 
   final CatalogApi catalog;
@@ -461,6 +495,7 @@ class _RelatedRails extends StatefulWidget {
   final List<PersonRef> actors;
   final TitleRef exclude;
   final String? movieId;
+  final int revision;
 
   @override
   State<_RelatedRails> createState() => _RelatedRailsState();
@@ -475,6 +510,28 @@ class _RelatedRailsState extends State<_RelatedRails> {
   Object? _lastError;
 
   bool get _exhausted => _probe >= widget.actors.length;
+
+  @override
+  void didUpdateWidget(_RelatedRails oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.revision != oldWidget.revision) {
+      unawaited(_retag());
+    }
+  }
+
+  Future<void> _retag() async {
+    for (final _RelatedRail rail in List<_RelatedRail>.of(_rails)) {
+      await tagWatched(
+        widget.catalog,
+        widget.userId,
+        rail.cards,
+        clearUnwatched: true,
+      );
+    }
+    if (mounted) {
+      setState(() {});
+    }
+  }
 
   Future<List<_RelatedRail>> _first() async {
     await _loadCollections();
@@ -619,22 +676,58 @@ typedef _SeriesData = ({
   List<Season> seasons,
   List<CatalogCard> cards,
   WatchedRollup rollup,
+  bool rollupRead,
   Future<NextEpisode?> next,
 });
 
 class _SeriesDetailBodyState extends State<_SeriesDetailBody>
-    with Mutations<_SeriesDetailBody> {
+    with
+        RouteAware,
+        Mutations<_SeriesDetailBody>,
+        RefreshOnReturn<_SeriesDetailBody> {
   late final CatalogApi _catalog = CatalogApi(widget.api);
   late final PlayOnApi? _playOn = playOnApi(widget.api);
   late final TitleRef _ref = TitleRef(type: TitleKind.series, id: widget.id);
   final GlobalKey<EpisodePlayButtonState> _play =
       GlobalKey<EpisodePlayButtonState>();
   late Future<_SeriesData> _future = _load();
+  int _generation = 0;
+  int _refreshes = 0;
 
   void _reload() {
     setState(() {
       _future = _load();
     });
+  }
+
+  @override
+  Future<void> refreshOnReturn() async {
+    final Future<_SeriesData> before = _future;
+    final int asked = ++_refreshes;
+    final _SeriesData data;
+    final NextEpisode? next;
+    try {
+      data = await _load();
+      next = await data.next;
+    } catch (_) {
+      return;
+    }
+    if (data.rollupRead &&
+        mounted &&
+        asked == _refreshes &&
+        identical(_future, before)) {
+      setState(() {
+        _generation++;
+        _future = SynchronousFuture<_SeriesData>((
+          detail: data.detail,
+          seasons: data.seasons,
+          cards: data.cards,
+          rollup: data.rollup,
+          rollupRead: data.rollupRead,
+          next: SynchronousFuture<NextEpisode?>(next),
+        ));
+      });
+    }
   }
 
   Future<void> _refresh(bool manuallyEdited) async {
@@ -706,25 +799,27 @@ class _SeriesDetailBodyState extends State<_SeriesDetailBody>
     final Future<List<Season>> pendingSeasons = _catalog
         .seasons(widget.id)
         .catchError((Object _) => <Season>[]);
-    final Future<WatchedRollup> pendingRollup = _catalog.rollupOne(
-      widget.user.id,
-      _ref,
-    );
+    final Future<WatchedRollup?> pendingRollup = _catalog
+        .rollupOne(widget.user.id, _ref)
+        .then<WatchedRollup?>(
+          (WatchedRollup r) => r,
+          onError: (Object _) => null,
+        );
     final SeriesDetail detail = await _catalog.seriesDetail(widget.id);
     final List<Season> seasons = await pendingSeasons;
     final List<CatalogCard> seasonCards = seasons
         .map(CatalogCard.fromSeason)
         .toList();
-    WatchedRollup rollup = WatchedRollup(target: _ref);
-    try {
-      rollup = await pendingRollup;
-    } catch (_) {}
+    final WatchedRollup? read = await pendingRollup;
+    final WatchedRollup rollup = read ?? WatchedRollup(target: _ref);
+    final bool rollupRead = read != null;
     await tagWatched(_catalog, widget.user.id, seasonCards);
     return (
       detail: detail,
       seasons: seasons,
       cards: seasonCards,
       rollup: rollup,
+      rollupRead: rollupRead,
       next: seasons.isEmpty
           ? Future<NextEpisode?>.value()
           : resolveNextEpisode(
@@ -819,6 +914,7 @@ class _SeriesDetailBodyState extends State<_SeriesDetailBody>
                     catalog: _catalog,
                     userId: widget.user.id,
                     ref: _ref,
+                    revision: _generation,
                     title: d.title,
                     initialWatched: rollup.watched,
                     showWatchlistFavorite: false,
@@ -909,6 +1005,7 @@ class _SeriesDetailBodyState extends State<_SeriesDetailBody>
                 userId: widget.user.id,
                 actors: actors,
                 exclude: TitleRef(type: TitleKind.series, id: d.id),
+                revision: _generation,
               ),
           ],
         );

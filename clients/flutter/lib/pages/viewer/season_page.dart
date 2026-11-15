@@ -20,6 +20,7 @@ import 'package:shadowmask/components/overview_text.dart';
 import 'package:shadowmask/components/poster_play.dart';
 import 'package:shadowmask/components/title_heading.dart';
 import 'package:shadowmask/nav/nav_section.dart';
+import 'package:shadowmask/nav/refresh_on_return.dart';
 import 'package:shadowmask/pages/viewer/catalog_support.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
@@ -73,6 +74,7 @@ typedef _SeasonData = ({
   Season season,
   List<CatalogCard> cards,
   WatchedRollup rollup,
+  bool rollupRead,
   Future<NextEpisode?> next,
   SeasonNeighbours neighbours,
 });
@@ -94,18 +96,42 @@ class _SeasonBody extends StatefulWidget {
   State<_SeasonBody> createState() => _SeasonBodyState();
 }
 
-class _SeasonBodyState extends State<_SeasonBody> with Mutations<_SeasonBody> {
+class _SeasonBodyState extends State<_SeasonBody>
+    with RouteAware, Mutations<_SeasonBody>, RefreshOnReturn<_SeasonBody> {
   late final CatalogApi _catalog = CatalogApi(widget.api);
   late final PlayOnApi? _playOn = playOnApi(widget.api);
   late final TitleRef _ref = TitleRef(type: TitleKind.season, id: widget.id);
   final GlobalKey<EpisodePlayButtonState> _play =
       GlobalKey<EpisodePlayButtonState>();
   late Future<_SeasonData> _future = _load();
+  int _generation = 0;
+  int _refreshes = 0;
 
   void _reload() {
     setState(() {
       _future = _load();
     });
+  }
+
+  @override
+  Future<void> refreshOnReturn() async {
+    final Future<_SeasonData> before = _future;
+    final int asked = ++_refreshes;
+    final _SeasonData data;
+    try {
+      data = await _load();
+    } catch (_) {
+      return;
+    }
+    if (data.rollupRead &&
+        mounted &&
+        asked == _refreshes &&
+        identical(_future, before)) {
+      setState(() {
+        _generation++;
+        _future = SynchronousFuture<_SeasonData>(data);
+      });
+    }
   }
 
   Future<void> _delete(String title, String seriesId) async {
@@ -150,13 +176,16 @@ class _SeasonBodyState extends State<_SeasonBody> with Mutations<_SeasonBody> {
         .toList();
     await tagWatched(_catalog, widget.user.id, cards, withProgress: true);
     WatchedRollup rollup = WatchedRollup(target: _ref);
+    bool rollupRead = false;
     try {
       rollup = await _catalog.rollupOne(widget.user.id, _ref);
+      rollupRead = true;
     } catch (_) {}
     return (
       season: season,
       cards: cards,
       rollup: rollup,
+      rollupRead: rollupRead,
       next: SynchronousFuture<NextEpisode?>(
         nextInSeason(
           season.number,
@@ -296,6 +325,7 @@ class _SeasonBodyState extends State<_SeasonBody> with Mutations<_SeasonBody> {
                     catalog: _catalog,
                     userId: widget.user.id,
                     ref: _ref,
+                    revision: _generation,
                     title: title,
                     initialWatched: rollup.watched,
                     showWatchlistFavorite: false,

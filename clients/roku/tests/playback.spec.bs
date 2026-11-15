@@ -968,8 +968,16 @@ namespace tests
         @it("offers every rung when the source height is unknown")
         sub offersEveryRungWhenUnknown()
             m.assertEqual(QualityRungs(0).Count(), QualityHeights().Count())
-            m.assertEqual(QualityRungs(0)[0].label, Phrase("player.original"))
+            m.assertEqual(QualityRungs(0)[0].label, "Original")
             m.assertEqual(QualityRungs(0)[1].label, "1080p")
+        end sub
+
+        @it("names the source beside Original the way the other clients do")
+        sub namesTheSourceBesideOriginal()
+            m.assertEqual(QualityRungs(1080)[0].label, "Original - 1080p")
+            m.assertEqual(QualityRungs(720)[0].label, "Original - 720p")
+            m.assertEqual(QualityRungs(2160)[0].label, "Original - 4K")
+            m.assertEqual(QualityRungs(1080)[1].label, "720p")
         end sub
 
         @it("reads the source height off the first video track")
@@ -1449,7 +1457,7 @@ namespace tests
 
             m.assertEqual(rows.Count(), 1)
             m.assertEqual(rows[0].id, "quality")
-            m.assertEqual(rows[0].detail, RungLabel(720))
+            m.assertEqual(rows[0].detail, "720p")
         end sub
 
         @it("adds the version that is playing when there are others")
@@ -1459,7 +1467,7 @@ namespace tests
             rows = VideoRows(DefaultControls(), { id: "v2", video: [{ height: 1080 }] }, versions, true)
 
             m.assertEqual(rows.Count(), 2)
-            m.assertEqual(rows[0].detail, RungLabel(0))
+            m.assertEqual(rows[0].detail, "Original - 1080p")
             m.assertEqual(rows[1].id, "version")
             m.assertEqual(rows[1].label, Phrase("player.version"))
             m.assertEqual(rows[1].detail, VersionRowContent(versions[1], 1).label)

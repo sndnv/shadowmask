@@ -12,7 +12,10 @@ sub init()
     m.navActions.ObserveField("activated", "onAction")
     m.overviewToggle.ObserveField("activated", "onAction")
 
-    InitSections([{ id: "hero", focus: "actions" }])
+    m.seasonRail = m.top.FindNode("seasonRail")
+    m.seasonRail.ObserveField("selected", "onSeasonSelected")
+
+    InitSections([{ id: "hero", focus: "actions" }, { id: "seasonRail" }])
 
     m.id = ""
     m.seriesId = ""
@@ -25,7 +28,14 @@ sub init()
     m.watched = false
     m.watchlisted = false
     m.favorite = false
+    m.busy = {}
+    m.edits = {}
+    m.stateTask = invalid
+    m.stateAsked = {}
+    m.continueTask = invalid
+    m.continueAsked = {}
     m.seasons = []
+    m.seasonCards = []
     m.bySeason = {}
     m.pendingSeasons = 0
     m.neighbours = { previous: invalid, following: invalid }
@@ -81,8 +91,25 @@ sub Layout()
 
     BuildActions()
     ShowSection("hero", DrawHero(theme, HeroContent(), width))
+    LayoutSeasonRail(theme, width)
     PlaceScrollBar(height)
     LayoutSections(width, height)
+end sub
+
+sub LayoutSeasonRail(theme as object, width as integer)
+    if m.seasonCards.Count() = 0
+        HideSection("seasonRail")
+        return
+    end if
+
+    m.seasonRail.theme = theme
+    m.seasonRail.serverUrl = SessionFor(m.global).serverUrl
+    m.seasonRail.railWidth = width
+    m.seasonRail.cardWidth = RailCardWidth()
+    m.seasonRail.heading = SeasonRailHeading(m.episode)
+    m.seasonRail.cards = m.seasonCards
+
+    ShowSection("seasonRail", Int(m.seasonRail.railHeight))
 end sub
 
 function CrumbList() as object
@@ -194,14 +221,21 @@ sub Load()
 
     Ask(EpisodeRequest(session.serverUrl, session.token, m.seriesId, m.seasonId, m.id), "onEpisode")
     Ask(EpisodeVersionsRequest(session.serverUrl, session.token, m.seriesId, m.seasonId, m.id), "onVersions")
-    Ask(ContinueRequest(session.serverUrl, session.token, session.userId), "onContinue")
+    AskContinue()
     LoadState()
     Ask(SeasonsRequest(session.serverUrl, session.token, m.seriesId), "onSeasons")
 end sub
 
 sub LoadState()
     session = SessionFor(m.global)
-    Ask(StateBatchRequest(session.serverUrl, session.token, session.userId, [{ "type": "episode", "id": m.id }]), "onState")
+    m.stateTask = Ask(StateBatchRequest(session.serverUrl, session.token, session.userId, [{ "type": "episode", "id": m.id }]), "onState")
+    m.stateAsked = EditsSnapshot(m.edits)
+end sub
+
+sub AskContinue()
+    session = SessionFor(m.global)
+    m.continueTask = Ask(ContinueRequest(session.serverUrl, session.token, session.userId), "onContinue")
+    m.continueAsked = EditsSnapshot(m.edits)
 end sub
 
 function Ask(request as object, callback as string) as object
@@ -233,6 +267,7 @@ sub onEpisode(event as object)
     if IsBlank(m.seasonId) then m.seasonId = TextOrBlank(ValueAt(m.episode, "season_id", ""))
 
     PublishBackdropFrom(EpisodeBackdropCandidates(m.episode))
+    BuildSeasonCard()
     Refresh()
 end sub
 
@@ -250,6 +285,8 @@ end sub
 sub onContinue(event as object)
     parsed = Answered(event)
     if m.released then return
+    if not IsLatestAnswer(event.GetRoSGNode(), m.continueTask) then return
+    if EditedSince(m.continueAsked, m.edits, "resume") then return
 
     if parsed.ok then m.resumable = ResumeProgressMap(ContinueCards(parsed.json))
     Refresh()
@@ -258,10 +295,11 @@ end sub
 sub onState(event as object)
     parsed = Answered(event)
     if m.released then return
+    if not IsLatestAnswer(event.GetRoSGNode(), m.stateTask) then return
 
     if parsed.ok and type(parsed.json) = "roArray" and parsed.json.Count() > 0
         entry = parsed.json[0]
-        m.watched = ValueAt(entry, "watched", false) = true
+        if not EditedSince(m.stateAsked, m.edits, "watched") then m.watched = ValueAt(entry, "watched", false) = true
         m.watchlisted = ValueAt(entry, "watchlisted", false) = true
         m.favorite = ValueAt(entry, "favorite", false) = true
     end if
@@ -275,9 +313,41 @@ sub onSeasons(event as object)
     if not parsed.ok or type(parsed.json) <> "roArray" then return
 
     m.seasons = parsed.json
+    BuildSeasonCard()
     session = SessionFor(m.global)
     m.pendingSeasons = 1
     Ask(EpisodesRequest(session.serverUrl, session.token, m.seriesId, m.seasonId), "onSeasonEpisodes")
+end sub
+
+sub BuildSeasonCard()
+    if m.seasonCards.Count() > 0 then return
+
+    m.seasonCards = EpisodeSeasonCards(m.seasons, m.seasonId)
+    LoadSeasonRollup()
+end sub
+
+sub LoadSeasonRollup()
+    if m.seasonCards.Count() = 0 then return
+
+    session = SessionFor(m.global)
+    Ask(StateRollupRequest(session.serverUrl, session.token, session.userId, [{ "type": "season", "id": m.seasonCards[0].id }]), "onSeasonRollup")
+end sub
+
+sub onSeasonRollup(event as object)
+    parsed = Answered(event)
+    if m.released then return
+
+    if parsed.ok and type(parsed.json) = "roArray" then ApplyStates(m.seasonCards, [], parsed.json)
+    Refresh()
+end sub
+
+sub onSeasonSelected(event as object)
+    target = event.GetData()
+    if target = invalid or target.Count() = 0 then return
+
+    if IsBlank(TextOrBlank(ValueAt(target, "seriesId", ""))) then target.seriesId = m.seriesId
+    m.top.advanceTarget = target
+    m.top.advance = "SeasonScreen"
 end sub
 
 sub onSeasonEpisodes(event as object)
@@ -416,15 +486,18 @@ sub onChoice()
 end sub
 
 sub ReloadCardStates()
-    LoadState()
+    ReloadViewing()
 end sub
 
 sub onRevealed()
     if m.released then return
+    ReloadViewing()
+end sub
 
-    session = SessionFor(m.global)
-    Ask(ContinueRequest(session.serverUrl, session.token, session.userId), "onContinue")
+sub ReloadViewing()
+    AskContinue()
     LoadState()
+    LoadSeasonRollup()
 end sub
 
 sub PressDismissResume()
@@ -434,6 +507,7 @@ sub PressDismissResume()
 
     m.dismissedVersion = versionId
     m.resumable.Delete(versionId)
+    NoteEdit(m.edits, "resume")
     BuildActions()
 
     session = SessionFor(m.global)
@@ -488,29 +562,37 @@ sub OpenEpisode(link as dynamic)
 end sub
 
 sub ToggleWatched()
-    m.watched = not m.watched
+    if m.busy.DoesExist("watched") then return
+    wanted = not m.watched
+    m.busy.watched = wanted
+    NoteEdit(m.edits, "watched")
+
+    m.watched = wanted
     BuildActions()
 
     session = SessionFor(m.global)
-    Ask(SetWatchedRequest(session.serverUrl, session.token, session.userId, "episode", m.id, m.watched), "onWatchedDone")
+    Ask(SetWatchedRequest(session.serverUrl, session.token, session.userId, "episode", m.id, wanted), "onWatchedDone")
 end sub
 
 sub onWatchedDone(event as object)
+    wanted = ValueAt(m.busy, "watched", false) = true
+    m.busy.Delete("watched")
     parsed = Answered(event)
     if m.released then return
 
     if not parsed.ok
-        m.watched = not m.watched
+        m.watched = not wanted
         BuildActions()
         RaiseActionFailed()
         return
     end if
 
-    if m.watched
+    if wanted
         RaiseToast("ok", PhraseWith("toast.ok.markedWatched", { title: TitleText() }))
     else
         RaiseToast("ok", PhraseWith("toast.ok.markedUnwatched", { title: TitleText() }))
     end if
+    ReloadViewing()
 end sub
 
 sub onRelease()
@@ -545,7 +627,10 @@ function onKeyEvent(key as string, press as boolean) as boolean
     if not press then return false
     if not m.published then return false
 
-    if key = "options" then return OpenedCardMenu(EpisodeMenuCard())
+    if key = "options"
+        if m.seasonRail.isInFocusChain() then return OpenedCardMenu(m.seasonRail.focusedCard)
+        return OpenedCardMenu(EpisodeMenuCard())
+    end if
 
     if HandledStepKey(key, HeroBars()) then return true
     return HandledSectionKey(key)

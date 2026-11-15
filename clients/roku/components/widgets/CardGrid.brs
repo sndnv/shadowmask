@@ -113,6 +113,8 @@ sub refreshStates()
             node.audioGuideText = CardSpeech(m.cards[at])
         end if
     end for
+
+    if root.GetChildCount() > 0 then m.top.focusedCard = CardTarget(root.GetChild(ClampInt(m.grid.itemFocused, 0, root.GetChildCount() - 1)))
 end sub
 
 sub onSelected()

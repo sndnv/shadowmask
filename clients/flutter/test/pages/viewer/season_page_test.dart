@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:material_ui/material_ui.dart';
@@ -11,6 +12,7 @@ import 'package:shadowmask/components/random_button.dart';
 import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/components/toggle_button.dart';
 import 'package:shadowmask/l10n/strings.dart';
+import 'package:shadowmask/nav/route_observer.dart';
 import 'package:shadowmask/pages/viewer/season_page.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
@@ -46,6 +48,7 @@ Future<void> _pump(WidgetTester tester, ApiClient api) async {
       setVariant: (_) {},
       child: MaterialApp(
         theme: buildTheme(AppThemeVariant.dark),
+        navigatorObservers: <NavigatorObserver>[appRouteObserver],
         onGenerateRoute: (_) => MaterialPageRoute<void>(
           builder: (_) => SeasonPage(api: api, id: 'se1'),
         ),
@@ -87,10 +90,14 @@ ApiClient _api(
   List<Map<String, dynamic>> episodes = const <Map<String, dynamic>>[],
   String? inProgress,
   int percent = 40,
+  List<Completer<void>> holds = const <Completer<void>>[],
 }) => ApiClient(
   baseUrl: 'http://test',
   httpClient: MockClient((http.Request req) async {
     seen.add(req.url.path);
+    for (final Completer<void> hold in holds) {
+      await hold.future;
+    }
     if (req.url.path == '/api/v1/users/self') {
       return http.Response(
         jsonEncode(<String, dynamic>{
@@ -295,4 +302,47 @@ void main() {
       );
     },
   );
+
+  testWidgets('coming back to the season reads it again without blanking it', (
+    WidgetTester tester,
+  ) async {
+    final List<String> seen = <String>[];
+    final List<Completer<void>> holds = <Completer<void>>[];
+    await _pump(
+      tester,
+      _api(
+        seen,
+        episodes: <Map<String, dynamic>>[_episode('e1', 1)],
+        holds: holds,
+      ),
+    );
+    int reads() => seen.where((String p) => p.endsWith('/episodes')).length;
+    final int before = reads();
+
+    final NavigatorState nav = tester.state<NavigatorState>(
+      find.byType(Navigator),
+    );
+    nav.push(
+      MaterialPageRoute<void>(
+        builder: (_) => const Scaffold(body: Text('the player')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final Completer<void> hold = Completer<void>();
+    holds.add(hold);
+
+    nav.pop();
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    expect(
+      find.text('Specials'),
+      findsWidgets,
+      reason: 'the page stays as it was while it reads again',
+    );
+
+    hold.complete();
+    await tester.pumpAndSettle();
+    expect(reads(), before + 1);
+    expect(find.text('Specials'), findsWidgets);
+  });
 }

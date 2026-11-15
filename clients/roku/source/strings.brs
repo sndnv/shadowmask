@@ -239,6 +239,7 @@ function BuildStringTable() as object
         "player.quality": "Quality",
         "player.version": "Version",
         "player.original": "Original",
+        "player.originalAt": "Original - {resolution}",
         "player.converting": "Converting",
         "player.deliveryAuto": "Auto",
         "player.deliveryNever": "Never",

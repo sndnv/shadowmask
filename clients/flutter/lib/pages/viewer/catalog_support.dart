@@ -41,6 +41,7 @@ Future<void> tagWatched(
   String userId,
   List<CatalogCard> cards, {
   bool withProgress = false,
+  bool clearUnwatched = false,
 }) async {
   final List<TitleRef> leaves = cards
       .where((CatalogCard c) => c.ref.type.isLeaf)
@@ -88,9 +89,18 @@ Future<void> tagWatched(
         })
         .catchError((Object _) {}),
   ]);
+  final Set<String> asked = <String>{
+    for (final TitleRef ref in leaves) _key(ref),
+    for (final TitleRef ref in targets) _key(ref),
+  };
   for (final CatalogCard c in cards) {
+    final bool answered =
+        asked.contains(_key(c.ref)) &&
+        (c.ref.type.isLeaf ? leavesAnswered : rollupsAnswered);
     if (watched.contains(_key(c.ref))) {
       c.watched = true;
+    } else if (clearUnwatched && answered) {
+      c.watched = false;
     }
     final int total = episodes[_key(c.ref)] ?? 0;
     if (c.ref.type == TitleKind.season && total > 0) {
@@ -107,7 +117,7 @@ Future<void> tagWatched(
       c.watchlisted = state.watchlisted;
       c.favorite = state.favorite;
       c.stateKnown = true;
-    } else if (c.ref.type.isLeaf ? leavesAnswered : rollupsAnswered) {
+    } else if (answered) {
       c.stateKnown = true;
     }
   }

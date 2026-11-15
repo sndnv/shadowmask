@@ -165,4 +165,80 @@ void main() {
     expect(cards[0].watched, isTrue);
     expect(cards[1].watched, isFalse);
   });
+
+  ApiClient unwatchedEverywhere({bool fails = false}) => ApiClient(
+    baseUrl: 'http://test',
+    httpClient: MockClient((http.Request req) async {
+      if (fails) {
+        return http.Response('boom', 500);
+      }
+      final List<dynamic> asked =
+          (jsonDecode(req.body) as Map<String, dynamic>)['titles']
+              as List<dynamic>;
+      return http.Response(
+        jsonEncode(<dynamic>[
+          for (final dynamic t in asked)
+            <String, dynamic>{'title': t, 'watched': false},
+        ]),
+        200,
+        headers: <String, String>{'content-type': 'application/json'},
+      );
+    }),
+  );
+
+  test(
+    'clearing takes the mark off a title the server calls unwatched',
+    () async {
+      final List<CatalogCard> kept = <CatalogCard>[
+        _card(TitleKind.movie, 'm1')..watched = true,
+      ];
+      final List<CatalogCard> cleared = <CatalogCard>[
+        _card(TitleKind.movie, 'm1')..watched = true,
+      ];
+
+      await tagWatched(CatalogApi(unwatchedEverywhere()), 'u1', kept);
+      await tagWatched(
+        CatalogApi(unwatchedEverywhere()),
+        'u1',
+        cleared,
+        clearUnwatched: true,
+      );
+
+      expect(kept.single.watched, isTrue, reason: 'tagging alone only adds');
+      expect(cleared.single.watched, isFalse);
+    },
+  );
+
+  test('clearing leaves a title it never asked about alone', () async {
+    final List<CatalogCard> cards = <CatalogCard>[
+      for (int n = 0; n <= 200; n++)
+        _card(TitleKind.movie, 'm$n')..watched = true,
+    ];
+
+    await tagWatched(
+      CatalogApi(unwatchedEverywhere()),
+      'u1',
+      cards,
+      clearUnwatched: true,
+    );
+
+    expect(cards.first.watched, isFalse);
+    expect(cards.last.watched, isTrue, reason: 'one batch asks about 200');
+    expect(cards.last.stateKnown, isFalse);
+  });
+
+  test('clearing leaves every mark alone when the state call fails', () async {
+    final List<CatalogCard> cards = <CatalogCard>[
+      _card(TitleKind.movie, 'm1')..watched = true,
+    ];
+
+    await tagWatched(
+      CatalogApi(unwatchedEverywhere(fails: true)),
+      'u1',
+      cards,
+      clearUnwatched: true,
+    );
+
+    expect(cards.single.watched, isTrue);
+  });
 }

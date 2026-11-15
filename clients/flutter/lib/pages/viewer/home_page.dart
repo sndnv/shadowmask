@@ -201,13 +201,13 @@ class _HomeBodyState extends State<_HomeBody>
         if (empty != null) {
           return EmptyNote(empty);
         }
-        final List<CatalogCard> continueCards = data.feed.continueWatching
-            .where(
-              (CatalogCard c) =>
-                  c.dismissVersionId == null ||
-                  !_dismissed.contains(c.dismissVersionId),
-            )
-            .toList();
+        final List<CatalogCard> continueCards = oncePerTitle(
+          data.feed.continueWatching.where(
+            (CatalogCard c) =>
+                c.dismissVersionId == null ||
+                !_dismissed.contains(c.dismissVersionId),
+          ),
+        );
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[

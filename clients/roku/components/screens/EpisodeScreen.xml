@@ -61,6 +61,7 @@
                     <Label id="overview" />
                     <ActionBar id="overviewToggle" />
                 </Group>
+                <CardRail id="seasonRail" visible="false" />
             </Group>
         </Group>
         <ScrollBar id="scrollBar" />

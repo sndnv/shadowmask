@@ -81,6 +81,9 @@ sub init()
     m.announce = []
     m.settling = invalid
     m.workSource = ""
+    m.findLanguage = ""
+    m.findFound = invalid
+    m.findPicked = invalid
     m.showDownloaded = invalid
     m.openChoice = ""
 
@@ -822,8 +825,14 @@ sub OpenCombineBottom()
     AskChoice("combineBottom", Phrase("work.combineBottom"), SubtitleFileOptions(m.version, m.workSource), 0, "choice", false, Phrase("work.starting"))
 end sub
 
-sub OpenFindLanguage()
-    AskChoice("findLanguage", Phrase("work.findLanguage"), LanguageOptions(m.version), 0, "choice", false, Phrase("work.searching"))
+sub OpenFindLanguage(code = "" as string)
+    options = LanguageOptions(m.version)
+    AskChoice("findLanguage", Phrase("work.findLanguage"), options, IndexOfValue(options, "code", code), "choice", false, Phrase("work.searching"))
+end sub
+
+sub OpenFindResults(failed = invalid as dynamic)
+    options = CandidateOptions(m.findFound, m.version)
+    AskChoice("findPick", Phrase("work.pickResult"), options, ResultFocus(options, failed), "menu", false, Phrase("work.downloading"), VersionFileLine(m.version))
 end sub
 
 function AnsweredWork(event as object) as dynamic
@@ -853,6 +862,7 @@ end sub
 
 sub SearchSubtitles(language as string)
     session = SessionFor(m.global)
+    m.findLanguage = language
     m.workTask = SendRequest(SubtitleSearchRequest(session.serverUrl, session.token, PlayingVersionId(), language), "onSubtitlesFound")
 end sub
 
@@ -862,22 +872,23 @@ sub onSubtitlesFound(event as object)
 
     if not parsed.ok
         RaiseToast("err", parsed.error)
-        OpenWorkMenu()
+        OpenFindLanguage(m.findLanguage)
         return
     end if
 
-    options = CandidateOptions(parsed.json, m.version)
-    if options.Count() = 0
+    m.findFound = parsed.json
+    if CandidateOptions(m.findFound, m.version).Count() = 0
         RaiseToast("ok", Phrase("work.noResults"))
-        OpenWorkMenu()
+        OpenFindLanguage(m.findLanguage)
         return
     end if
 
-    AskChoice("findPick", Phrase("work.pickResult"), options, FirstPickable(options), "menu", false, Phrase("work.downloading"), VersionFileLine(m.version))
+    OpenFindResults()
 end sub
 
 sub DownloadSubtitle(candidate as dynamic)
     session = SessionFor(m.global)
+    m.findPicked = candidate
     m.workTask = SendRequest(SubtitleDownloadRequest(session.serverUrl, session.token, PlayingVersionId(), candidate), "onSubtitleDownloaded")
 end sub
 
@@ -887,7 +898,7 @@ sub onSubtitleDownloaded(event as object)
 
     if not parsed.ok
         RaiseToast("err", parsed.error)
-        OpenWorkMenu()
+        OpenFindResults(m.findPicked)
         return
     end if
 

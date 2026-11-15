@@ -2,7 +2,16 @@ import 'package:shadowmask/view/catalog_card.dart';
 import 'package:shadowmask/model/catalog/episode.dart';
 import 'package:shadowmask/model/catalog/movie.dart';
 import 'package:shadowmask/model/common/resume_card.dart';
+import 'package:shadowmask/model/common/title_ref.dart';
 import 'package:shadowmask/model/playlist/queue_entry.dart';
+
+List<CatalogCard> oncePerTitle(Iterable<CatalogCard> cards) {
+  final Set<String> seen = <String>{};
+  return <CatalogCard>[
+    for (final CatalogCard c in cards)
+      if (seen.add(c.ref.key)) c,
+  ];
+}
 
 class ContinueFeed {
   const ContinueFeed({
@@ -43,13 +52,25 @@ class ContinueFeed {
     final QueueEntry? queueNext = queued is Map<String, dynamic>
         ? QueueEntry.fromJson(queued)
         : null;
-    final List<CatalogCard> up = <CatalogCard>[
-      ?queueNext?.card,
+    final String? queuedSeries = switch (queued) {
+      {'card': {'series_id': final String id}} => id,
+      _ => null,
+    };
+    final List<(CatalogCard, String?)> candidates = <(CatalogCard, String?)>[
+      if (queueNext != null) (queueNext.card, queuedSeries),
       for (final Episode e in episodes)
-        CatalogCard.fromEpisode(e, asSeriesPoster: true),
+        (CatalogCard.fromEpisode(e, asSeriesPoster: true), e.seriesId),
       for (final dynamic m
           in (json['next_movies'] as List<dynamic>?) ?? <dynamic>[])
-        CatalogCard.fromMovie(Movie.fromJson(m as Map<String, dynamic>)),
+        (
+          CatalogCard.fromMovie(Movie.fromJson(m as Map<String, dynamic>)),
+          null,
+        ),
+    ];
+    final Set<String> seen = <String>{};
+    final List<CatalogCard> up = <CatalogCard>[
+      for (final (CatalogCard card, String? series) in candidates)
+        if (_firstInRail(seen, card, series)) card,
     ];
 
     return ContinueFeed(
@@ -57,6 +78,20 @@ class ContinueFeed {
       upNext: up,
       queueNext: queueNext,
     );
+  }
+
+  static bool _firstInRail(Set<String> seen, CatalogCard card, String? series) {
+    final String? seriesKey = series == null
+        ? null
+        : TitleRef(type: TitleKind.series, id: series).key;
+    if (seen.contains(card.ref.key) || seen.contains(seriesKey)) {
+      return false;
+    }
+    seen.add(card.ref.key);
+    if (seriesKey != null) {
+      seen.add(seriesKey);
+    }
+    return true;
   }
 
   static CatalogCard? _resumeCard(dynamic entry) {

@@ -533,6 +533,45 @@ namespace tests
             m.assertInvalid(EpisodeNeighbours(episodes[0], seasons, { "s2": episodes }).previous)
         end sub
 
+        @describe("EpisodeSeasonCards")
+
+        @it("holds one card for the episode's own season")
+        sub episodeSeasonCardsHoldsItsSeason()
+            seasons = [m.season("s1", 1), m.season("s2", 2, "The Return"), m.season("s3", 3)]
+            cards = EpisodeSeasonCards(seasons, "s2")
+
+            m.assertEqual(cards.Count(), 1)
+            m.assertEqual(cards[0].kind, "season")
+            m.assertEqual(cards[0].id, "s2")
+            m.assertEqual(cards[0].seriesId, "sr1")
+            m.assertEqual(cards[0].title, "The Return")
+        end sub
+
+        @it("holds nothing when the season is not in the list")
+        sub episodeSeasonCardsHoldsNothingForAStranger()
+            m.assertEqual(EpisodeSeasonCards([m.season("s1", 1)], "nope").Count(), 0)
+            m.assertEqual(EpisodeSeasonCards([m.season("s1", 1)], "").Count(), 0)
+        end sub
+
+        @it("survives seasons it was never given")
+        sub episodeSeasonCardsSurvivesNothing()
+            m.assertEqual(EpisodeSeasonCards([], "s1").Count(), 0)
+            m.assertEqual(EpisodeSeasonCards(invalid, "s1").Count(), 0)
+        end sub
+
+        @describe("SeasonRailHeading")
+
+        @it("names the series the season belongs to")
+        sub seasonRailHeadingNamesTheSeries()
+            m.assertEqual(SeasonRailHeading({ series_title: "Severance" }), "In Severance")
+        end sub
+
+        @it("falls back to Seasons without a series title")
+        sub seasonRailHeadingFallsBack()
+            m.assertEqual(SeasonRailHeading({ series_title: "" }), "Seasons")
+            m.assertEqual(SeasonRailHeading(invalid), "Seasons")
+        end sub
+
         @describe("EpisodePlayerTitle")
 
         @it("names the show, the code and the episode, dot-separated")

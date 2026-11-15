@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:material_ui/material_ui.dart';
@@ -8,6 +9,7 @@ import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/components/poster_play.dart';
 import 'package:shadowmask/components/version_menu.dart';
 import 'package:shadowmask/l10n/strings.dart';
+import 'package:shadowmask/nav/route_observer.dart';
 import 'package:shadowmask/pages/viewer/episode_page.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
@@ -65,6 +67,7 @@ Future<void> _pump(WidgetTester tester, ApiClient api) async {
         theme: buildTheme(
           AppThemeVariant.dark,
         ).copyWith(platform: TargetPlatform.macOS),
+        navigatorObservers: <NavigatorObserver>[appRouteObserver],
         onGenerateRoute: (RouteSettings settings) => MaterialPageRoute<void>(
           builder: (_) => settings.name == null || settings.name == '/'
               ? EpisodePage(api: api, id: 'e1')
@@ -81,10 +84,14 @@ ApiClient _api(
   List<Map<String, dynamic>> versions = const <Map<String, dynamic>>[],
   List<Map<String, dynamic>> resuming = const <Map<String, dynamic>>[],
   bool admin = false,
+  List<Completer<void>> holds = const <Completer<void>>[],
 }) => ApiClient(
   baseUrl: 'http://test',
   httpClient: MockClient((http.Request req) async {
     seen.add(req.url.path);
+    for (final Completer<void> hold in holds) {
+      await hold.future;
+    }
     if (req.url.path == '/api/v1/users/self') {
       return http.Response(
         jsonEncode(<String, dynamic>{
@@ -270,5 +277,50 @@ void main() {
     );
 
     expect(find.text(Strings.noVersionsAvailable), findsNothing);
+  });
+
+  testWidgets('coming back from the player reads the episode again without '
+      'blanking it', (WidgetTester tester) async {
+    final List<Map<String, dynamic>> resuming = <Map<String, dynamic>>[
+      _inProgress('v1'),
+    ];
+    final List<Completer<void>> holds = <Completer<void>>[];
+    await _pump(
+      tester,
+      _api(
+        <String>[],
+        versions: <Map<String, dynamic>>[_version('v1', 'fhd')],
+        resuming: resuming,
+        holds: holds,
+      ),
+    );
+    expect(find.text(Strings.resumeAction), findsOneWidget);
+
+    final NavigatorState nav = tester.state<NavigatorState>(
+      find.byType(Navigator),
+    );
+    nav.push(
+      MaterialPageRoute<void>(
+        builder: (_) => const Scaffold(body: Text('the player')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    resuming.clear();
+    final Completer<void> hold = Completer<void>();
+    holds.add(hold);
+
+    nav.pop();
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    expect(
+      find.text(Strings.resumeAction),
+      findsOneWidget,
+      reason: 'the page stays as it was while it reads again',
+    );
+
+    hold.complete();
+    await tester.pumpAndSettle();
+    expect(find.text(Strings.resumeAction), findsNothing);
+    expect(find.text(Strings.play), findsOneWidget);
   });
 }

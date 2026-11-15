@@ -258,6 +258,16 @@ function FirstPickable(options as dynamic) as integer
     return 0
 end function
 
+function ResultFocus(options as dynamic, failed as dynamic) as integer
+    fileId = TextOrBlank(ValueAt(failed, "file_id", ""))
+    if not IsBlank(fileId) and type(options) = "roArray"
+        for index = 0 to options.Count() - 1
+            if TextOrBlank(ValueAt(options[index], "candidate.file_id", "")) = fileId then return index
+        end for
+    end if
+    return FirstPickable(options)
+end function
+
 function WorkChoiceFields() as object
     return ["transcribeTrack", "translateSource", "translateTarget", "combineTop", "combineBottom", "findLanguage", "findPick"]
 end function
