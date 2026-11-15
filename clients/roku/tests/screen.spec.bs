@@ -200,6 +200,53 @@ namespace tests
             m.assertFalse(AdvanceFollowed(invalid, true))
         end sub
 
+        @describe("IsLatestAnswer")
+
+        @it("takes the answer to the latest request")
+        sub isLatestAnswerTakesTheLatest()
+            latest = CreateObject("roSGNode", "Node")
+            m.assertTrue(IsLatestAnswer(latest, latest))
+        end sub
+
+        @it("drops the answer to a request a newer one replaced")
+        sub isLatestAnswerDropsAnOlderRequest()
+            m.assertFalse(IsLatestAnswer(CreateObject("roSGNode", "Node"), CreateObject("roSGNode", "Node")))
+        end sub
+
+        @it("drops an answer when nothing was asked")
+        sub isLatestAnswerDropsWithoutARequest()
+            m.assertFalse(IsLatestAnswer(CreateObject("roSGNode", "Node"), invalid))
+            m.assertFalse(IsLatestAnswer(invalid, invalid))
+        end sub
+
+        @describe("EditedSince")
+
+        @it("sees a toggle made after the request was asked")
+        sub editedSinceSeesALaterToggle()
+            edits = {}
+            asked = EditsSnapshot(edits)
+            NoteEdit(edits, "watchlist")
+
+            m.assertTrue(EditedSince(asked, edits, "watchlist"))
+        end sub
+
+        @it("keeps every other field, so one toggle does not throw the whole answer away")
+        sub editedSinceKeepsOtherFields()
+            edits = { watched: 1 }
+            asked = EditsSnapshot(edits)
+            NoteEdit(edits, "watchlist")
+
+            m.assertFalse(EditedSince(asked, edits, "watched"))
+            m.assertFalse(EditedSince(asked, edits, "favorite"))
+        end sub
+
+        @it("sees nothing when nothing was toggled")
+        sub editedSinceSeesNothing()
+            edits = { watched: 2 }
+            m.assertFalse(EditedSince(EditsSnapshot(edits), edits, "watched"))
+            m.assertFalse(EditedSince(invalid, {}, "watched"))
+        end sub
+
     end class
 
 end namespace

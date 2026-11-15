@@ -139,7 +139,7 @@ sub ApplyStates(cards as dynamic, states as dynamic, rollups as dynamic)
             card.watchlisted = ValueAt(entry, "watchlisted", false) = true
             card.favorite = ValueAt(entry, "favorite", false) = true
             percent = Int(ValueAt(entry, "progress_percent", 0))
-            if percent > 0 then card.progressPercent = percent
+            if percent > 0 or card.ownProgress <> true then card.progressPercent = percent
         end if
 
         rollupKey = TitleKey(ValueAt(card, "rollupType", ""), ValueAt(card, "rollupId", ""))

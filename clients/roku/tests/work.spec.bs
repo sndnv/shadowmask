@@ -327,6 +327,24 @@ namespace tests
             m.assertEqual(FirstPickable(invalid), 0)
         end sub
 
+        @it("comes back to the result whose download failed")
+        sub resultFocusFindsTheFailedOne()
+            options = CandidateOptions([{ file_id: "7", format: "srt" }, { file_id: "8", format: "srt" }, { file_id: "9", format: "srt" }])
+
+            m.assertEqual(ResultFocus(options, { file_id: "9", format: "srt" }), 2)
+        end sub
+
+        @it("starts on the first pickable result when no download failed or the failed one is gone")
+        sub resultFocusFallsBack()
+            held = m.version([m.file("opensubtitles:v1:7", "fr", "open_subtitles")])
+            options = CandidateOptions([{ file_id: "7", format: "srt" }, { file_id: "8", format: "srt" }, { format: "srt" }], held)
+
+            m.assertEqual(ResultFocus(options, invalid), 1)
+            m.assertEqual(ResultFocus(options, { file_id: "5" }), 1)
+            m.assertEqual(ResultFocus(options, { format: "srt" }), 1, "a result with no file id must not match another without one")
+            m.assertEqual(ResultFocus(invalid, { file_id: "7" }), 0)
+        end sub
+
         @it("builds the id a downloaded subtitle is stored under")
         sub providerIdsMatchTheServer()
             m.assertEqual(ProviderSubtitleId({ id: "v1" }, "7"), "opensubtitles:v1:7")

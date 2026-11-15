@@ -190,6 +190,7 @@ function NewCard() as object
         watchlisted: false,
         favorite: false,
         progressPercent: 0,
+        ownProgress: false,
         seriesId: "",
         seasonId: "",
         queueEntryId: ""
@@ -395,6 +396,7 @@ function ResumeCard(json as dynamic) as object
     card.refType = card.kind
     card.refId = card.id
     card.progressPercent = Int(ValueAt(json, "progress_percent", 0))
+    card.ownProgress = true
 
     displayTitle = TextOrBlank(ValueAt(json, "display_title", ""))
     seriesTitle = TextOrBlank(ValueAt(json, "series_title", ""))
@@ -590,7 +592,26 @@ function UpNextCards(feed as dynamic) as object
         end for
     end if
 
-    return cards
+    return OncePerTitle(cards, true)
+end function
+
+function OncePerTitle(cards as dynamic, perSeries = false as boolean) as object
+    kept = []
+    if type(cards) <> "roArray" then return kept
+
+    seen = {}
+    for each card in cards
+        title = TitleKey(ValueAt(card, "kind", ""), ValueAt(card, "id", ""))
+        seriesId = TextOrBlank(ValueAt(card, "seriesId", ""))
+        series = ""
+        if perSeries and not IsBlank(seriesId) then series = TitleKey("series", seriesId)
+        if not seen.DoesExist(title) and not seen.DoesExist(series)
+            seen[title] = true
+            if not IsBlank(series) then seen[series] = true
+            kept.Push(card)
+        end if
+    end for
+    return kept
 end function
 
 function QueueCard(entry as dynamic) as object

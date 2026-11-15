@@ -51,6 +51,14 @@ sub init()
     m.dismissTask = invalid
     m.resumable = {}
     m.state = { watched: false, watchlisted: false, favorite: false }
+    m.busy = {}
+    m.edits = {}
+    m.stateTask = invalid
+    m.stateAsked = {}
+    m.continueTask = invalid
+    m.continueAsked = {}
+    m.rollupTask = invalid
+    m.rollupAsked = {}
     m.rollup = {}
     m.castCards = []
     m.actors = []
@@ -343,9 +351,21 @@ sub Load()
 
     Ask(MovieDetailRequest(session.serverUrl, session.token, m.id), "onDetail")
     Ask(MovieVersionsRequest(session.serverUrl, session.token, m.id), "onVersions")
-    Ask(ContinueRequest(session.serverUrl, session.token, session.userId), "onContinue")
+    AskContinue()
     Ask(MovieCollectionsRequest(session.serverUrl, session.token, m.id), "onCollections")
-    Ask(StateBatchRequest(session.serverUrl, session.token, session.userId, [{ "type": "movie", "id": m.id }]), "onState")
+    AskState()
+end sub
+
+sub AskContinue()
+    session = SessionFor(m.global)
+    m.continueTask = Ask(ContinueRequest(session.serverUrl, session.token, session.userId), "onContinue")
+    m.continueAsked = EditsSnapshot(m.edits)
+end sub
+
+sub AskState()
+    session = SessionFor(m.global)
+    m.stateTask = Ask(StateBatchRequest(session.serverUrl, session.token, session.userId, [{ "type": "movie", "id": m.id }]), "onState")
+    m.stateAsked = EditsSnapshot(m.edits)
 end sub
 
 function Ask(request as object, callback as string) as object
@@ -392,6 +412,8 @@ end sub
 sub onContinue(event as object)
     parsed = Answered(event)
     if m.released then return
+    if not IsLatestAnswer(event.GetRoSGNode(), m.continueTask) then return
+    if EditedSince(m.continueAsked, m.edits, "resume") then return
 
     if parsed.ok then m.resumable = ResumeProgressMap(ContinueCards(parsed.json))
     Refresh()
@@ -400,14 +422,13 @@ end sub
 sub onState(event as object)
     parsed = Answered(event)
     if m.released then return
+    if not IsLatestAnswer(event.GetRoSGNode(), m.stateTask) then return
 
     if parsed.ok and type(parsed.json) = "roArray" and parsed.json.Count() > 0
         entry = parsed.json[0]
-        m.state = {
-            watched: ValueAt(entry, "watched", false) = true,
-            watchlisted: ValueAt(entry, "watchlisted", false) = true,
-            favorite: ValueAt(entry, "favorite", false) = true
-        }
+        if not EditedSince(m.stateAsked, m.edits, "watched") then m.state.watched = ValueAt(entry, "watched", false) = true
+        if not EditedSince(m.stateAsked, m.edits, "watchlist") then m.state.watchlisted = ValueAt(entry, "watchlisted", false) = true
+        if not EditedSince(m.stateAsked, m.edits, "favorite") then m.state.favorite = ValueAt(entry, "favorite", false) = true
     end if
     Refresh()
 end sub
@@ -432,7 +453,8 @@ sub LoadRollups()
         targets.Push(target)
     end for
 
-    Ask(StateRollupRequest(session.serverUrl, session.token, session.userId, targets), "onRollups")
+    m.rollupTask = Ask(StateRollupRequest(session.serverUrl, session.token, session.userId, targets), "onRollups")
+    m.rollupAsked = EditsSnapshot(m.edits)
 end sub
 
 sub onRollups(event as object)
@@ -442,7 +464,11 @@ sub onRollups(event as object)
     if parsed.ok and type(parsed.json) = "roArray"
         lookup = StateLookup(parsed.json, "target")
         key = TitleKey("series", m.id)
-        if lookup.DoesExist(key) then m.rollup = lookup[key]
+        if lookup.DoesExist(key) and IsLatestAnswer(event.GetRoSGNode(), m.rollupTask)
+            rollup = lookup[key]
+            if EditedSince(m.rollupAsked, m.edits, "watched") then rollup.watched = WatchedNow()
+            m.rollup = rollup
+        end if
         ApplyStates(m.seasonCards, [], parsed.json)
         m.seasons.cardStates = CardStateList(m.seasonCards)
     end if
@@ -568,12 +594,39 @@ sub onActorTitles(event as object)
         if fresh.Count() >= MinActorTitles()
             m.actorCards = fresh
             m.actorName = m.actorProbeName
+            LoadActorStates()
             Refresh()
             return
         end if
     end if
 
     ProbeActor()
+end sub
+
+sub LoadActorStates()
+    session = SessionFor(m.global)
+
+    leaves = LeafRefs(m.actorCards)
+    if leaves.Count() > 0 then Ask(StateBatchRequest(session.serverUrl, session.token, session.userId, leaves), "onActorStates")
+
+    rollups = RollupTargets(m.actorCards)
+    if rollups.Count() > 0 then Ask(StateRollupRequest(session.serverUrl, session.token, session.userId, rollups), "onActorRollups")
+end sub
+
+sub onActorStates(event as object)
+    parsed = Answered(event)
+    if m.released then return
+
+    if parsed.ok and type(parsed.json) = "roArray" then ApplyStates(m.actorCards, parsed.json, [])
+    Refresh()
+end sub
+
+sub onActorRollups(event as object)
+    parsed = Answered(event)
+    if m.released then return
+
+    if parsed.ok and type(parsed.json) = "roArray" then ApplyStates(m.actorCards, [], parsed.json)
+    Refresh()
 end sub
 
 sub LayoutActorRail(theme as object, width as integer)
@@ -682,6 +735,7 @@ sub onChoice()
 end sub
 
 sub ReloadCardStates()
+    LoadActorStates()
     if m.kind = "series"
         LoadRollups()
         return
@@ -691,14 +745,18 @@ end sub
 
 sub onRevealed()
     if m.released then return
+    ReloadViewing()
+end sub
+
+sub ReloadViewing()
+    LoadActorStates()
     if m.kind = "series"
         LoadRollups()
         return
     end if
 
-    session = SessionFor(m.global)
-    Ask(ContinueRequest(session.serverUrl, session.token, session.userId), "onContinue")
-    Ask(StateBatchRequest(session.serverUrl, session.token, session.userId, [{ "type": "movie", "id": m.id }]), "onState")
+    AskContinue()
+    AskState()
     LoadCollectionStates()
 end sub
 
@@ -709,6 +767,7 @@ sub PressDismissResume()
 
     m.dismissedVersion = versionId
     m.resumable.Delete(versionId)
+    NoteEdit(m.edits, "resume")
     BuildActions()
 
     session = SessionFor(m.global)
@@ -833,6 +892,8 @@ sub onRandom(event as object)
 end sub
 
 sub ToggleWatched()
+    if m.busy.DoesExist("watched") then return
+
     wanted = not WatchedNow()
     if NeedsWatchedConfirm(m.kind)
         m.pendingWatched = wanted
@@ -850,6 +911,10 @@ sub ToggleWatched()
 end sub
 
 sub ApplyWatched(wanted as boolean)
+    if m.busy.DoesExist("watched") then return
+    m.busy.watched = wanted
+    NoteEdit(m.edits, "watched")
+
     SetWatchedLocal(wanted)
     BuildActions()
 
@@ -858,29 +923,37 @@ sub ApplyWatched(wanted as boolean)
 end sub
 
 sub onWatchedDone(event as object)
+    wanted = ValueAt(m.busy, "watched", false) = true
+    m.busy.Delete("watched")
     parsed = Answered(event)
     if m.released then return
 
     if not parsed.ok
-        SetWatchedLocal(not WatchedNow())
+        SetWatchedLocal(not wanted)
         BuildActions()
         RaiseActionFailed()
         return
     end if
 
-    if WatchedNow()
+    if wanted
         RaiseToast("ok", PhraseWith("toast.ok.markedWatched", { title: TitleText() }))
     else
         RaiseToast("ok", PhraseWith("toast.ok.markedUnwatched", { title: TitleText() }))
     end if
+    ReloadViewing()
 end sub
 
 sub ToggleWatchlist()
-    m.state.watchlisted = not m.state.watchlisted
+    if m.busy.DoesExist("watchlist") then return
+    wanted = not m.state.watchlisted
+    m.busy.watchlist = wanted
+    NoteEdit(m.edits, "watchlist")
+
+    m.state.watchlisted = wanted
     BuildActions()
 
     session = SessionFor(m.global)
-    if m.state.watchlisted
+    if wanted
         Ask(WatchlistAddRequest(session.serverUrl, session.token, session.userId, m.kind, m.id), "onWatchlistDone")
         return
     end if
@@ -888,17 +961,19 @@ sub ToggleWatchlist()
 end sub
 
 sub onWatchlistDone(event as object)
+    wanted = ValueAt(m.busy, "watchlist", false) = true
+    m.busy.Delete("watchlist")
     parsed = Answered(event)
     if m.released then return
 
     if not parsed.ok
-        m.state.watchlisted = not m.state.watchlisted
+        m.state.watchlisted = not wanted
         BuildActions()
         RaiseActionFailed()
         return
     end if
 
-    if m.state.watchlisted
+    if wanted
         RaiseToast("ok", PhraseWith("toast.ok.watchlistAdded", { title: TitleText() }))
     else
         RaiseToast("ok", PhraseWith("toast.ok.watchlistRemoved", { title: TitleText() }))
@@ -906,11 +981,16 @@ sub onWatchlistDone(event as object)
 end sub
 
 sub ToggleFavorite()
-    m.state.favorite = not m.state.favorite
+    if m.busy.DoesExist("favorite") then return
+    wanted = not m.state.favorite
+    m.busy.favorite = wanted
+    NoteEdit(m.edits, "favorite")
+
+    m.state.favorite = wanted
     BuildActions()
 
     session = SessionFor(m.global)
-    if m.state.favorite
+    if wanted
         Ask(FavoriteAddRequest(session.serverUrl, session.token, session.userId, m.kind, m.id), "onFavoriteDone")
         return
     end if
@@ -918,17 +998,19 @@ sub ToggleFavorite()
 end sub
 
 sub onFavoriteDone(event as object)
+    wanted = ValueAt(m.busy, "favorite", false) = true
+    m.busy.Delete("favorite")
     parsed = Answered(event)
     if m.released then return
 
     if not parsed.ok
-        m.state.favorite = not m.state.favorite
+        m.state.favorite = not wanted
         BuildActions()
         RaiseActionFailed()
         return
     end if
 
-    if m.state.favorite
+    if wanted
         RaiseToast("ok", PhraseWith("toast.ok.favoriteAdded", { title: TitleText() }))
     else
         RaiseToast("ok", PhraseWith("toast.ok.favoriteRemoved", { title: TitleText() }))

@@ -274,6 +274,79 @@ namespace tests
             m.assertEqual(cards[0].queueEntryId, "")
         end sub
 
+        @it("shows a queued movie once when it is also next in its collection")
+        sub upNextShowsQueuedMovieOnce()
+            cards = UpNextCards({ queue_next: { id: "17", card: m.movieJson() }, next_movies: [m.movieJson()] })
+
+            m.assertEqual(cards.Count(), 1)
+            m.assertEqual(cards[0].queueEntryId, "17")
+        end sub
+
+        @it("lets a queued episode stand in for its series' next episode")
+        sub upNextQueuedEpisodeWinsItsSeries()
+            queued = m.episodeJson()
+            queued.id = "e5"
+            other = m.episodeJson()
+            other.id = "e9"
+            other.series_id = "s2"
+            cards = UpNextCards({ queue_next: { id: "17", card: queued }, next_episodes: [m.episodeJson(), other] })
+
+            m.assertEqual(cards.Count(), 2)
+            m.assertEqual(cards[0].id, "e5")
+            m.assertEqual(cards[0].queueEntryId, "17")
+            m.assertEqual(cards[1].id, "e9")
+        end sub
+
+        @it("shows a movie once when it is next in two collections")
+        sub upNextShowsMovieOnce()
+            cards = UpNextCards({ next_movies: [m.movieJson(), { type: "movie", id: "m2", title: "Beta" }, m.movieJson()] })
+
+            m.assertEqual(cards.Count(), 2)
+            m.assertEqual(cards[0].id, "m1")
+            m.assertEqual(cards[1].id, "m2")
+        end sub
+
+        @it("keeps episodes apart when neither names its series")
+        sub upNextEpisodesWithoutSeries()
+            cards = UpNextCards({ next_episodes: [{ type: "episode", id: "e1", title: "One" }, { type: "episode", id: "e2", title: "Two" }] })
+
+            m.assertEqual(cards.Count(), 2)
+        end sub
+
+        @it("keeps the first card per title, so two versions in progress show once")
+        sub oncePerTitleKeepsTheFirst()
+            cards = OncePerTitle(ContinueCards({
+                now_playing: [{ card: { title: { type: "movie", id: "m1" }, display_title: "Alpha" }, version_id: "v1" }],
+                in_progress: [
+                    { progress: { version_id: "v2" }, card: { title: { type: "movie", id: "m1" }, display_title: "Alpha" } },
+                    { progress: { version_id: "v3" }, card: { title: { type: "episode", id: "m1" }, display_title: "Other" } }
+                ]
+            }))
+
+            m.assertEqual(cards.Count(), 2)
+            m.assertEqual(cards[0].versionId, "v1")
+            m.assertEqual(cards[1].versionId, "v3")
+        end sub
+
+        @it("keeps two episodes of one series in progress apart")
+        sub oncePerTitleKeepsSeriesEpisodes()
+            cards = OncePerTitle([EpisodeCard(m.episodeJson()), EpisodeCard({ type: "episode", id: "e2", series_id: "s1" })])
+
+            m.assertEqual(cards.Count(), 2)
+        end sub
+
+        @it("still hands every version to the resume map")
+        sub continueCardsKeepsEveryVersion()
+            cards = ContinueCards({
+                in_progress: [
+                    { progress: { version_id: "v1" }, card: { title: { type: "movie", id: "m1" }, display_title: "Alpha" } },
+                    { progress: { version_id: "v2" }, card: { title: { type: "movie", id: "m1" }, display_title: "Alpha" } }
+                ]
+            })
+
+            m.assertEqual(cards.Count(), 2)
+        end sub
+
         @describe("queue and playlist cards")
 
         @it("builds a queue card as a poster, with the entry id beside the title's own")

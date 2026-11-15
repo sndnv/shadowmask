@@ -75,18 +75,22 @@ Map<String, dynamic> _upNext() => <String, dynamic>{
   'next_movies': <dynamic>[_movie('m9')],
 };
 
-Map<String, dynamic> _inProgress() => <String, dynamic>{
-  'in_progress': <dynamic>[
-    <String, dynamic>{
-      'card': <String, dynamic>{
-        'title': <String, dynamic>{'type': 'movie', 'id': 'm9'},
-        'display_title': 'Delta',
-        'progress_percent': 40,
-      },
-      'progress': <String, dynamic>{'version_id': 'v9'},
-    },
-  ],
+Map<String, dynamic> _resumeEntry(String versionId) => <String, dynamic>{
+  'card': <String, dynamic>{
+    'title': <String, dynamic>{'type': 'movie', 'id': 'm9'},
+    'display_title': 'Delta',
+    'progress_percent': 40,
+  },
+  'progress': <String, dynamic>{'version_id': versionId},
 };
+
+Map<String, dynamic> _inProgress({required bool secondVersion}) =>
+    <String, dynamic>{
+      'in_progress': <dynamic>[
+        _resumeEntry('v9'),
+        if (secondVersion) _resumeEntry('v8'),
+      ],
+    };
 
 final List<String> _removed = <String>[];
 final List<String> _cleared = <String>[];
@@ -105,6 +109,7 @@ Future<void> _pump(
   bool admin = false,
   bool sharedLibraries = false,
   bool resuming = false,
+  bool secondVersion = false,
   bool upNext = false,
   bool queued = false,
 }) async {
@@ -194,7 +199,7 @@ Future<void> _pump(
       if (path == '/api/v1/users/u1/continue') {
         return http.Response(
           jsonEncode(<String, dynamic>{
-            if (resuming) ..._inProgress(),
+            if (resuming) ..._inProgress(secondVersion: secondVersion),
             if (upNext && !_watched.contains('m9')) ..._upNext(),
             if (queued)
               'queue_next': <String, dynamic>{
@@ -388,6 +393,29 @@ void main() {
       find.text(Strings.continueWatching),
       findsNothing,
       reason: 'the only card went, so the rail should go with it',
+    );
+  });
+
+  testWidgets('two versions in progress show one card until it is dismissed', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, watchlist: false, resuming: true, secondVersion: true);
+
+    CardRail rail = tester.widget<CardRail>(find.byType(CardRail).first);
+    expect(rail.title, Strings.continueWatching);
+    expect(rail.cards.map((CatalogCard c) => c.dismissVersionId), <String?>[
+      'v9',
+    ]);
+
+    await tester.tap(find.byTooltip(Strings.dismiss).first);
+    await tester.pumpAndSettle();
+
+    expect(_cleared, <String>['v9']);
+    rail = tester.widget<CardRail>(find.byType(CardRail).first);
+    expect(
+      rail.cards.map((CatalogCard c) => c.dismissVersionId),
+      <String?>['v8'],
+      reason: 'the other version can still be resumed, as a reload would show',
     );
   });
 

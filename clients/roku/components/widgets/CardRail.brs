@@ -121,7 +121,9 @@ sub RefreshContent(cards as object, viewport as integer)
 
     if cards.Count() = 0 then return
 
-    m.row.jumpToRowItem = [0, ClampInt(at, 0, cards.Count() - 1)]
+    at = ClampInt(at, 0, cards.Count() - 1)
+    m.row.jumpToRowItem = [0, at]
+    m.top.focusedCard = CardAt(at)
     if held then m.row.SetFocus(true)
 end sub
 

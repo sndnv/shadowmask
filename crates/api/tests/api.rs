@@ -1230,6 +1230,7 @@ async fn an_admins_linked_device_sees_a_versions_path_and_a_plain_one_does_not()
     ctx.auth.add_linked_device(UserId("u1".into()), false);
     ctx.library_repo.insert_library(library("lib1"));
     ctx.grant("u1", &["lib1"]);
+    ctx.catalog_repo.add_movie(movie("m1"));
     ctx.catalog_repo.add_version(version(
         "v1",
         TitleId::Movie(MovieId("m1".into())),

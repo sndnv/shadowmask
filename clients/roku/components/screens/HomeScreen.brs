@@ -111,7 +111,7 @@ sub FeedArrived()
 
     m.rails = []
 
-    watching = ContinueCards(m.continueJson)
+    watching = OncePerTitle(ContinueCards(m.continueJson))
     if watching.Count() > 0 then m.rails.Push({ heading: Phrase("home.continueWatching"), cards: watching })
 
     upNext = UpNextCards(m.continueJson)
@@ -334,7 +334,7 @@ sub onChoice()
 end sub
 
 sub ReloadCardStates()
-    Load()
+    Load(true)
 end sub
 
 sub onRevealed()

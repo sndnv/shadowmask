@@ -15,7 +15,7 @@ server image are credited from the *Third-party content* section of the
 
 | License | Crates |
 | --- | ---: |
-| Apache License 2.0 | 304 |
+| Apache License 2.0 | 305 |
 | MIT License | 96 |
 | Unicode License v3 | 20 |
 | ISC License | 7 |
@@ -1110,7 +1110,7 @@ Used by:
 
 Used by:
 
-- [ar_archive_writer 0.5.3](https://github.com/rust-lang/ar_archive_writer)
+- [ar_archive_writer 0.5.5](https://github.com/rust-lang/ar_archive_writer)
 
 ````text
                                  Apache License
@@ -3447,7 +3447,7 @@ Used by:
 
 Used by:
 
-- [bit_field 0.10.3](https://github.com/phil-opp/rust-bit-field)
+- [bit_field 0.10.4](https://github.com/phil-opp/rust-bit-field)
 
 ````text
                                  Apache License
@@ -3661,7 +3661,7 @@ Used by:
 - [anstyle-query 1.1.5](https://github.com/rust-cli/anstyle.git)
 - [anstyle 1.0.14](https://github.com/rust-cli/anstyle.git)
 - [colorchoice 1.0.5](https://github.com/rust-cli/anstyle.git)
-- [crc32fast 1.5.4](https://github.com/srijs/rust-crc32fast)
+- [crc32fast 1.5.5](https://github.com/srijs/rust-crc32fast)
 - [derive_builder 0.20.2](https://github.com/colin-kiegel/rust-derive-builder)
 - [derive_builder_core 0.20.2](https://github.com/colin-kiegel/rust-derive-builder)
 - [derive_builder_macro 0.20.2](https://github.com/colin-kiegel/rust-derive-builder)
@@ -5982,7 +5982,7 @@ limitations under the License.
 
 Used by:
 
-- [rustls-pki-types 1.15.1](https://github.com/rustls/pki-types)
+- [rustls-pki-types 1.16.0](https://github.com/rustls/pki-types)
 
 ````text
                               Apache License
@@ -7028,7 +7028,7 @@ limitations under the License.
 Used by:
 
 - [ahash 0.8.12](https://github.com/tkaitchuck/ahash)
-- [arc-swap 1.9.4](https://github.com/vorner/arc-swap)
+- [arc-swap 1.9.5](https://github.com/vorner/arc-swap)
 - [atomic-waker 1.1.2](https://github.com/smol-rs/atomic-waker)
 - [autocfg 1.5.1](https://github.com/cuviper/autocfg)
 - [base64 0.13.1](https://github.com/marshallpierce/rust-base64)
@@ -7036,8 +7036,8 @@ Used by:
 - [base64 0.23.1](https://github.com/marshallpierce/rust-base64)
 - [bitflags 1.3.2](https://github.com/bitflags/bitflags)
 - [bitflags 2.13.2](https://github.com/bitflags/bitflags)
-- [bumpalo 3.20.3](https://github.com/fitzgen/bumpalo)
-- [cc 1.11.1](https://github.com/rust-lang/cc-rs)
+- [bumpalo 3.20.4](https://github.com/fitzgen/bumpalo)
+- [cc 1.11.2](https://github.com/rust-lang/cc-rs)
 - [cfg-if 1.0.5](https://github.com/rust-lang/cfg-if)
 - [cmake 0.1.58](https://github.com/rust-lang/cmake-rs)
 - [core-foundation-sys 0.8.7](https://github.com/servo/core-foundation-rs)
@@ -7050,7 +7050,7 @@ Used by:
 - [displaydoc 0.2.7](https://github.com/yaahc/displaydoc)
 - [either 1.19.0](https://github.com/rayon-rs/either)
 - [equivalent 1.0.3](https://github.com/indexmap-rs/equivalent)
-- [errno 0.3.14](https://github.com/lambda-fairy/rust-errno)
+- [errno 0.3.15](https://github.com/lambda-fairy/rust-errno)
 - [event-listener 5.4.2](https://github.com/smol-rs/event-listener)
 - [evmap 11.0.0](https://github.com/jonhoo/evmap.git)
 - [fastrand 2.5.0](https://github.com/smol-rs/fastrand)
@@ -7069,6 +7069,7 @@ Used by:
 - [indexmap 2.14.2](https://github.com/indexmap-rs/indexmap)
 - [inlinable_string 0.1.15](https://github.com/fitzgen/inlinable_string)
 - [itertools 0.14.0](https://github.com/rust-itertools/itertools)
+- [itertools 0.15.0](https://github.com/rust-itertools/itertools)
 - [jobserver 0.1.35](https://github.com/rust-lang/jobserver-rs)
 - [jpeg-decoder 0.3.2](https://github.com/image-rs/jpeg-decoder)
 - [lazy_static 1.5.1](https://github.com/rust-lang-nursery/lazy-static.rs)
@@ -7094,16 +7095,16 @@ Used by:
 - [parking_lot 0.12.5](https://github.com/Amanieu/parking_lot)
 - [parking_lot_core 0.9.12](https://github.com/Amanieu/parking_lot)
 - [percent-encoding 2.3.2](https://github.com/servo/rust-url/)
-- [pest 2.9.5](https://github.com/pest-parser/pest)
-- [pest_derive 2.9.5](https://github.com/pest-parser/pest)
-- [pest_generator 2.9.5](https://github.com/pest-parser/pest)
-- [pest_meta 2.9.5](https://github.com/pest-parser/pest)
+- [pest 2.9.6](https://github.com/pest-parser/pest)
+- [pest_derive 2.9.6](https://github.com/pest-parser/pest)
+- [pest_generator 2.9.6](https://github.com/pest-parser/pest)
+- [pest_meta 2.9.6](https://github.com/pest-parser/pest)
 - [pkg-config 0.3.34](https://github.com/rust-lang/pkg-config-rs)
 - [png 0.17.16](https://github.com/image-rs/image-png)
 - [png 0.18.1](https://github.com/image-rs/image-png)
 - [primal-check 0.3.4](https://github.com/huonw/primal)
-- [prost-derive 0.14.4](https://github.com/tokio-rs/prost)
-- [prost 0.14.4](https://github.com/tokio-rs/prost)
+- [prost-derive 0.14.6](https://github.com/tokio-rs/prost)
+- [prost 0.14.6](https://github.com/tokio-rs/prost)
 - [rawpointer 0.2.1](https://github.com/bluss/rawpointer/)
 - [rayon-cond 0.4.0](https://github.com/cuviper/rayon-cond)
 - [rayon-core 1.13.0](https://github.com/rayon-rs/rayon)
@@ -7768,7 +7769,7 @@ Used by:
 - [blake2 0.11.0](https://github.com/RustCrypto/hashes)
 - [block-buffer 0.10.4](https://github.com/RustCrypto/utils)
 - [block-buffer 0.12.1](https://github.com/RustCrypto/utils)
-- [const-oid 0.10.2](https://github.com/RustCrypto/formats)
+- [const-oid 0.10.3](https://github.com/RustCrypto/formats)
 - [cpufeatures 0.2.17](https://github.com/RustCrypto/utils)
 - [cpufeatures 0.3.1](https://github.com/RustCrypto/utils)
 - [crypto-common 0.1.6](https://github.com/RustCrypto/traits)
@@ -10528,7 +10529,7 @@ THIS SOFTWARE.
 
 Used by:
 
-- [rustls-webpki 0.103.16](https://github.com/rustls/webpki)
+- [rustls-webpki 0.103.17](https://github.com/rustls/webpki)
 
 ````text
 Except as otherwise noted, this project is licensed under the following
@@ -10838,7 +10839,7 @@ without including the above copyright and permission notices.
 
 Used by:
 
-- [mio 1.2.4](https://github.com/tokio-rs/mio)
+- [mio 1.2.5](https://github.com/tokio-rs/mio)
 
 ````text
 Copyright (c) 2014 Carl Lerche and other MIO contributors
@@ -12099,8 +12100,8 @@ Used by:
 - [aho-corasick 1.1.5](https://github.com/BurntSushi/aho-corasick)
 - [byteorder-lite 0.1.0](https://github.com/image-rs/byteorder-lite)
 - [byteorder 1.5.0](https://github.com/BurntSushi/byteorder)
-- [jiff-core 0.1.4](https://github.com/BurntSushi/jiff)
-- [jiff 0.2.41](https://github.com/BurntSushi/jiff)
+- [jiff-core 0.1.5](https://github.com/BurntSushi/jiff)
+- [jiff 0.2.43](https://github.com/BurntSushi/jiff)
 - [memchr 2.8.3](https://github.com/BurntSushi/memchr)
 - [termcolor 1.4.1](https://github.com/BurntSushi/termcolor)
 - [walkdir 2.5.0](https://github.com/BurntSushi/walkdir)
@@ -12191,7 +12192,7 @@ THE SOFTWARE.
 
 Used by:
 
-- [sysinfo 0.40.1](https://github.com/GuillaumeGomez/sysinfo)
+- [sysinfo 0.40.3](https://github.com/GuillaumeGomez/sysinfo)
 
 ````text
 The MIT License (MIT)

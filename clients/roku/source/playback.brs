@@ -832,17 +832,18 @@ function QualityHeights() as object
     return [0, 1080, 720, 480, 320]
 end function
 
-function RungLabel(height as integer) as string
-    if height <= 0 then return Phrase("player.original")
+function RungLabel(height as integer, sourceHeight as integer) as string
+    if height > 0 then return FormatQualityRung(height)
+    if sourceHeight <= 0 then return Phrase("player.original")
 
-    return FormatQualityRung(height)
+    return PhraseWith("player.originalAt", { resolution: FormatSourceHeight(sourceHeight) })
 end function
 
 function QualityRungs(sourceHeight as integer) as object
     rungs = []
     for each height in QualityHeights()
         if height = 0 or sourceHeight <= 0 or height < sourceHeight
-            rungs.Push({ height: height, label: RungLabel(height) })
+            rungs.Push({ height: height, label: RungLabel(height, sourceHeight) })
         end if
     end for
     return rungs

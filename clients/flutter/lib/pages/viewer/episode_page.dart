@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
 
 import 'package:shadowmask/api/admin_api.dart';
@@ -18,6 +21,7 @@ import 'package:shadowmask/components/overview_text.dart';
 import 'package:shadowmask/components/play_button.dart';
 import 'package:shadowmask/components/poster_play.dart';
 import 'package:shadowmask/nav/nav_section.dart';
+import 'package:shadowmask/nav/refresh_on_return.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/view/artwork_fallback.dart';
 import 'package:shadowmask/view/card_aspect.dart';
@@ -84,6 +88,7 @@ typedef _EpisodeData = ({
   Episode episode,
   List<Version> versions,
   ItemState state,
+  bool stateRead,
   Map<String, int> resumable,
   EpisodeNeighbours neighbours,
 });
@@ -108,17 +113,40 @@ class _EpisodeBody extends StatefulWidget {
 }
 
 class _EpisodeBodyState extends State<_EpisodeBody>
-    with Mutations<_EpisodeBody> {
+    with RouteAware, Mutations<_EpisodeBody>, RefreshOnReturn<_EpisodeBody> {
   late final CatalogApi _catalog = CatalogApi(widget.api);
   late final PlayOnApi? _playOn = playOnApi(widget.api);
   late final TitleRef _ref = TitleRef(type: TitleKind.episode, id: widget.id);
   final GlobalKey<PlayButtonState> _play = GlobalKey<PlayButtonState>();
   late Future<_EpisodeData> _future = _load();
+  int _generation = 0;
+  int _refreshes = 0;
 
   void _reload() {
     setState(() {
       _future = _load();
     });
+  }
+
+  @override
+  Future<void> refreshOnReturn() async {
+    final Future<_EpisodeData> before = _future;
+    final int asked = ++_refreshes;
+    final _EpisodeData data;
+    try {
+      data = await _load();
+    } catch (_) {
+      return;
+    }
+    if (data.stateRead &&
+        mounted &&
+        asked == _refreshes &&
+        identical(_future, before)) {
+      setState(() {
+        _generation++;
+        _future = SynchronousFuture<_EpisodeData>(data);
+      });
+    }
   }
 
   Future<void> _delete(String title, String seasonId) async {
@@ -178,13 +206,16 @@ class _EpisodeBodyState extends State<_EpisodeBody>
       )).items;
     } catch (_) {}
     ItemState state = ItemState(title: _ref);
+    bool stateRead = false;
     try {
       state = await _catalog.stateOne(widget.user.id, _ref);
+      stateRead = true;
     } catch (_) {}
     return (
       episode: episode,
       versions: versions,
       state: state,
+      stateRead: stateRead,
       resumable: await pendingResumable,
       neighbours: await loadNeighbours(_catalog, episode),
     );
@@ -329,11 +360,13 @@ class _EpisodeBodyState extends State<_EpisodeBody>
                     catalog: _catalog,
                     userId: widget.user.id,
                     ref: _ref,
+                    revision: _generation,
                     title: e.title,
                     initialWatched: state.watched,
                     initialWatchlisted: state.watchlisted,
                     initialFavorite: state.favorite,
                     onWatchedChanged: (bool _) => _reload(),
+                    onSavedChanged: () => unawaited(refreshOnReturn()),
                     leading: PlayButton(
                       key: _play,
                       catalog: _catalog,

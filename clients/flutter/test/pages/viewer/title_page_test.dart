@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:material_ui/material_ui.dart';
@@ -6,12 +7,15 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/components/backdrop_scope.dart';
+import 'package:shadowmask/components/catalog_card_tile.dart';
 import 'package:shadowmask/components/play_on_button.dart';
 import 'package:shadowmask/components/poster_play.dart';
 import 'package:shadowmask/components/progress_bar.dart';
 import 'package:shadowmask/components/toast_host.dart';
+import 'package:shadowmask/components/toggle_button.dart';
 import 'package:shadowmask/components/version_menu.dart';
 import 'package:shadowmask/l10n/strings.dart';
+import 'package:shadowmask/nav/route_observer.dart';
 import 'package:shadowmask/pages/viewer/title_page.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
@@ -100,8 +104,14 @@ ApiClient _api({
   List<String>? seen,
   PlayOnServer? server,
   bool detailFails = false,
+  List<Completer<void>> holds = const <Completer<void>>[],
+  Set<String> watched = const <String>{},
+  Set<String>? watchlist,
+  bool Function()? stateFails,
 }) {
+  final Set<String> saved = watchlist ?? <String>{};
   bool cleared = false;
+  final Set<String> favorites = <String>{};
   return ApiClient(
     baseUrl: 'http://test',
     httpClient: MockClient((http.Request req) async {
@@ -110,6 +120,9 @@ ApiClient _api({
         return playOn;
       }
       seen?.add(req.url.path);
+      for (final Completer<void> hold in holds) {
+        await hold.future;
+      }
       if (req.url.path == '/api/v1/people/batch') {
         return http.Response(
           jsonEncode(
@@ -149,6 +162,36 @@ ApiClient _api({
       }
       if (req.url.path.endsWith('/collections')) {
         return http.Response(jsonEncode(collections), 200);
+      }
+      if (req.url.path.contains('/favorites/')) {
+        final String id = req.url.pathSegments.last;
+        req.method == 'PUT' ? favorites.add(id) : favorites.remove(id);
+        return http.Response('', 204);
+      }
+      if (req.url.path.contains('/watchlist/')) {
+        final String id = req.url.pathSegments.last;
+        req.method == 'PUT' ? saved.add(id) : saved.remove(id);
+        return http.Response('', 204);
+      }
+      if (req.url.path.endsWith('/state/batch')) {
+        if (stateFails?.call() ?? false) {
+          return http.Response('', 503);
+        }
+        final List<dynamic> titles =
+            (jsonDecode(req.body) as Map<String, dynamic>)['titles']
+                as List<dynamic>;
+        return http.Response(
+          jsonEncode(<Map<String, dynamic>>[
+            for (final dynamic t in titles)
+              <String, dynamic>{
+                'title': t,
+                'watched': watched.contains((t as Map<String, dynamic>)['id']),
+                'favorite': favorites.contains(t['id']),
+                'watchlisted': saved.contains(t['id']),
+              },
+          ]),
+          200,
+        );
       }
       if (req.url.path.contains('/versions')) {
         return http.Response(
@@ -221,6 +264,7 @@ Future<void> _pump(
         theme: buildTheme(
           AppThemeVariant.dark,
         ).copyWith(platform: TargetPlatform.macOS),
+        navigatorObservers: <NavigatorObserver>[appRouteObserver],
         onGenerateRoute: (RouteSettings settings) => MaterialPageRoute<void>(
           builder: (_) => settings.name == null || settings.name == '/'
               ? TitlePage(api: api, kind: 'movie', id: 'm1')
@@ -340,6 +384,209 @@ void main() {
     expect(find.text(Strings.play), findsOneWidget);
 
     await tester.pump(kToastDuration + const Duration(milliseconds: 100));
+  });
+
+  testWidgets('coming back from the player reads the movie again without '
+      'blanking it', (WidgetTester tester) async {
+    final List<Map<String, dynamic>> resuming = <Map<String, dynamic>>[
+      _inProgress('v1'),
+    ];
+    final List<Completer<void>> holds = <Completer<void>>[];
+    await _pump(
+      tester,
+      _api(
+        versions: <Map<String, dynamic>>[_version('v1', 'fhd')],
+        resuming: resuming,
+        holds: holds,
+      ),
+    );
+    expect(find.text(Strings.resumeAction), findsOneWidget);
+
+    final NavigatorState nav = tester.state<NavigatorState>(
+      find.byType(Navigator),
+    );
+    nav.push(
+      MaterialPageRoute<void>(
+        builder: (_) => const Scaffold(body: Text('the player')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    resuming.clear();
+    final Completer<void> hold = Completer<void>();
+    holds.add(hold);
+
+    nav.pop();
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    expect(
+      find.text(Strings.resumeAction),
+      findsOneWidget,
+      reason: 'the page stays as it was while it reads again',
+    );
+
+    hold.complete();
+    await tester.pumpAndSettle();
+    expect(find.text(Strings.resumeAction), findsNothing);
+    expect(find.text(Strings.play), findsOneWidget);
+  });
+
+  testWidgets(
+    'coming back takes the toggles from the server, not from before',
+    (WidgetTester tester) async {
+      final Set<String> saved = <String>{};
+      await _pump(
+        tester,
+        _api(
+          versions: <Map<String, dynamic>>[_version('v1', 'fhd')],
+          watchlist: saved,
+        ),
+      );
+      final Finder watchlist = find.widgetWithText(
+        ToggleButton,
+        Strings.watchlistLabel,
+      );
+      await tester.tap(watchlist);
+      await tester.pumpAndSettle();
+      expect(tester.widget<ToggleButton>(watchlist).pressed, isTrue);
+
+      final NavigatorState nav = tester.state<NavigatorState>(
+        find.byType(Navigator),
+      );
+      nav.push(
+        MaterialPageRoute<void>(
+          builder: (_) => const Scaffold(body: Text('the player')),
+        ),
+      );
+      await tester.pumpAndSettle();
+      saved.remove('m1');
+      nav.pop();
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.widget<ToggleButton>(watchlist).pressed,
+        isFalse,
+        reason: 'finishing the movie took it off the watchlist on the server',
+      );
+      await tester.pump(kToastDuration + const Duration(milliseconds: 100));
+    },
+  );
+
+  testWidgets('coming back keeps the toggles when their state cannot be read', (
+    WidgetTester tester,
+  ) async {
+    bool failing = false;
+    await _pump(
+      tester,
+      _api(
+        versions: <Map<String, dynamic>>[_version('v1', 'fhd')],
+        watchlist: <String>{'m1'},
+        stateFails: () => failing,
+      ),
+    );
+    final Finder watchlist = find.widgetWithText(
+      ToggleButton,
+      Strings.watchlistLabel,
+    );
+    expect(tester.widget<ToggleButton>(watchlist).pressed, isTrue);
+
+    final NavigatorState nav = tester.state<NavigatorState>(
+      find.byType(Navigator),
+    );
+    nav.push(
+      MaterialPageRoute<void>(
+        builder: (_) => const Scaffold(body: Text('the player')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    failing = true;
+    nav.pop();
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.widget<ToggleButton>(watchlist).pressed,
+      isTrue,
+      reason: 'an unread state is not a state of all false',
+    );
+  });
+
+  testWidgets('saving a title reads the page again after the save', (
+    WidgetTester tester,
+  ) async {
+    final List<String> seen = <String>[];
+    await _pump(
+      tester,
+      _api(versions: <Map<String, dynamic>>[_version('v1', 'fhd')], seen: seen),
+    );
+    int reads() => seen.where((String p) => p.endsWith('/continue')).length;
+    final int before = reads();
+    final Finder favorite = find.widgetWithText(
+      ToggleButton,
+      Strings.favoriteLabel,
+    );
+
+    await tester.tap(favorite);
+    await tester.pumpAndSettle();
+
+    expect(
+      reads(),
+      before + 1,
+      reason: 'a read asked before the save would undo it when it landed',
+    );
+    expect(tester.widget<ToggleButton>(favorite).pressed, isTrue);
+    await tester.pump(kToastDuration + const Duration(milliseconds: 100));
+  });
+
+  testWidgets('coming back reads the related rails\' watched marks in place', (
+    WidgetTester tester,
+  ) async {
+    final List<String> seen = <String>[];
+    final Set<String> watched = <String>{'m2'};
+    await _pump(
+      tester,
+      _api(
+        versions: <Map<String, dynamic>>[_version('v1', 'fhd')],
+        collections: <Map<String, dynamic>>[
+          _collection('c1', 'Arrivals', <Map<String, dynamic>>[
+            _member('m1', 'This Very Movie'),
+            _member('m2', 'Sicario'),
+          ]),
+        ],
+        seen: seen,
+        watched: watched,
+      ),
+    );
+    int reads() => seen.where((String p) => p.endsWith('/collections')).length;
+    bool sicarioWatched() => tester
+        .widget<CatalogCardTile>(
+          find.ancestor(
+            of: find.text('Sicario'),
+            matching: find.byType(CatalogCardTile),
+          ),
+        )
+        .card
+        .watched;
+    expect(reads(), 1);
+    expect(sicarioWatched(), isTrue);
+
+    final NavigatorState nav = tester.state<NavigatorState>(
+      find.byType(Navigator),
+    );
+    nav.push(
+      MaterialPageRoute<void>(
+        builder: (_) => const Scaffold(body: Text('the player')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    watched.remove('m2');
+    nav.pop();
+    await tester.pumpAndSettle();
+
+    expect(sicarioWatched(), isFalse);
+    expect(
+      reads(),
+      1,
+      reason: 'the rails stay where they are; only their marks are read again',
+    );
   });
 
   testWidgets('a resumable title shows its progress on the poster', (

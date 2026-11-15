@@ -28,6 +28,8 @@ class LibraryToggles extends StatefulWidget {
     this.leading,
     this.episodeCount = 0,
     this.onWatchedChanged,
+    this.onSavedChanged,
+    this.revision = 0,
   });
 
   final CatalogApi catalog;
@@ -42,6 +44,8 @@ class LibraryToggles extends StatefulWidget {
   final Widget? leading;
   final int episodeCount;
   final ValueChanged<bool>? onWatchedChanged;
+  final VoidCallback? onSavedChanged;
+  final int revision;
 
   @override
   State<LibraryToggles> createState() => _LibraryTogglesState();
@@ -58,13 +62,14 @@ class _LibraryTogglesState extends State<LibraryToggles> {
   @override
   void didUpdateWidget(LibraryToggles oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.initialWatched != oldWidget.initialWatched) {
+    final bool fresh = widget.revision != oldWidget.revision;
+    if (fresh || widget.initialWatched != oldWidget.initialWatched) {
       _watched = widget.initialWatched;
     }
-    if (widget.initialWatchlisted != oldWidget.initialWatchlisted) {
+    if (fresh || widget.initialWatchlisted != oldWidget.initialWatchlisted) {
       _watchlisted = widget.initialWatchlisted;
     }
-    if (widget.initialFavorite != oldWidget.initialFavorite) {
+    if (fresh || widget.initialFavorite != oldWidget.initialFavorite) {
       _favorite = widget.initialFavorite;
     }
   }
@@ -141,6 +146,7 @@ class _LibraryTogglesState extends State<LibraryToggles> {
             : Strings.toastRemovedWatchlist(widget.title),
         emphasis: widget.title,
       );
+      widget.onSavedChanged?.call();
     } catch (e) {
       if (mounted) {
         Toasts.of(
@@ -173,6 +179,7 @@ class _LibraryTogglesState extends State<LibraryToggles> {
             : Strings.toastRemovedFavorite(widget.title),
         emphasis: widget.title,
       );
+      widget.onSavedChanged?.call();
     } catch (e) {
       if (mounted) {
         Toasts.of(
