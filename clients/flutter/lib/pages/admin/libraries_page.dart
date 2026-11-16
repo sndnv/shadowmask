@@ -4,6 +4,7 @@ import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/api/library_api.dart';
 import 'package:shadowmask/components/admin/admin_column.dart';
 import 'package:shadowmask/components/admin/admin_table.dart';
+import 'package:shadowmask/components/admin/admin_two_line_cell.dart';
 import 'package:shadowmask/components/admin/confirm_dialog.dart';
 import 'package:shadowmask/components/admin/danger_icon_button.dart';
 import 'package:shadowmask/components/admin/library_form_dialog.dart';
@@ -169,11 +170,17 @@ class _LibrariesBodyState extends State<_LibrariesBody>
                 sortKey: (Library l) => l.name,
                 cell: (BuildContext c, Library l) =>
                     Text(l.name, overflow: TextOverflow.ellipsis),
+                narrowCell: (BuildContext c, Library l) =>
+                    AdminTwoLineCell.text(
+                      l.name,
+                      below:
+                          '${libraryKindLabel(l.kind)} · '
+                          '${libraryOriginLabel(l.origin)}',
+                    ),
               ),
               AdminColumn<Library>(
                 label: Strings.columnKind,
                 size: AdminColumnSize.small,
-                essential: true,
                 sortKey: (Library l) => l.kind.index,
                 cell: (BuildContext c, Library l) =>
                     Text(libraryKindLabel(l.kind)),

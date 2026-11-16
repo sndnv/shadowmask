@@ -7,6 +7,7 @@ import 'package:http/testing.dart';
 import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/components/progress_meter.dart';
 import 'package:shadowmask/components/toast_host.dart';
+import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/pages/admin/activity_page.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
@@ -182,6 +183,21 @@ void main() {
 
     expect(rowTintOf(tester, 'sam'), Tokens.dark.rowOk);
     expect(rowTintOf(tester, 'u9'), Tokens.dark.rowWarn);
+  });
+
+  testWidgets('a phone keeps the user, state and position under the title, '
+      'and the progress', (WidgetTester tester) async {
+    await _pump(tester, null, const Size(400, 900));
+
+    expect(find.text('sam · playing · 15:00'), findsOneWidget);
+    expect(find.byType(ProgressMeter), findsOneWidget);
+    expect(find.text(Strings.columnUsername.toUpperCase()), findsNothing);
+    expect(find.text(Strings.columnStatus.toUpperCase()), findsNothing);
+
+    await tester.tap(find.text('The Thing'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('went to /title?type=movie&id=m1'), findsOneWidget);
   });
 
   testWidgets('a phone renders the table without overflowing', (

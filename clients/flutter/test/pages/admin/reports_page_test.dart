@@ -22,6 +22,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 const String _kReports = '/api/v1/admin/diagnostics/reports';
 const String _kSent = '2026-10-24T09:00:05.123Z';
+const String _kOlder = '2026-10-23T09:00:05.123Z';
 
 const Map<String, dynamic> _payload = <String, dynamic>{
   'schema': 1,
@@ -31,9 +32,13 @@ const Map<String, dynamic> _payload = <String, dynamic>{
   'log': <String>['09:00:01 waiting'],
 };
 
-Map<String, dynamic> _summary(String id, {String? note}) => <String, dynamic>{
+Map<String, dynamic> _summary(
+  String id, {
+  String? note,
+  String sent = _kSent,
+}) => <String, dynamic>{
   'id': id,
-  'created_at': _kSent,
+  'created_at': sent,
   'user_id': 'u7',
   'player_id': 'player-$id',
   'app': 'flutter',
@@ -43,10 +48,11 @@ Map<String, dynamic> _summary(String id, {String? note}) => <String, dynamic>{
 };
 
 class _Server {
-  _Server({this.role = 'admin', this.failDelete = false});
+  _Server({this.role = 'admin', this.failDelete = false, this.older = false});
 
   final String role;
   final bool failDelete;
+  final bool older;
   final List<http.Request> requests = <http.Request>[];
 
   http.Response handle(http.Request req) {
@@ -83,8 +89,9 @@ class _Server {
       return _json(<String, dynamic>{
         'items': <dynamic>[
           if (kept) _summary('r1', note: 'stutters after a seek'),
+          if (older) _summary('r2', sent: _kOlder),
         ],
-        'total': kept ? 1 : 0,
+        'total': (kept ? 1 : 0) + (older ? 1 : 0),
         'offset': 0,
         'limit': 50,
       });
@@ -112,9 +119,10 @@ http.Response _json(Map<String, dynamic> body) =>
 Future<_Server> _pump(
   WidgetTester tester,
   _Server server,
-  Widget Function(ApiClient api) page,
-) async {
-  tester.view.physicalSize = const Size(1600, 1200);
+  Widget Function(ApiClient api) page, {
+  Size size = const Size(1600, 1200),
+}) async {
+  tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   final ApiClient api = ApiClient(
@@ -178,6 +186,38 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('went to /admin/report?id=r1'), findsOneWidget);
+  });
+
+  testWidgets('a phone keeps the player and the platform under the time sent', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      _Server(),
+      (ApiClient api) => ReportsPage(api: api),
+      size: const Size(400, 900),
+    );
+
+    expect(find.text(preciseDateTimeText(_kSent)!), findsOneWidget);
+    expect(find.text('player-r1 · android 14'), findsOneWidget);
+    expect(find.text(Strings.reportPlayer.toUpperCase()), findsNothing);
+    expect(find.text(Strings.reportPlatform.toUpperCase()), findsNothing);
+  });
+
+  testWidgets('a phone keeps the newest report first', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      _Server(older: true),
+      (ApiClient api) => ReportsPage(api: api),
+      size: const Size(400, 900),
+    );
+
+    expect(
+      tester.getTopLeft(find.text('player-r1 · android 14')).dy,
+      lessThan(tester.getTopLeft(find.text('player-r2 · android 14')).dy),
+    );
   });
 
   testWidgets('the filter asks the server again from the first page', (

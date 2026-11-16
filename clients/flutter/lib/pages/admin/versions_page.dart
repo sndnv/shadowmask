@@ -10,6 +10,7 @@ import 'package:shadowmask/api/library_api.dart';
 import 'package:shadowmask/components/admin/admin_column.dart';
 import 'package:shadowmask/components/admin/admin_filter_field.dart';
 import 'package:shadowmask/components/admin/admin_table.dart';
+import 'package:shadowmask/components/admin/admin_two_line_cell.dart';
 import 'package:shadowmask/components/start_ellipsis_text.dart';
 import 'package:shadowmask/components/admin/confirm_dialog.dart';
 import 'package:shadowmask/components/admin/danger_icon_button.dart';
@@ -292,12 +293,16 @@ class _VersionsBodyState extends State<_VersionsBody>
                 v.path ?? v.id,
                 style: monoStyle.copyWith(color: t.text, fontSize: 12),
               ),
-              narrowCell: (BuildContext context, Version v) =>
-                  StartEllipsisText.middle(
-                    p.basename(v.path ?? v.id),
-                    tooltip: v.path ?? v.id,
-                    style: monoStyle.copyWith(color: t.text, fontSize: 12),
-                  ),
+              narrowCell: (BuildContext context, Version v) => AdminTwoLineCell(
+                first: StartEllipsisText.middle(
+                  p.basename(v.path ?? v.id),
+                  tooltip: v.path ?? v.id,
+                  style: monoStyle.copyWith(color: t.text, fontSize: 12),
+                ),
+                below:
+                    '${_titleOf(data.titles, v)} · ${v.quality.label} · '
+                    '${gigabytes(v.sizeBytes)}',
+              ),
             ),
             AdminColumn<Version>(
               label: Strings.columnTitle,

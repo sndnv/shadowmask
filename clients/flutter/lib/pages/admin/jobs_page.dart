@@ -7,6 +7,7 @@ import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/components/admin/admin_column.dart';
 import 'package:shadowmask/components/admin/admin_filter_field.dart';
 import 'package:shadowmask/components/admin/admin_table.dart';
+import 'package:shadowmask/components/admin/admin_two_line_cell.dart';
 import 'package:shadowmask/components/admin/confirm_dialog.dart';
 import 'package:shadowmask/components/admin/danger_icon_button.dart';
 import 'package:shadowmask/components/page_actions.dart';
@@ -249,6 +250,10 @@ class _JobsBodyState extends State<_JobsBody> with Mutations<_JobsBody> {
         essential: true,
         cell: (BuildContext c, Job j) =>
             Text(jobKindLabel(j.kind), overflow: TextOverflow.ellipsis),
+        narrowCell: (BuildContext c, Job j) => AdminTwoLineCell.text(
+          jobKindLabel(j.kind),
+          below: jobNarrowLine(j),
+        ),
       ),
       AdminColumn<Job>(
         label: Strings.columnStatus,

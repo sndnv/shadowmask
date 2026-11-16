@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 
 import 'package:shadowmask/components/admin/admin_column.dart';
 import 'package:shadowmask/components/admin/admin_table.dart';
+import 'package:shadowmask/components/admin/admin_two_line_cell.dart';
 import 'package:shadowmask/components/admin/job_status_chip.dart';
 import 'package:shadowmask/components/pagination.dart';
 import 'package:shadowmask/components/progress_meter.dart';
@@ -83,6 +84,10 @@ class JobChildren extends StatelessWidget {
             essential: true,
             cell: (BuildContext c, JobNode n) =>
                 Text(jobKindLabel(n.job.kind), overflow: TextOverflow.ellipsis),
+            narrowCell: (BuildContext c, JobNode n) => AdminTwoLineCell.text(
+              jobKindLabel(n.job.kind),
+              below: jobNarrowLine(n.job),
+            ),
           ),
           AdminColumn<JobNode>(
             label: Strings.columnStatus,

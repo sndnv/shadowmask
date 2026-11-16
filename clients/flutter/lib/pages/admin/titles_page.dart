@@ -9,6 +9,7 @@ import 'package:shadowmask/api/playback_api.dart';
 import 'package:shadowmask/components/admin/admin_column.dart';
 import 'package:shadowmask/components/admin/admin_filter_field.dart';
 import 'package:shadowmask/components/admin/admin_table.dart';
+import 'package:shadowmask/components/admin/admin_two_line_cell.dart';
 import 'package:shadowmask/components/admin/confirm_dialog.dart';
 import 'package:shadowmask/components/admin/danger_icon_button.dart';
 import 'package:shadowmask/components/all_versions_dialog.dart';
@@ -364,26 +365,6 @@ class _TitlesBodyState extends State<_TitlesBody> with Mutations<_TitlesBody> {
   Widget _text(String value) =>
       Text(value, maxLines: 1, overflow: TextOverflow.ellipsis);
 
-  Widget _named(BuildContext context, Tokens t, String name, String? below) {
-    if (below == null) {
-      return _text(name);
-    }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        _text(name),
-        Text(
-          below,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: Theme.of(
-            context,
-          ).textTheme.bodySmall?.copyWith(color: t.muted),
-        ),
-      ],
-    );
-  }
-
   Widget _actions(TitleRow r) {
     final String? block = _deleteBlock(r);
     final bool enabled = block == null && !busy(r.id);
@@ -445,13 +426,12 @@ class _TitlesBodyState extends State<_TitlesBody> with Mutations<_TitlesBody> {
               essential: true,
               sortable: true,
               cell: (BuildContext context, TitleRow r) =>
-                  _named(context, t, _name(r), _context(r)),
-              narrowCell: (BuildContext context, TitleRow r) => _named(
-                context,
-                t,
-                _name(r),
-                '${_context(r) ?? _kind(r.kind)} · ${_versions(r)}',
-              ),
+                  AdminTwoLineCell.text(_name(r), below: _context(r)),
+              narrowCell: (BuildContext context, TitleRow r) =>
+                  AdminTwoLineCell.text(
+                    _name(r),
+                    below: '${_context(r) ?? _kind(r.kind)} · ${_versions(r)}',
+                  ),
             ),
             AdminColumn<TitleRow>(
               label: Strings.columnKind,

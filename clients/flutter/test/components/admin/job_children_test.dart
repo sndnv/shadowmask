@@ -2,20 +2,30 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shadowmask/components/admin/admin_table.dart';
 import 'package:shadowmask/components/admin/job_children.dart';
+import 'package:shadowmask/components/admin/job_status_chip.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/model/job/job.dart';
 import 'package:shadowmask/model/job/job_node.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
 import 'package:shadowmask/theme/theme_scope.dart';
+import 'package:shadowmask/util/format.dart';
 import 'package:shadowmask/view/page.dart';
 
-JobNode _node(String id, JobKind kind, int depth) => JobNode(
+JobNode _node(
+  String id,
+  JobKind kind,
+  int depth, {
+  JobStatus status = JobStatus.succeeded,
+  String? started,
+}) => JobNode(
   job: Job(
     id: id,
     kind: kind,
-    status: JobStatus.succeeded,
+    status: status,
     priority: JobPriority.normal,
+    progress: 0.5,
+    startedAt: started,
     createdAt: '2026-08-17T07:00:00Z',
     updatedAt: '2026-08-17T07:00:00Z',
   ),
@@ -24,8 +34,9 @@ JobNode _node(String id, JobKind kind, int depth) => JobNode(
 
 Future<List<int>> _pump(
   WidgetTester tester,
-  Future<Paged<JobNode>> future,
-) async {
+  Future<Paged<JobNode>> future, {
+  double width = 1200,
+}) async {
   final List<int> paged = <int>[];
   await tester.pumpWidget(
     ThemeScope(
@@ -37,7 +48,7 @@ Future<List<int>> _pump(
           builder: (_) => settings.name == null || settings.name == '/'
               ? Scaffold(
                   body: SizedBox(
-                    width: 1200,
+                    width: width,
                     child: JobChildren(future: future, onOffset: paged.add),
                   ),
                 )
@@ -56,6 +67,7 @@ Future<List<int>> _pumpNodes(
   int total = 0,
   int offset = 0,
   int limit = 2,
+  double width = 1200,
 }) => _pump(
   tester,
   Future<Paged<JobNode>>.value(
@@ -66,6 +78,7 @@ Future<List<int>> _pumpNodes(
       limit: limit,
     ),
   ),
+  width: width,
 );
 
 void main() {
@@ -84,6 +97,28 @@ void main() {
 
     expect(grandkidX, greaterThan(kidX));
     expect(deepestX, greaterThan(grandkidX));
+  });
+
+  testWidgets('a narrow table keeps the start and the progress under the '
+      'kind, and the status', (WidgetTester tester) async {
+    await _pumpNodes(tester, <JobNode>[
+      _node(
+        'kid',
+        JobKind.metadata,
+        0,
+        status: JobStatus.running,
+        started: '2026-08-17T07:05:00Z',
+      ),
+      _node('done', JobKind.artwork, 0, started: '2026-08-17T07:06:00Z'),
+    ], width: 400);
+
+    expect(
+      find.text('${dateTimeText('2026-08-17T07:05:00Z')} · 50%'),
+      findsOneWidget,
+    );
+    expect(find.text(dateTimeText('2026-08-17T07:06:00Z')!), findsOneWidget);
+    expect(find.byType(JobStatusChip), findsNWidgets(2));
+    expect(find.text(Strings.columnStarted.toUpperCase()), findsNothing);
   });
 
   testWidgets('children are laid out in the shared admin table', (

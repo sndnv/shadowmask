@@ -4,6 +4,7 @@ import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/api/user_admin_api.dart';
 import 'package:shadowmask/components/admin/admin_column.dart';
 import 'package:shadowmask/components/admin/admin_table.dart';
+import 'package:shadowmask/components/admin/admin_two_line_cell.dart';
 import 'package:shadowmask/components/admin/confirm_dialog.dart';
 import 'package:shadowmask/components/admin/danger_icon_button.dart';
 import 'package:shadowmask/components/page_actions.dart';
@@ -186,11 +187,17 @@ class _UsersBodyState extends State<_UsersBody> with Mutations<_UsersBody> {
                   sortKey: (AccountProfile u) => u.username,
                   cell: (BuildContext c, AccountProfile u) =>
                       Text(u.username, overflow: TextOverflow.ellipsis),
+                  narrowCell: (BuildContext c, AccountProfile u) =>
+                      AdminTwoLineCell.text(
+                        u.username,
+                        below:
+                            '${u.role.name} · '
+                            '${u.active ? Strings.statusActive : Strings.statusInactive}',
+                      ),
                 ),
                 AdminColumn<AccountProfile>(
                   label: Strings.columnRole,
                   size: AdminColumnSize.small,
-                  essential: true,
                   sortKey: (AccountProfile u) => u.role.name,
                   cell: (BuildContext c, AccountProfile u) => Text(u.role.name),
                 ),
@@ -221,37 +228,46 @@ class _UsersBodyState extends State<_UsersBody> with Mutations<_UsersBody> {
                   label: Strings.columnActions,
                   fixedWidth: adminActionsWidth(2),
                   align: AdminColumnAlign.end,
+                  essential: true,
                   cell: (BuildContext c, AccountProfile u) {
                     final bool self = u.id == widget.selfId;
+                    final bool canToggle = !(self && u.active) && !busy(u.id);
+                    final bool canDelete = !self && !busy(u.id);
                     return Row(
                       mainAxisSize: MainAxisSize.min,
                       children: <Widget>[
-                        IconButton(
-                          icon: Icon(
-                            u.active
-                                ? Icons.person_off_outlined
-                                : Icons.person_outline,
-                            size: 18,
+                        GestureDetector(
+                          excludeFromSemantics: true,
+                          onTap: canToggle ? null : () {},
+                          child: IconButton(
+                            icon: Icon(
+                              u.active
+                                  ? Icons.person_off_outlined
+                                  : Icons.person_outline,
+                              size: 18,
+                            ),
+                            color: t.muted,
+                            visualDensity: VisualDensity.compact,
+                            tooltip: self && u.active
+                                ? Strings.cannotDeactivateSelf
+                                : (u.active
+                                      ? Strings.deactivateUser
+                                      : Strings.activateUser),
+                            onPressed: canToggle
+                                ? () => _setActive(u, !u.active)
+                                : null,
                           ),
-                          color: t.muted,
-                          visualDensity: VisualDensity.compact,
-                          tooltip: self && u.active
-                              ? Strings.cannotDeactivateSelf
-                              : (u.active
-                                    ? Strings.deactivateUser
-                                    : Strings.activateUser),
-                          onPressed: (self && u.active) || busy(u.id)
-                              ? null
-                              : () => _setActive(u, !u.active),
                         ),
-                        DangerIconButton(
-                          icon: Icons.delete_outline,
-                          tooltip: self
-                              ? Strings.cannotDeleteSelf
-                              : Strings.deleteUser,
-                          onPressed: self || busy(u.id)
-                              ? null
-                              : () => _delete(u),
+                        GestureDetector(
+                          excludeFromSemantics: true,
+                          onTap: canDelete ? null : () {},
+                          child: DangerIconButton(
+                            icon: Icons.delete_outline,
+                            tooltip: self
+                                ? Strings.cannotDeleteSelf
+                                : Strings.deleteUser,
+                            onPressed: canDelete ? () => _delete(u) : null,
+                          ),
                         ),
                       ],
                     );

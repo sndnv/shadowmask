@@ -262,6 +262,15 @@ void main() {
     );
   });
 
+  testWidgets('a phone keeps the title, quality and size under the file name', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, size: const Size(400, 900));
+
+    expect(find.text('m1 · HD · 1.2 GB'), findsOneWidget);
+    expect(find.text(Strings.columnSize.toUpperCase()), findsNothing);
+  });
+
   testWidgets('the library column names the library, falling back to its id', (
     WidgetTester tester,
   ) async {
