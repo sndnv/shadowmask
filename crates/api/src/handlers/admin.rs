@@ -5,11 +5,14 @@ use axum::http::StatusCode;
 use serde::Deserialize;
 use tracing::debug;
 
-use domain::catalog::{EpisodeId, MovieId, SeasonId, SeriesId, VersionFilter};
+use domain::catalog::{
+    EpisodeId, MovieId, RowAvailability, SeasonId, SeriesId, SortOrder, TitleRowFilter,
+    TitleRowKind, TitleRowOrder, TitleRowSort, VersionFilter,
+};
 use domain::job::{JobId, JobQuery};
 use domain::library::LibraryId;
 
-use crate::dto::catalog::VersionResponse;
+use crate::dto::catalog::{TitleRowResponse, VersionResponse};
 use crate::dto::job::{JobNodeResponse, JobResponse, JobsResponse};
 use crate::dto::library::FetchRequest;
 use crate::error::{ApiError, ApiResult};
@@ -154,6 +157,67 @@ pub async fn versions<S: AppServices>(
         .map_err(log_fail(actor, "retrieve versions"))?;
     debug!("User [{actor}] retrieved {} versions", versions.items.len());
     Ok(Json(PageResponse::from_page(versions, |v| VersionResponse::with_path(v, true))))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TitlesParams {
+    pub filter: Option<String>,
+    pub kind: Option<String>,
+    pub availability: Option<String>,
+    pub sort: Option<String>,
+    pub order: Option<String>,
+}
+
+impl TitlesParams {
+    fn to_order(&self) -> ApiResult<TitleRowOrder> {
+        let sort = match self.sort.as_deref() {
+            None => TitleRowSort::default(),
+            Some(other) => TitleRowSort::parse(other)
+                .ok_or_else(|| ApiError::bad_request(format!("unknown sort: {other}")))?,
+        };
+        let order = match self.order.as_deref() {
+            None => SortOrder::default(),
+            Some(other) => SortOrder::parse(other)
+                .ok_or_else(|| ApiError::bad_request(format!("unknown order: {other}")))?,
+        };
+        Ok(TitleRowOrder { sort, order })
+    }
+
+    fn to_filter(&self) -> ApiResult<TitleRowFilter> {
+        let kind = match self.kind.as_deref() {
+            None | Some("all") => None,
+            Some(other) => Some(
+                TitleRowKind::parse(other)
+                    .ok_or_else(|| ApiError::bad_request(format!("unknown title kind: {other}")))?,
+            ),
+        };
+        let availability =
+            match self.availability.as_deref() {
+                None | Some("all") => None,
+                Some(other) => Some(RowAvailability::parse(other).ok_or_else(|| {
+                    ApiError::bad_request(format!("unknown availability: {other}"))
+                })?),
+            };
+        Ok(TitleRowFilter::new(self.filter.as_deref().unwrap_or_default(), kind, availability))
+    }
+}
+
+pub async fn titles<S: AppServices>(
+    State(state): State<S>,
+    RequireAdmin(principal): RequireAdmin,
+    Query(page): Query<PageParams>,
+    Query(params): Query<TitlesParams>,
+) -> ApiResult<Json<PageResponse<TitleRowResponse>>> {
+    let actor = &principal.user.0;
+    let filter = params.to_filter()?;
+    let order = params.to_order()?;
+    let titles = state
+        .catalog()
+        .admin_titles(&principal, &filter, order, page.to_request())
+        .await
+        .map_err(log_fail(actor, "retrieve titles"))?;
+    debug!("User [{actor}] retrieved {} titles", titles.items.len());
+    Ok(Json(PageResponse::from_page(titles, TitleRowResponse::from)))
 }
 
 pub async fn delete_movie<S: AppServices>(

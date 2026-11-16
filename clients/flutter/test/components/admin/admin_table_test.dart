@@ -307,6 +307,69 @@ void main() {
     expect(tapped, 'a');
   });
 
+  testWidgets('a row canTapRow turns down does not open', (
+    WidgetTester tester,
+  ) async {
+    final List<String> tapped = <String>[];
+    await _pump(
+      tester,
+      AdminTable<String>(
+        columns: _columns(),
+        rows: const <String>['a', 'b'],
+        emptyText: 'None',
+        onRowTap: tapped.add,
+        canTapRow: (String r) => r == 'a',
+      ),
+    );
+
+    await tester.tap(find.text('b'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('a'));
+    await tester.pumpAndSettle();
+
+    expect(tapped, <String>['a']);
+  });
+
+  testWidgets('with onSort a header asks for the order and the rows stay put', (
+    WidgetTester tester,
+  ) async {
+    final List<(int, bool)> asked = <(int, bool)>[];
+    await _pump(
+      tester,
+      AdminTable<String>(
+        columns: <AdminColumn<String>>[
+          AdminColumn<String>(
+            label: 'Name',
+            sortKey: (String r) => r,
+            cell: (BuildContext context, String r) => Text(r),
+          ),
+          AdminColumn<String>(
+            label: 'Size',
+            sortable: true,
+            cell: (BuildContext context, String r) => Text('$r!'),
+          ),
+        ],
+        rows: const <String>['b', 'a'],
+        emptyText: 'None',
+        onSort: (int column, bool ascending) => asked.add((column, ascending)),
+      ),
+    );
+
+    await tester.tap(find.text('NAME'));
+    await tester.pumpAndSettle();
+    expect(
+      tester.getTopLeft(find.text('b')).dy,
+      lessThan(tester.getTopLeft(find.text('a')).dy),
+      reason: 'the server orders the rows, so the table leaves them as given',
+    );
+    await tester.tap(find.text('SIZE'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('SIZE'));
+    await tester.pumpAndSettle();
+
+    expect(asked, <(int, bool)>[(0, true), (1, true), (1, false)]);
+  });
+
   testWidgets('hovering a row lifts it off the table surface', (
     WidgetTester tester,
   ) async {

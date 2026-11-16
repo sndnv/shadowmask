@@ -14,6 +14,7 @@ String adminJobsRoute() => '/admin/jobs';
 String adminLibrariesRoute() => '/admin/libraries';
 String adminUsersRoute() => '/admin/users';
 String adminVersionsRoute() => '/admin/versions';
+String adminTitlesRoute() => '/admin/titles';
 String adminCollectionsRoute() => '/admin/collections';
 String adminActivityRoute() => '/admin/activity';
 String adminReportsRoute() => '/admin/reports';

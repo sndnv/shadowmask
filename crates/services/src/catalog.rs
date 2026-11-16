@@ -4,8 +4,9 @@ use domain::catalog::{
     ArtworkRef, Collection, CollectionDetail, CollectionId, CollectionUpdate, Episode, EpisodeCard,
     EpisodeContext, EpisodeId, FilmographyEntry, Movie, MovieDetail, MovieId, NewCollection,
     PersonProfile, RandomScope, Season, SeasonCard, SeasonId, Series, SeriesCard, SeriesDetail,
-    SeriesId, TitleCard, TitleId, TitleKind, TitleListFilter, TitleListQuery, TitleRef, Version,
-    VersionDetail, VersionFilter, VersionId, best_available, in_year_order,
+    SeriesId, TitleCard, TitleId, TitleKind, TitleListFilter, TitleListQuery, TitleRef, TitleRow,
+    TitleRowFilter, TitleRowOrder, Version, VersionDetail, VersionFilter, VersionId,
+    best_available, in_year_order, title_rows,
 };
 use domain::common::{Page, PageRequest};
 use domain::error::CatalogError;
@@ -457,6 +458,25 @@ where
         Ok(paginate(&matched, page))
     }
 
+    async fn admin_titles(
+        &self,
+        caller: &Principal,
+        filter: &TitleRowFilter,
+        order: TitleRowOrder,
+        page: PageRequest,
+    ) -> Result<Page<TitleRow>, CatalogError> {
+        if !acl::is_admin(caller) {
+            return Err(CatalogError::Forbidden);
+        }
+        let viewer = self.viewer(caller).await?;
+        let outline = self.catalog.title_outline(viewer.libraries()).await?;
+        let rows: Vec<TitleRow> = title_rows(&outline, &|rating| viewer.permits(rating))
+            .into_iter()
+            .filter(|row| filter.matches(row))
+            .collect();
+        Ok(paginate(&order.apply(rows), page))
+    }
+
     async fn version(
         &self,
         caller: &Principal,
@@ -599,7 +619,10 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use domain::catalog::{ArtworkId, ArtworkOwner, ArtworkWidth, SortOrder, TitleSort};
+    use domain::catalog::{
+        ArtworkId, ArtworkOwner, ArtworkWidth, RowAvailability, SortOrder, TitleRowKind,
+        TitleRowSort, TitleSort,
+    };
     use domain::common::Quality;
     use domain::metadata::GenreId;
     use domain::metadata::{ContentRating, Credit, CreditRole, TitleEnrichment};
@@ -1287,6 +1310,124 @@ mod tests {
             0,
             "an admin listing must not show a version whose detail page would 404"
         );
+    }
+
+    fn row_ids(rows: &Page<TitleRow>) -> Vec<&str> {
+        rows.items.iter().map(|row| row.id.as_str()).collect()
+    }
+
+    #[tokio::test]
+    async fn admin_titles_is_admin_only_and_lists_what_the_grants_reach() {
+        let svc = seeded().await;
+        let everything = TitleRowFilter::default();
+        let all = svc
+            .admin_titles(&admin(), &everything, TitleRowOrder::default(), page())
+            .await
+            .unwrap();
+        assert_eq!(row_ids(&all), ["m1", "m2", "s1", "se1", "e1", "s2", "se2", "e2"]);
+        assert_eq!(
+            readable_ids(&all),
+            ["m1", "s2", "se2", "e2"],
+            "only rows with a file have a page"
+        );
+        assert!(matches!(
+            svc.admin_titles(&member(), &everything, TitleRowOrder::default(), page())
+                .await
+                .unwrap_err(),
+            CatalogError::Forbidden
+        ));
+
+        svc.users.grant(&UserId("admin".into()), &[LibraryId("lib2".into())]);
+        let narrow = svc
+            .admin_titles(&admin(), &everything, TitleRowOrder::default(), page())
+            .await
+            .unwrap();
+        assert_eq!(
+            row_ids(&narrow),
+            ["m1", "m2", "s1", "se1", "e1"],
+            "e2's only file is in lib1, so it and its empty parents drop out"
+        );
+    }
+
+    fn readable_ids(rows: &Page<TitleRow>) -> Vec<&str> {
+        rows.items.iter().filter(|row| row.readable).map(|row| row.id.as_str()).collect()
+    }
+
+    async fn capped_at_pg(
+        catalog: MockCatalogRepo,
+    ) -> CatalogServiceImpl<MockCatalogRepo, MockUserRepo> {
+        let svc = serving(catalog).await;
+        svc.users.insert(User {
+            id: UserId("admin".into()),
+            username: "admin".into(),
+            role: Role::Admin,
+            max_content_rating: Some(rating("PG")),
+            ..capped_user()
+        });
+        svc
+    }
+
+    #[tokio::test]
+    async fn a_capped_admin_lists_every_row_but_opens_only_what_the_cap_allows() {
+        let everything = TitleRowFilter::default();
+        let svc = capped_at_pg(seeded_catalog().await).await;
+        let rows = svc
+            .admin_titles(&admin(), &everything, TitleRowOrder::default(), page())
+            .await
+            .unwrap();
+        assert_eq!(row_ids(&rows), ["m1", "m2", "s1", "se1", "e1", "s2", "se2", "e2"]);
+        assert_eq!(
+            readable_ids(&rows),
+            ["s2", "se2", "e2"],
+            "m1 is PG-13, above the cap; s2 is TV-PG, and its season and episode carry it"
+        );
+
+        let unrated = capped_at_pg(seeded_catalog_with(None).await).await;
+        let rows = unrated
+            .admin_titles(&admin(), &everything, TitleRowOrder::default(), page())
+            .await
+            .unwrap();
+        assert!(
+            readable_ids(&rows).is_empty(),
+            "an unrated series is refused under a cap, as its title pages are"
+        );
+    }
+
+    #[tokio::test]
+    async fn admin_titles_filters_before_the_page_is_cut() {
+        let svc = seeded().await;
+        let unwatchable =
+            TitleRowFilter::new("", Some(TitleRowKind::Episode), Some(RowAvailability::NoVersion));
+        let first = svc
+            .admin_titles(
+                &admin(),
+                &unwatchable,
+                TitleRowOrder::default(),
+                PageRequest { offset: 0, limit: 1 },
+            )
+            .await
+            .unwrap();
+        assert_eq!((row_ids(&first), first.total), (vec!["e1"], 1));
+        let named = TitleRowFilter::new("S2", None, None);
+        let found =
+            svc.admin_titles(&admin(), &named, TitleRowOrder::default(), page()).await.unwrap();
+        assert_eq!(row_ids(&found), ["s2", "se2", "e2"]);
+    }
+
+    #[tokio::test]
+    async fn admin_titles_sorts_every_match_before_the_page_is_cut() {
+        let svc = seeded().await;
+        let episodes_first = TitleRowOrder { sort: TitleRowSort::Kind, order: SortOrder::Desc };
+        let first = svc
+            .admin_titles(
+                &admin(),
+                &TitleRowFilter::default(),
+                episodes_first,
+                PageRequest { offset: 0, limit: 1 },
+            )
+            .await
+            .unwrap();
+        assert_eq!((row_ids(&first), first.total), (vec!["e1"], 8));
     }
 
     fn season_numbered(id: &str, series: &str, number: u16) -> Season {

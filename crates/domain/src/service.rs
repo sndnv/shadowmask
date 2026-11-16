@@ -4,8 +4,8 @@ use crate::catalog::{
     Collection, CollectionDetail, CollectionId, CollectionUpdate, Episode, EpisodeCard,
     EpisodeEdit, EpisodeId, Movie, MovieDetail, MovieEdit, MovieId, NewCollection, PersonProfile,
     RandomScope, Season, SeasonCard, SeasonId, SeriesCard, SeriesDetail, SeriesEdit, SeriesId,
-    TitleCard, TitleId, TitleKind, TitleListQuery, TitleRef, Version, VersionDetail, VersionFilter,
-    VersionId,
+    TitleCard, TitleId, TitleKind, TitleListQuery, TitleRef, TitleRow, TitleRowFilter,
+    TitleRowOrder, Version, VersionDetail, VersionFilter, VersionId,
 };
 use crate::common::{Page, PageRequest};
 use crate::discovery::{Audience, ContinueWatchingItem, Hub, SearchKind, SearchResult};
@@ -229,6 +229,13 @@ pub trait CatalogService {
         filter: &VersionFilter,
         page: PageRequest,
     ) -> impl Future<Output = Result<Page<Version>, CatalogError>> + Send;
+    fn admin_titles(
+        &self,
+        caller: &Principal,
+        filter: &TitleRowFilter,
+        order: TitleRowOrder,
+        page: PageRequest,
+    ) -> impl Future<Output = Result<Page<TitleRow>, CatalogError>> + Send;
     fn version(
         &self,
         caller: &Principal,

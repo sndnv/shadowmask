@@ -104,6 +104,7 @@ ApiClient _api({
   List<String>? seen,
   PlayOnServer? server,
   bool detailFails = false,
+  bool gone = false,
   List<Completer<void>> holds = const <Completer<void>>[],
   Set<String> watched = const <String>{},
   Set<String>? watchlist,
@@ -122,6 +123,20 @@ ApiClient _api({
       seen?.add(req.url.path);
       for (final Completer<void> hold in holds) {
         await hold.future;
+      }
+      if (gone && req.url.path.contains('/movies/')) {
+        return http.Response(
+          jsonEncode(<String, dynamic>{
+            'error': <String, dynamic>{
+              'code': 'not_found',
+              'message': 'catalog entity not found',
+            },
+          }),
+          404,
+        );
+      }
+      if (gone && req.url.path.endsWith('/continue')) {
+        return http.Response('', 500);
       }
       if (req.url.path == '/api/v1/people/batch') {
         return http.Response(
@@ -278,6 +293,18 @@ Future<void> _pump(
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
+
+  testWidgets(
+    'a movie that is gone says so, and its other reads fail quietly',
+    (WidgetTester tester) async {
+      await _pump(
+        tester,
+        _api(versions: const <Map<String, dynamic>>[], gone: true),
+      );
+
+      expect(find.text(Strings.couldNotLoadTitle), findsOneWidget);
+    },
+  );
 
   testWidgets('a device that can play puts Play on beside Play and in the '
       'versions dialog', (WidgetTester tester) async {

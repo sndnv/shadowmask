@@ -490,6 +490,67 @@ async fn the_admin_title_deletes_are_gated_and_return_no_content() {
     );
 }
 
+fn kinds_and_ids(body: &Value) -> Vec<String> {
+    body["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| format!("{}:{}", row["kind"].as_str().unwrap(), row["id"].as_str().unwrap()))
+        .collect()
+}
+
+#[tokio::test]
+async fn the_admin_titles_list_is_for_admins_and_reads_its_filters() {
+    let ctx = Ctx::new();
+    ctx.catalog_repo.add_movie(movie("m1"));
+    ctx.catalog_repo.add_movie(movie("m2"));
+    ctx.catalog_repo.add_series(series("s1"));
+    ctx.catalog_repo.add_season(season("se1", "s1"));
+    ctx.catalog_repo.add_episode(episode("e1", "se1"));
+    ctx.catalog_repo.add_version(version(
+        "v1",
+        TitleId::Movie(MovieId("m1".into())),
+        "lib1",
+        Quality::Hd,
+    ));
+
+    let (status, _) = call(ctx.app(), Method::GET, "/api/v1/admin/titles", Some(USER), None).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    let everything = ["movie:m1", "movie:m2", "series:s1", "season:se1", "episode:e1"];
+    for (query, expected) in [
+        ("", everything.as_slice()),
+        ("?kind=all&availability=all&filter=%20", everything.as_slice()),
+        ("?kind=season", ["season:se1"].as_slice()),
+        ("?availability=available", ["movie:m1"].as_slice()),
+        ("?availability=no_version&kind=movie", ["movie:m2"].as_slice()),
+        ("?availability=unavailable", [].as_slice()),
+        ("?filter=ALPHA%20S1", ["series:s1", "season:se1", "episode:e1"].as_slice()),
+        ("?sort=title&order=asc", everything.as_slice()),
+        (
+            "?sort=kind&order=desc",
+            ["episode:e1", "season:se1", "series:s1", "movie:m1", "movie:m2"].as_slice(),
+        ),
+    ] {
+        let uri = format!("/api/v1/admin/titles{query}");
+        let (status, body) = call(ctx.app(), Method::GET, &uri, Some(ADMIN), None).await;
+        assert_eq!(status, StatusCode::OK, "GET {uri}");
+        assert_eq!(kinds_and_ids(&body), expected, "GET {uri}");
+    }
+
+    let (_, paged) =
+        call(ctx.app(), Method::GET, "/api/v1/admin/titles?offset=1&limit=2", Some(ADMIN), None)
+            .await;
+    assert_eq!(kinds_and_ids(&paged), ["movie:m2", "series:s1"]);
+    assert_eq!(paged["total"], 5);
+
+    for query in ["?kind=person", "?availability=gone", "?sort=files", "?order=sideways"] {
+        let uri = format!("/api/v1/admin/titles{query}");
+        let (status, _) = call(ctx.app(), Method::GET, &uri, Some(ADMIN), None).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "GET {uri}");
+    }
+}
+
 #[tokio::test]
 async fn self_reports_the_session_role_not_the_account_role() {
     let ctx = Ctx::new();
@@ -1208,6 +1269,7 @@ async fn an_admins_linked_device_works_on_versions_and_nothing_else() {
         (Method::GET, "/api/v1/admin/jobs"),
         (Method::GET, job.as_str()),
         (Method::GET, "/api/v1/admin/versions"),
+        (Method::GET, "/api/v1/admin/titles"),
         (Method::POST, "/api/v1/admin/fetch"),
         (Method::GET, "/api/v1/admin/server/software"),
         (Method::GET, "/api/v1/users"),

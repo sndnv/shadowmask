@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
+    <title>Shadowmask (basic) - Admin titles</title>
+  </head>
+  <body>
+    <h1 class="sm-visually-hidden">Titles</h1>
+    <nav id="nav"></nav>
+    <p class="sm-crumbs"><a href="index.html">Admin</a> / <span id="titles-crumb">Titles</span></p>
+    <div class="sm-toolbar">
+      <button type="button" id="refresh">Refresh</button>
+      <span id="filter-slot"></span>
+    </div>
+    <main id="main">Loading&hellip;</main>
+    <script src="../app.js"></script>
+    <script type="module">
+      import {
+        deleteBlock,
+        deletePath,
+        fullName,
+        kindLabel,
+        listsVersions,
+        rowContext,
+        rowHref,
+        rowName,
+        rowTone,
+        stepBack,
+        titlesQuery,
+        versionsPath,
+        versionsText,
+      } from "./title-rows.js";
+
+      const KINDS = [
+        ["", "All"],
+        ["movie", "Movies"],
+        ["series", "Series"],
+        ["season", "Seasons"],
+        ["episode", "Episodes"],
+      ];
+      const AVAILABILITY = [
+        ["", "All"],
+        ["available", "Available"],
+        ["unavailable", "Unavailable"],
+        ["no_version", "No version"],
+      ];
+      const SORTS = [
+        ["title", "Title"],
+        ["kind", "Kind"],
+        ["year", "Year"],
+        ["versions", "Versions"],
+        ["added", "Added"],
+      ];
+      const ORDERS = [
+        ["asc", "Ascending"],
+        ["desc", "Descending"],
+      ];
+
+      sm.chrome();
+      if (sm.requireAuth()) guard();
+
+      async function guard() {
+        const main = document.getElementById("main");
+        try {
+          const me = await sm.self();
+          if (me.role !== "admin") {
+            main.textContent = "Not Authorized.";
+            return;
+          }
+          document.getElementById("refresh").addEventListener("click", load);
+          renderFilter();
+          await load();
+        } catch {
+          main.textContent = "Could not load.";
+        }
+      }
+
+      function choice(name, options) {
+        const select = sm.el(
+          "select",
+          { name },
+          options.map(([value, label]) => sm.el("option", { value }, label)),
+        );
+        select.value = sm.qs(name) || options[0][0];
+        if (select.selectedIndex < 0) select.selectedIndex = 0;
+        return select;
+      }
+
+      function renderFilter() {
+        const filter = sm.el("input", {
+          type: "search",
+          name: "filter",
+          value: sm.qs("filter") || "",
+          placeholder: "title or series",
+          autocomplete: "off",
+          "aria-label": "Filter titles",
+        });
+        const slot = document.getElementById("filter-slot");
+        slot.textContent = "";
+        slot.appendChild(
+          sm.el("form", { method: "get", action: "titles.html" }, [
+            sm.el("label", null, ["Filter ", filter]),
+            " ",
+            sm.el("label", null, ["Kind ", choice("kind", KINDS)]),
+            " ",
+            sm.el("label", null, ["Availability ", choice("availability", AVAILABILITY)]),
+            " ",
+            sm.el("label", null, ["Sort ", choice("sort", SORTS)]),
+            " ",
+            sm.el("label", null, ["Order ", choice("order", ORDERS)]),
+            " ",
+            sm.el("button", { type: "submit" }, "Apply"),
+          ]),
+        );
+      }
+
+      function filtered() {
+        const params = new URLSearchParams(titlesQuery(location.search));
+        return ["filter", "kind", "availability"].some((name) => params.has(name));
+      }
+
+      function nameCell(r) {
+        const name = rowName(r, sm.episodeLine);
+        const link = rowHref(r, sm.href);
+        const context = rowContext(r);
+        return [
+          link ? sm.el("a", { href: link }, name) : name,
+          context ? sm.el("span", { class: "sm-row-context", text: context }) : null,
+        ];
+      }
+
+      function actions(r) {
+        const cell = [];
+        if (listsVersions(r)) {
+          const show = sm.el("button", { type: "button" }, "Versions");
+          show.addEventListener("click", () => showVersions(r));
+          cell.push(show, " ");
+        }
+        cell.push(
+          sm.deleteTitleButton(deletePath(r), r.id, fullName(r, sm.episodeLine), deleteBlock(r), () => {
+            sm.toast("Title deleted.", "ok");
+            load();
+          }),
+        );
+        return cell;
+      }
+
+      async function load() {
+        const main = document.getElementById("main");
+        main.textContent = "Loading…";
+        try {
+          const page = await sm.json("/api/v1/admin/titles" + titlesQuery(location.search));
+          const back = stepBack(page);
+          if (back !== null) {
+            const params = new URLSearchParams(location.search);
+            params.set("offset", String(back));
+            history.replaceState(null, "", location.pathname + "?" + params.toString());
+            return load();
+          }
+          document.getElementById("titles-crumb").textContent = "Titles (" + page.total + ")";
+          main.textContent = "";
+          if (!page.items.length) {
+            main.appendChild(
+              sm.el("p", { text: filtered() ? "No titles match the filter." : "No titles yet." }),
+            );
+            return;
+          }
+          const rows = page.items.map((r) => [
+            nameCell(r),
+            kindLabel(r.kind),
+            r.year ? String(r.year) : "",
+            versionsText(r),
+            sm.date(r.added_at),
+            actions(r),
+          ]);
+          main.appendChild(
+            sm.table(["Title", "Kind", "Year", "Versions", "Added", ""], rows, {
+              rowClass: (index) => rowTone(page.items[index]),
+            }),
+          );
+          main.appendChild(sm.pager(page.total, page.offset, page.limit));
+        } catch {
+          main.textContent = "Could not load titles.";
+        }
+      }
+
+      async function showVersions(r) {
+        const list = sm.el("div", { text: "Loading…" });
+        sm.openDialog("Versions", () =>
+          sm.el("div", null, [
+            sm.el("p", null, sm.el("strong", { text: fullName(r, sm.episodeLine) })),
+            list,
+          ]),
+        );
+        try {
+          const page = await sm.json(versionsPath(r));
+          const items = sm.orderedVersions(page.items || []);
+          list.textContent = "";
+          if (!items.length) {
+            list.appendChild(sm.el("p", { text: "No versions." }));
+            return;
+          }
+          list.appendChild(
+            sm.table(
+              ["Path", "Quality", "Container", "Size", "Available"],
+              items.map((v) => [
+                sm.el("a", { href: sm.href.version(v.id), class: "sm-path" }, v.path || v.id),
+                (v.quality || "").toUpperCase(),
+                v.container,
+                sm.gigabytes(v.size_bytes),
+                v.available ? "yes" : sm.el("span", { class: "sm-badge sm-danger" }, "missing"),
+              ]),
+              { rowClass: (index) => (items[index].available ? null : "sm-row-unavailable") },
+            ),
+          );
+        } catch {
+          list.textContent = "Could not load versions.";
+        }
+      }
+    </script>
+  </body>
+</html>

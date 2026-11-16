@@ -264,6 +264,9 @@ abstract final class Strings {
   static const String recentlyAddedShows = 'Recently Added Series';
   static String episodeCountLabel(int n) =>
       n == 1 ? '1 episode' : '$n episodes';
+  static String episodesWithFilesLabel(int files, int episodes) =>
+      '$files of ${episodeCountLabel(episodes)}';
+  static const String noEpisodes = 'No episodes';
   static String newEpisodeCountLabel(int n) =>
       n == 1 ? '1 new episode' : '$n new episodes';
   static String seasonCountLabel(int n) => n == 1 ? '1 season' : '$n seasons';
@@ -350,6 +353,7 @@ abstract final class Strings {
   static const String typeMovie = 'Movies';
   static const String typeSeries = 'Series';
   static const String typeEpisode = 'Episodes';
+  static const String typeSeason = 'Seasons';
   static const String typePerson = 'People';
   static const String seeAll = 'See all';
   static String seeAllAfter(String heading) => '$heading · ';
@@ -831,6 +835,7 @@ abstract final class Strings {
   static const String adminLibraries = 'Libraries';
   static const String adminUsers = 'Users';
   static const String adminVersions = 'Versions';
+  static const String adminTitles = 'Titles';
   static String versionsWithCount(int count) => 'Versions ($count)';
   static const String versionTrickplay = 'Trickplay';
   static const String versionContainer = 'Container';
@@ -840,6 +845,7 @@ abstract final class Strings {
   static const String adminLibrariesAbout = 'Manage libraries and scanning.';
   static const String adminCollectionsAbout = 'Curate movie collections.';
   static const String adminVersionsAbout = 'Manage versions and subtitles.';
+  static const String adminTitlesAbout = 'Find and delete titles.';
   static const String adminFetchAbout = 'Fetch remote content.';
   static const String adminUsersAbout = 'Manage users and access.';
   static const String adminJobsAbout = 'Background job queue.';
@@ -1301,6 +1307,7 @@ abstract final class Strings {
   static const String emptyLibraries = 'No libraries exist yet.';
   static const String emptyUsers = 'No users.';
   static const String emptyVersions = 'No versions available.';
+  static const String emptyTitles = 'No titles yet.';
   static const String emptyUnmatched = 'No unmatched files.';
   static const String emptyDuplicates = 'No duplicates.';
 
@@ -1324,6 +1331,7 @@ abstract final class Strings {
   static const String couldNotLoadLibrary = 'Could not load this library.';
   static const String couldNotLoadUsers = 'Could not load users.';
   static const String couldNotLoadVersions = 'Could not load versions.';
+  static const String couldNotLoadTitles = 'Could not load titles.';
   static const String couldNotLoadActivity = 'Could not load activity.';
   static const String couldNotLoadLogs = 'Could not load logs.';
   static const String loadingLogs = 'Loading logs…';
@@ -1443,10 +1451,13 @@ abstract final class Strings {
   static const String filterVersions =
       'Filter by path, title, library or quality';
   static const String noMatchingVersions = 'No versions match the filter.';
+  static const String filterTitles = 'Filter by title or series';
+  static const String noMatchingTitles = 'No titles match the filter.';
   static const String availability = 'Availability';
   static const String availabilityAll = 'All';
   static const String availabilityAvailable = 'Available';
   static const String availabilityUnavailable = 'Unavailable';
+  static const String availabilityNoVersion = 'No version';
   static const String filterReports =
       'Filter by player, user, app, platform or version';
   static const String noMatchingReports = 'No reports match the filter.';
@@ -1477,6 +1488,8 @@ abstract final class Strings {
   static const String columnQuality = 'Quality';
   static const String columnSize = 'Size';
   static const String columnTitle = 'Title';
+  static const String columnYear = 'Year';
+  static const String columnAdded = 'Added';
   static const String columnUpdated = 'Updated';
   static const String columnCreated = 'Created';
   static const String columnActions = 'Actions';

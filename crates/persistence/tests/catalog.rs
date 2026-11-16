@@ -1,6 +1,8 @@
 use std::collections::HashSet;
 
-use contracts::repo::{catalog_clean_contract, catalog_repository_contract, catalog_seed};
+use contracts::repo::{
+    catalog_clean_contract, catalog_repository_contract, catalog_seed, title_outline_contract,
+};
 use domain::catalog::{Movie, MovieId, RandomScope, TitleId, TitleListFilter, Version, VersionId};
 use domain::common::Quality;
 use domain::library::LibraryId;
@@ -49,6 +51,13 @@ async fn catalog_clean_contract_holds_for_sqlite() {
     let dir = tempfile::tempdir().unwrap();
     let repo = SqliteCatalogRepo::connect(&dir.path().join("catalog.db")).await.unwrap();
     catalog_clean_contract(repo).await;
+}
+
+#[tokio::test]
+async fn title_outline_contract_holds_for_sqlite() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = SqliteCatalogRepo::connect(&dir.path().join("catalog.db")).await.unwrap();
+    title_outline_contract(repo).await;
 }
 
 fn plain_movie(id: &str) -> Movie {

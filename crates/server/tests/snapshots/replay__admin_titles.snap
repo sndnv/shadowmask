@@ -1,0 +1,63 @@
+---
+source: crates/server/tests/replay.rs
+expression: value
+---
+{
+  "body": {
+    "items": [
+      {
+        "added_at": "2023-11-14T22:13:21Z",
+        "available": true,
+        "files": 4,
+        "id": "m1",
+        "kind": "movie",
+        "readable": true,
+        "title": "Alpha m1",
+        "year": 2020
+      },
+      {
+        "added_at": "2023-11-14T22:13:22Z",
+        "available": true,
+        "episodes": 1,
+        "files": 1,
+        "id": "s1",
+        "kind": "series",
+        "readable": true,
+        "seasons": 1,
+        "title": "Alpha s1",
+        "year": 2019
+      },
+      {
+        "added_at": "2023-11-14T22:13:25Z",
+        "available": true,
+        "episodes": 1,
+        "files": 1,
+        "id": "se1",
+        "kind": "season",
+        "readable": true,
+        "season_number": 1,
+        "series_id": "s1",
+        "series_title": "Alpha s1",
+        "title": "Season 1"
+      },
+      {
+        "added_at": "2023-11-14T22:13:24Z",
+        "available": true,
+        "episode_number": 1,
+        "files": 1,
+        "id": "e1",
+        "kind": "episode",
+        "readable": true,
+        "season_id": "se1",
+        "season_number": 1,
+        "series_id": "s1",
+        "series_title": "Alpha s1",
+        "title": "Alpha e1"
+      }
+    ],
+    "limit": 50,
+    "offset": 0,
+    "total": 4
+  },
+  "status": 200
+}

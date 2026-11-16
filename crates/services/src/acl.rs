@@ -70,6 +70,10 @@ impl Viewer {
         can_access_library(&self.access, library)
     }
 
+    pub fn libraries(&self) -> &[LibraryId] {
+        &self.access
+    }
+
     pub fn filter(&self, library: Option<&LibraryId>) -> TitleListFilter {
         let libraries = match library {
             Some(lib) if can_access_library(&self.access, lib) => vec![lib.clone()],

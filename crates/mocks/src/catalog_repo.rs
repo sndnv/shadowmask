@@ -6,7 +6,8 @@ use domain::catalog::{
     ArtworkId, ArtworkOwner, ArtworkRef, CatalogClean, CleanScope, Collection, CollectionId,
     Episode, EpisodeContext, EpisodeId, LibraryFootprint, LibraryPurge, Movie, MovieDetail,
     MovieId, RandomScope, Season, SeasonId, Series, SeriesDetail, SeriesId, TitleId, TitleKind,
-    TitleListFilter, TitleRef, TitleSet, Version, VersionDetail, VersionId, VersionReconcile,
+    TitleListFilter, TitleOutline, TitleRef, TitleSet, Version, VersionCounts, VersionDetail,
+    VersionId, VersionReconcile,
 };
 use domain::common::{Page, PageRequest};
 use domain::error::RepositoryError;
@@ -909,6 +910,45 @@ impl CatalogRepository for MockCatalogRepo {
         let mut all: Vec<Version> = self.state.lock().unwrap().versions.to_vec();
         all.sort_by(|a, b| a.id.0.cmp(&b.id.0));
         Ok(paginate(&all, page))
+    }
+
+    async fn title_outline(
+        &self,
+        libraries: &[LibraryId],
+    ) -> Result<TitleOutline, RepositoryError> {
+        self.guard()?;
+        let state = self.state.lock().unwrap();
+        let mut versions: HashMap<TitleId, VersionCounts> = HashMap::new();
+        for version in &state.versions {
+            let granted = libraries.contains(&version.library);
+            let counts = versions.entry(version.title.clone()).or_default();
+            counts.total += 1;
+            counts.granted += u32::from(granted);
+            counts.present += u32::from(granted && version.available);
+        }
+        Ok(TitleOutline {
+            movies: state
+                .movies
+                .iter()
+                .map(|movie| Movie { artwork: Vec::new(), ..movie.clone() })
+                .collect(),
+            series: state
+                .series
+                .iter()
+                .map(|series| Series { artwork: Vec::new(), ..series.clone() })
+                .collect(),
+            seasons: state
+                .seasons
+                .iter()
+                .map(|season| Season { artwork: Vec::new(), ..season.clone() })
+                .collect(),
+            episodes: state
+                .episodes
+                .iter()
+                .map(|episode| Episode { artwork: Vec::new(), ..episode.clone() })
+                .collect(),
+            versions,
+        })
     }
 
     async fn version_detail(

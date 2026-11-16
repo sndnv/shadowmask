@@ -230,27 +230,27 @@ class _MovieDetailBodyState extends State<_MovieDetailBody>
   }
 
   Future<_MovieData> _load() async {
-    final Future<Paged<Version>> pendingVersions = _catalog.movieVersions(
-      widget.id,
-    );
+    final Future<List<Version>> pendingVersions = _catalog
+        .movieVersions(widget.id)
+        .then<List<Version>>(
+          (Paged<Version> page) => page.items,
+          onError: (Object _) => const <Version>[],
+        );
     final Future<ItemState?> pendingState = _catalog
         .stateOne(widget.user.id, _ref)
         .then<ItemState?>((ItemState s) => s, onError: (Object _) => null);
-    final Future<ContinueFeed> pendingFeed = _catalog.continueFeed(
-      widget.user.id,
-    );
+    final Future<Map<String, int>> pendingResumable = _catalog
+        .continueFeed(widget.user.id)
+        .then<Map<String, int>>(
+          (ContinueFeed feed) => feed.resumeProgress,
+          onError: (Object _) => const <String, int>{},
+        );
     final MovieDetail detail = await _catalog.movie(widget.id);
-    List<Version> versions = const <Version>[];
-    try {
-      versions = (await pendingVersions).items;
-    } catch (_) {}
+    final List<Version> versions = await pendingVersions;
     final ItemState? read = await pendingState;
     final ItemState state = read ?? ItemState(title: _ref);
     final bool stateRead = read != null;
-    Map<String, int> resumable = const <String, int>{};
-    try {
-      resumable = (await pendingFeed).resumeProgress;
-    } catch (_) {}
+    final Map<String, int> resumable = await pendingResumable;
     return (
       detail: detail,
       versions: versions,

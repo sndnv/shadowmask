@@ -294,6 +294,7 @@ pub fn requests() -> Vec<EndpointCase> {
             Token::Admin,
             None,
         ),
+        case("admin_titles", "GET", "/api/v1/admin/titles", Token::Admin, None),
         case("admin_jobs", "GET", "/api/v1/admin/jobs", Token::Admin, None),
         case("admin_jobs_active", "GET", "/api/v1/admin/jobs?state=active", Token::Admin, None),
         case("admin_jobs_filtered", "GET", "/api/v1/admin/jobs?filter=artwork", Token::Admin, None),
