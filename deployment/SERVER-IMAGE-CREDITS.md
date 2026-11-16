@@ -83,7 +83,7 @@ Licensed under the SIL Open Font License 1.1; the licence travels with the font 
 ## The enrichment image
 
 Adds CTranslate2 and SentencePiece (both MIT), compiled from vendored source and statically linked
-through the `ct2rs` and `sentencepiece-sys` crates. Every licence text found in those two crate
+through the `ct2rs-sys` and `sentencepiece-sys` crates. Every licence text found in those two crate
 sources, theirs and their own vendored dependencies', is at
 `/usr/share/doc/shadowmask/third-party-licenses/`, under paths naming the library each came from.
 

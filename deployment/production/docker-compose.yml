@@ -145,6 +145,8 @@ services:
       # How many of these run at once is SHADOWMASK_JOB_POOLS_ENRICHMENT_CONCURRENCY, above.
       # Cores one enrichment job may use. Unset means half the machine.
       # SHADOWMASK_ENRICHMENT_THREADS: "4"
+      # Phrases that drop a transcribed or translated cue; replaces the defaults in ENRICHMENT.md.
+      # SHADOWMASK_ENRICHMENT_HALLUCINATION_PHRASES: "subtitles by, thanks for watching"
       # Transcription and translation take off, on or auto. "on" loads the model and lets an
       # admin trigger the work; "auto" also schedules it. The two are independent.
       # SHADOWMASK_ENRICHMENT_TRANSCRIPTION_MODE: "auto"

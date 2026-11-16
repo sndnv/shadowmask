@@ -55,8 +55,11 @@ fn validate_transcription_dir(dir: &Path) -> Result<(), String> {
     require(dir, "model.bin")?;
     require(dir, "config.json")?;
     require(dir, "tokenizer.json")?;
-    require(dir, "preprocessor_config.json")?;
-    Ok(())
+    if has(dir, "vocabulary.json") || has(dir, "vocabulary.txt") {
+        Ok(())
+    } else {
+        Err("missing vocabulary.json or vocabulary.txt".to_string())
+    }
 }
 
 fn validate_translation_dir(dir: &Path) -> Result<(), String> {
@@ -100,7 +103,7 @@ mod tests {
     #[test]
     fn picks_first_valid_alphanumeric_and_rejects_invalid() {
         let base = TempDir::new().unwrap();
-        let whisper = &["model.bin", "config.json", "tokenizer.json", "preprocessor_config.json"];
+        let whisper = &["model.bin", "config.json", "tokenizer.json", "vocabulary.json"];
         write_files(&base.path().join("b-good"), whisper);
         write_files(&base.path().join("a-bad"), &["model.bin"]);
         write_files(&base.path().join("c-good"), whisper);
@@ -111,6 +114,32 @@ mod tests {
         assert_eq!(scan.rejected.len(), 1);
         assert_eq!(scan.rejected[0].dir, base.path().join("a-bad"));
         assert!(scan.rejected[0].reason.contains("config.json"));
+    }
+
+    #[test]
+    fn transcription_needs_no_preprocessor_config() {
+        let base = TempDir::new().unwrap();
+        write_files(
+            &base.path().join("turbo"),
+            &["model.bin", "config.json", "tokenizer.json", "vocabulary.txt"],
+        );
+
+        let scan = scan_transcription_models(base.path());
+
+        assert_eq!(scan.chosen, Some(base.path().join("turbo")));
+        assert!(scan.rejected.is_empty());
+    }
+
+    #[test]
+    fn transcription_without_a_vocabulary_is_rejected() {
+        let base = TempDir::new().unwrap();
+        write_files(&base.path().join("turbo"), &["model.bin", "config.json", "tokenizer.json"]);
+
+        let scan = scan_transcription_models(base.path());
+
+        assert!(scan.chosen.is_none());
+        assert_eq!(scan.rejected.len(), 1);
+        assert!(scan.rejected[0].reason.contains("vocabulary"));
     }
 
     #[test]

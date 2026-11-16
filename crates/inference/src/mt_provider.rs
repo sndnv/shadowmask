@@ -1,6 +1,6 @@
 use domain::error::TranslationError;
 use domain::media::{
-    FetchedSubtitle, SubtitleFormat, TranslationProvider, TranslationSpec, is_hallucinated_text,
+    FetchedSubtitle, HallucinationFilter, SubtitleFormat, TranslationProvider, TranslationSpec,
 };
 use subtp::srt::SubRip;
 use subtp::vtt::{VttBlock, WebVtt};
@@ -9,11 +9,12 @@ use crate::TranslationEngine;
 
 pub struct MtProvider<E> {
     engine: E,
+    filter: HallucinationFilter,
 }
 
 impl<E> MtProvider<E> {
-    pub fn new(engine: E) -> Self {
-        Self { engine }
+    pub fn new(engine: E, filter: HallucinationFilter) -> Self {
+        Self { engine, filter }
     }
 }
 
@@ -55,7 +56,7 @@ where
         }
         vtt.blocks.retain(|block| match block {
             VttBlock::Que(cue) => {
-                !cue.payload.is_empty() && !is_hallucinated_text(&cue.payload.join(" "))
+                !cue.payload.is_empty() && !self.filter.is_hallucinated(&cue.payload.join(" "))
             }
             _ => true,
         });
@@ -74,7 +75,7 @@ where
             subtitle.text = split_lines(&text);
         }
         srt.subtitles.retain(|subtitle| {
-            !subtitle.text.is_empty() && !is_hallucinated_text(&subtitle.text.join(" "))
+            !subtitle.text.is_empty() && !self.filter.is_hallucinated(&subtitle.text.join(" "))
         });
         Ok(FetchedSubtitle { content: srt.render(), format: SubtitleFormat::Srt })
     }
@@ -150,6 +151,10 @@ mod tests {
         }
     }
 
+    fn provider(engine: MockEngine) -> MtProvider<MockEngine> {
+        MtProvider::new(engine, HallucinationFilter::default())
+    }
+
     fn request(content: &str, format: SubtitleFormat, source: Option<&str>) -> TranslationSpec {
         TranslationSpec {
             content: content.to_owned(),
@@ -162,7 +167,7 @@ mod tests {
     #[tokio::test]
     async fn translates_vtt_cue_text_and_preserves_structure() {
         let content = "WEBVTT\n\nNOTE a comment\n\n00:00:00.000 --> 00:00:01.000\nhello\n";
-        let provider = MtProvider::new(MockEngine { mode: EngineMode::Echo });
+        let provider = provider(MockEngine { mode: EngineMode::Echo });
 
         let subtitle =
             provider.translate(&request(content, SubtitleFormat::Vtt, Some("en"))).await.unwrap();
@@ -176,7 +181,7 @@ mod tests {
     #[tokio::test]
     async fn translates_srt_cue_text() {
         let content = "1\n00:00:00,000 --> 00:00:01,000\nhello\n";
-        let provider = MtProvider::new(MockEngine { mode: EngineMode::Echo });
+        let provider = provider(MockEngine { mode: EngineMode::Echo });
 
         let subtitle =
             provider.translate(&request(content, SubtitleFormat::Srt, None)).await.unwrap();
@@ -188,7 +193,7 @@ mod tests {
     #[tokio::test]
     async fn the_engine_is_given_languages_without_their_region() {
         let content = "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nhello\n";
-        let provider = MtProvider::new(MockEngine { mode: EngineMode::Languages });
+        let provider = provider(MockEngine { mode: EngineMode::Languages });
         let spec = TranslationSpec {
             target_language: LanguageCode("pt-BR".into()),
             ..request(content, SubtitleFormat::Vtt, Some("zh-TW"))
@@ -202,7 +207,7 @@ mod tests {
     #[tokio::test]
     async fn drops_hallucinated_translated_vtt_cues() {
         let content = "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nhello\n";
-        let provider = MtProvider::new(MockEngine { mode: EngineMode::Hallucinate });
+        let provider = provider(MockEngine { mode: EngineMode::Hallucinate });
 
         let subtitle =
             provider.translate(&request(content, SubtitleFormat::Vtt, Some("en"))).await.unwrap();
@@ -213,12 +218,52 @@ mod tests {
     #[tokio::test]
     async fn drops_hallucinated_translated_srt_cues() {
         let content = "1\n00:00:00,000 --> 00:00:01,000\nhello\n";
-        let provider = MtProvider::new(MockEngine { mode: EngineMode::Hallucinate });
+        let provider = provider(MockEngine { mode: EngineMode::Hallucinate });
 
         let subtitle =
             provider.translate(&request(content, SubtitleFormat::Srt, None)).await.unwrap();
 
         assert!(!subtitle.has_text());
+    }
+
+    fn credit_answers() -> MtProvider<MockEngine> {
+        MtProvider::new(
+            MockEngine {
+                mode: EngineMode::Answers(vec![
+                    ") Subtitle volunteer: Lee Jong-seong",
+                    "It's beautiful.",
+                ]),
+            },
+            HallucinationFilter::new(&["subtitle volunteer"]),
+        )
+    }
+
+    #[tokio::test]
+    async fn drops_translated_vtt_cues_matching_the_configured_phrases() {
+        let content = "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\n字幕志愿者\n\n\
+                       00:00:01.000 --> 00:00:02.000\n很漂亮\n";
+
+        let subtitle = credit_answers()
+            .translate(&request(content, SubtitleFormat::Vtt, Some("zh")))
+            .await
+            .unwrap();
+
+        assert!(!subtitle.content.contains("Subtitle volunteer"), "{}", subtitle.content);
+        assert!(subtitle.content.contains("It's beautiful."), "{}", subtitle.content);
+    }
+
+    #[tokio::test]
+    async fn drops_translated_srt_cues_matching_the_configured_phrases() {
+        let content = "1\n00:00:00,000 --> 00:00:01,000\n字幕志愿者\n\n\
+                       2\n00:00:01,000 --> 00:00:02,000\n很漂亮\n";
+
+        let subtitle = credit_answers()
+            .translate(&request(content, SubtitleFormat::Srt, Some("zh")))
+            .await
+            .unwrap();
+
+        assert!(!subtitle.content.contains("Subtitle volunteer"), "{}", subtitle.content);
+        assert!(subtitle.content.contains("It's beautiful."), "{}", subtitle.content);
     }
 
     fn blank_answers() -> MockEngine {
@@ -235,7 +280,7 @@ mod tests {
                        00:00:01.000 --> 00:00:02.000\ntwo\n\n\
                        00:00:02.000 --> 00:00:03.000\nthree\n\n\
                        00:00:03.000 --> 00:00:04.000\nfour\n";
-        let provider = MtProvider::new(blank_answers());
+        let provider = provider(blank_answers());
 
         let subtitle =
             provider.translate(&request(content, SubtitleFormat::Vtt, Some("zh"))).await.unwrap();
@@ -258,7 +303,7 @@ mod tests {
                        2\n00:00:01,000 --> 00:00:02,000\ntwo\n\n\
                        3\n00:00:02,000 --> 00:00:03,000\nthree\n\n\
                        4\n00:00:03,000 --> 00:00:04,000\nfour\n";
-        let provider = MtProvider::new(blank_answers());
+        let provider = provider(blank_answers());
 
         let subtitle =
             provider.translate(&request(content, SubtitleFormat::Srt, Some("zh"))).await.unwrap();
@@ -275,7 +320,7 @@ mod tests {
     #[tokio::test]
     async fn engine_failure_is_backend() {
         let content = "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nhello\n";
-        let provider = MtProvider::new(MockEngine { mode: EngineMode::Fail });
+        let provider = provider(MockEngine { mode: EngineMode::Fail });
 
         assert!(matches!(
             provider
@@ -288,7 +333,7 @@ mod tests {
 
     #[tokio::test]
     async fn unsupported_format_is_unsupported() {
-        let provider = MtProvider::new(MockEngine { mode: EngineMode::Echo });
+        let provider = provider(MockEngine { mode: EngineMode::Echo });
 
         assert!(matches!(
             provider.translate(&request("garbage", SubtitleFormat::Ass, None)).await.unwrap_err(),
@@ -298,7 +343,7 @@ mod tests {
 
     #[tokio::test]
     async fn malformed_vtt_is_parse() {
-        let provider = MtProvider::new(MockEngine { mode: EngineMode::Echo });
+        let provider = provider(MockEngine { mode: EngineMode::Echo });
 
         assert!(matches!(
             provider
@@ -311,7 +356,7 @@ mod tests {
 
     #[tokio::test]
     async fn malformed_srt_is_parse() {
-        let provider = MtProvider::new(MockEngine { mode: EngineMode::Echo });
+        let provider = provider(MockEngine { mode: EngineMode::Echo });
 
         assert!(matches!(
             provider

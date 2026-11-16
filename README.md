@@ -208,8 +208,8 @@ We use [SemVer](http://semver.org/) for versioning.
   [`clients/flutter/CREDITS.md`](./clients/flutter/CREDITS.md), with their licence texts under
   [`licenses/`](./licenses). The Linux application links the distribution's own libmpv and bundles
   none of them.
-* The enrichment image statically links C++ source vendored by the `ct2rs` and `sentencepiece-sys`
-  crates. Every licence text in those sources is collected under
+* The enrichment image statically links C++ source vendored by the `ct2rs-sys` and
+  `sentencepiece-sys` crates. Every licence text in those sources is collected under
   [`licenses/enrichment/`](./licenses/enrichment); the operator's model licensing responsibilities
   are described in [`deployment/ENRICHMENT.md`](deployment/ENRICHMENT.md#licensing-and-attribution).
 * Test fixtures and dev-deployment media clips are credited in

@@ -1,4 +1,6 @@
 mod audio;
+#[cfg(any(feature = "enrichment", test))]
+mod cue_split;
 mod disabled_provider;
 mod disabled_translation_provider;
 #[cfg(any(feature = "enrichment", test))]
@@ -11,10 +13,10 @@ mod translation_engine;
 mod vtt;
 mod whisper_engine;
 #[cfg(any(feature = "enrichment", test))]
-mod whisper_parse;
-mod whisper_provider;
+mod whisper_loop;
 #[cfg(any(feature = "enrichment", test))]
-mod whisper_window;
+mod whisper_mel;
+mod whisper_provider;
 
 #[cfg(feature = "enrichment")]
 mod ct2_translation_engine;

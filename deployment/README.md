@@ -14,7 +14,8 @@ Optional local AI (transcription, translation, upscaling) applies to both and is
 ## Environment variables
 
 Settings can also come from a `shadowmask.toml` next to the binary. Environment beats file, file
-beats default. `SHADOWMASK_TARGET_LANGUAGES` and `SHADOWMASK_CORS_ALLOWED_ORIGINS` are
+beats default. `SHADOWMASK_TARGET_LANGUAGES`, `SHADOWMASK_CORS_ALLOWED_ORIGINS`,
+`SHADOWMASK_ENRICHMENT_HALLUCINATION_PHRASES` and `SHADOWMASK_JOB_POOLS_<POOL>_KINDS` are
 comma-separated lists; everything else is a single value. Target languages are read in any case and
 in two or three letters (`EN`, `eng` and `en` are the same language), with an optional region
 (`pt-BR`, or `pt` for either Portuguese). Webhook clients are TOML-only. A
@@ -184,6 +185,7 @@ the bundled provider, and external providers are not implemented. Leave them at 
 |---------------------------------------------------|------------------------------------------|--------------------------|
 | `SHADOWMASK_ENRICHMENT_MODEL_CACHE`               | CTranslate2 model root                   | `data/enrichment-models` |
 | `SHADOWMASK_ENRICHMENT_THREADS`                   | Cores one enrichment job may use         | half the machine         |
+| `SHADOWMASK_ENRICHMENT_HALLUCINATION_PHRASES`     | Phrases that drop a cue, comma-separated | 22 English phrases       |
 | `SHADOWMASK_ENRICHMENT_TRANSCRIPTION_MODE`        | `off`, `on` or `auto`                    | `off`                    |
 | `SHADOWMASK_ENRICHMENT_TRANSCRIPTION_PROVIDER`    | Transcription provider                   | `none`                   |
 | `SHADOWMASK_ENRICHMENT_TRANSCRIPTION_MODEL_PATH`  | Model dir, relative to the model cache   | unset                    |
