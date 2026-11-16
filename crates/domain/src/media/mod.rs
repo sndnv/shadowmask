@@ -49,7 +49,9 @@ pub use derived_asset_store::DerivedAssetStore;
 pub use detect_markers::detect_markers;
 pub use detected_markers::DetectedMarkers;
 pub use embedded_subtitle_track::EmbeddedSubtitleTrack;
-pub use fetched_subtitle::{FetchedSubtitle, is_hallucinated_text, subtitle_has_text};
+pub use fetched_subtitle::{
+    DEFAULT_HALLUCINATION_PHRASES, FetchedSubtitle, HallucinationFilter, subtitle_has_text,
+};
 pub use fingerprint::Fingerprint;
 pub use fingerprinted_version::FingerprintedVersion;
 pub use format_tokens::{FORMAT_TOKENS, FormatToken};

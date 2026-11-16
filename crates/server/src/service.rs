@@ -9,6 +9,7 @@ use axum_server::Handle;
 use axum_server::tls_rustls::RustlsConfig;
 use domain::diagnostics::ServerDiagnostics;
 use domain::job::{JobKind, JobPriority};
+use domain::media::HallucinationFilter;
 use domain::repository::JobRepository;
 use fetch::{YtDlpFetcher, yt_dlp_version};
 use jiff::tz::TimeZone;
@@ -224,17 +225,22 @@ pub(crate) fn parked_kinds(
     .collect()
 }
 
-fn build_transcription_provider(model_dir: PathBuf, threads: usize) -> TranscriptionProviderImpl {
+fn build_transcription_provider(
+    model_dir: PathBuf,
+    threads: usize,
+    filter: HallucinationFilter,
+) -> TranscriptionProviderImpl {
     #[cfg(feature = "enrichment")]
     {
         inference::WhisperProvider::new(
             inference::Ct2WhisperEngine::new(model_dir, threads),
             media::transcode::TokioProcessSpawner,
+            filter,
         )
     }
     #[cfg(not(feature = "enrichment"))]
     {
-        let _ = (model_dir, threads);
+        let _ = (model_dir, threads, filter);
         inference::DisabledTranscriptionProvider
     }
 }
@@ -244,19 +250,18 @@ fn build_translation_provider(
     source_prefix: Option<String>,
     target_prefix: Option<String>,
     threads: usize,
+    filter: HallucinationFilter,
 ) -> TranslationProviderImpl {
     #[cfg(feature = "enrichment")]
     {
-        inference::MtProvider::new(inference::Ct2TranslationEngine::new(
-            model_dir,
-            source_prefix,
-            target_prefix,
-            threads,
-        ))
+        inference::MtProvider::new(
+            inference::Ct2TranslationEngine::new(model_dir, source_prefix, target_prefix, threads),
+            filter,
+        )
     }
     #[cfg(not(feature = "enrichment"))]
     {
-        let _ = (model_dir, source_prefix, target_prefix, threads);
+        let _ = (model_dir, source_prefix, target_prefix, threads, filter);
         inference::DisabledTranslationProvider
     }
 }
@@ -600,10 +605,13 @@ impl Runtime {
         let transcription_enabled = transcription_auto;
         let enrichment_threads =
             resolve_enrichment_threads(config.enrichment.threads, available_cores());
+        let hallucinations =
+            HallucinationFilter::new(config.enrichment.hallucination_phrases.as_slice());
         let transcription = TranscriptionJobHandler::new(
             build_transcription_provider(
                 transcription_model.unwrap_or_else(|| transcription_dir.clone()),
                 enrichment_threads,
+                hallucinations.clone(),
             ),
             repos.catalog.clone(),
             FsSubtitleStore::new(&config.subtitle_cache),
@@ -615,6 +623,7 @@ impl Runtime {
                 config.enrichment.translation.source_prefix.clone(),
                 config.enrichment.translation.target_prefix.clone(),
                 enrichment_threads,
+                hallucinations,
             ),
             repos.catalog.clone(),
             FsSubtitleStore::new(&config.subtitle_cache),

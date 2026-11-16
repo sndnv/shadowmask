@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use domain::common::LanguageCode;
 use domain::diagnostics::AccelerationMode;
+use domain::media::HallucinationFilter;
 use figment::Figment;
 use figment::providers::{Env, Format, Serialized, Toml};
 use media::transcode::VideoEncoder;
@@ -411,7 +412,11 @@ impl Config {
                 Env::prefixed("SHADOWMASK_")
                     .map(|key| nest_section_key(key.as_str()).into())
                     .split(".")
-                    .ignore(&["target_languages", "cors_allowed_origins"])
+                    .ignore(&[
+                        "target_languages",
+                        "cors_allowed_origins",
+                        "enrichment.hallucination_phrases",
+                    ])
                     .filter(|key| pool_kinds_key(key.as_str()).is_none()),
             )
             .extract()?;
@@ -435,6 +440,12 @@ impl Config {
             .collect();
         if let Some(origins) = list_from_env(std::env::vars_os(), "cors_allowed_origins") {
             config.cors_allowed_origins = origins;
+        }
+        if let Some(phrases) =
+            list_from_env(std::env::vars_os(), "enrichment.hallucination_phrases")
+            && !phrases.is_empty()
+        {
+            config.enrichment.hallucination_phrases = phrases;
         }
         let from_env = pool_kinds_from_env(std::env::vars_os());
         for (name, kinds) in &from_env {
@@ -582,6 +593,8 @@ impl Config {
         let _ = writeln!(out, "    clients: {}", self.webhook_clients.len());
         let _ = writeln!(out, "  enrichment:");
         let _ = writeln!(out, "    model_cache:   {}", e.model_cache.display());
+        let phrases = HallucinationFilter::new(e.hallucination_phrases.as_slice()).phrase_count();
+        let _ = writeln!(out, "    hallucination_phrases: {phrases}");
         let _ = writeln!(
             out,
             "    transcription: mode={} provider={:?} models_dir={}",
@@ -1045,6 +1058,10 @@ mod tests {
         assert_eq!(super::nest_section_key("jwt_secret"), "jwt_secret");
         assert_eq!(super::nest_section_key("enrichment_model_cache"), "enrichment.model_cache");
         assert_eq!(
+            super::nest_section_key("ENRICHMENT_HALLUCINATION_PHRASES"),
+            "enrichment.hallucination_phrases"
+        );
+        assert_eq!(
             super::nest_section_key("enrichment_transcription_mode"),
             "enrichment.transcription.mode"
         );
@@ -1484,6 +1501,69 @@ mod tests {
 
     fn cache_line(key: &str, value: &str) -> String {
         format!("    {key:<CACHE_KEY_WIDTH$} {value}")
+    }
+
+    fn english_phrases() -> Vec<String> {
+        domain::media::DEFAULT_HALLUCINATION_PHRASES
+            .iter()
+            .map(|phrase| (*phrase).to_owned())
+            .collect()
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)]
+    fn hallucination_phrases_default_to_english_then_env_comma_split() {
+        figment::Jail::expect_with(|jail| {
+            assert_eq!(
+                Config::load().unwrap().config.enrichment.hallucination_phrases,
+                english_phrases()
+            );
+            jail.set_env(
+                "SHADOWMASK_ENRICHMENT_HALLUCINATION_PHRASES",
+                "字幕志愿者, subtitle volunteer ,,",
+            );
+            let loaded = Config::load().unwrap();
+            assert_eq!(
+                loaded.config.enrichment.hallucination_phrases,
+                vec!["字幕志愿者".to_owned(), "subtitle volunteer".to_owned()]
+            );
+            assert!(loaded.warnings.is_empty(), "{:?}", loaded.warnings);
+            jail.set_env("SHADOWMASK_ENRICHMENT_HALLUCINATION_PHRASES", "   ");
+            assert_eq!(
+                Config::load().unwrap().config.enrichment.hallucination_phrases,
+                english_phrases()
+            );
+            Ok(())
+        });
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)]
+    fn hallucination_phrases_are_read_from_the_file() {
+        figment::Jail::expect_with(|jail| {
+            jail.create_file(
+                "shadowmask.toml",
+                "[enrichment]\nhallucination_phrases = [\"字幕志愿者\", \"subtitle volunteer\"]",
+            )?;
+            assert_eq!(
+                Config::load().unwrap().config.enrichment.hallucination_phrases,
+                vec!["字幕志愿者".to_owned(), "subtitle volunteer".to_owned()]
+            );
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn describe_counts_the_hallucination_phrases() {
+        let count = english_phrases().len();
+        assert!(
+            Config::default().describe(None).contains(&format!("hallucination_phrases: {count}"))
+        );
+        let mut config = Config::default();
+        config.enrichment.hallucination_phrases = vec!["字幕志愿者".to_owned()];
+        assert!(config.describe(None).contains("hallucination_phrases: 1"));
+        config.enrichment.hallucination_phrases = vec!["-".to_owned(), String::new()];
+        assert!(config.describe(None).contains("hallucination_phrases: 0"));
     }
 
     #[test]

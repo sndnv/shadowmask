@@ -18,18 +18,44 @@ pub fn subtitle_has_text(content: &str) -> bool {
     content.lines().any(|line| !is_structural(line))
 }
 
-pub fn is_hallucinated_text(text: &str) -> bool {
-    let normalized = normalize(text);
-    if normalized.is_empty() {
-        return false;
-    }
-    if HALLUCINATION_SUBSTRINGS.iter().any(|needle| normalized.contains(needle)) {
-        return true;
-    }
-    is_repetitive(&normalized.split(' ').collect::<Vec<_>>()) || is_low_diversity(&normalized)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HallucinationFilter {
+    phrases: Vec<String>,
 }
 
-const HALLUCINATION_SUBSTRINGS: &[&str] = &[
+impl HallucinationFilter {
+    pub fn new<S: AsRef<str>>(phrases: &[S]) -> Self {
+        let phrases = phrases
+            .iter()
+            .map(|phrase| normalize(phrase.as_ref()))
+            .filter(|phrase| !phrase.is_empty())
+            .collect();
+        Self { phrases }
+    }
+
+    pub fn phrase_count(&self) -> usize {
+        self.phrases.len()
+    }
+
+    pub fn is_hallucinated(&self, text: &str) -> bool {
+        let normalized = normalize(text);
+        if normalized.is_empty() {
+            return false;
+        }
+        if self.phrases.iter().any(|phrase| normalized.contains(phrase.as_str())) {
+            return true;
+        }
+        is_repetitive(&normalized.split(' ').collect::<Vec<_>>()) || is_low_diversity(&normalized)
+    }
+}
+
+impl Default for HallucinationFilter {
+    fn default() -> Self {
+        Self::new(DEFAULT_HALLUCINATION_PHRASES)
+    }
+}
+
+pub const DEFAULT_HALLUCINATION_PHRASES: &[&str] = &[
     "subtitles by",
     "subtitle by",
     "subs by",
@@ -75,6 +101,9 @@ fn normalize(text: &str) -> String {
     let mut out = String::new();
     let mut pending_space = false;
     for c in text.chars() {
+        if matches!(c, '\'' | '\u{2019}') {
+            continue;
+        }
         if c.is_alphanumeric() {
             if pending_space && !out.is_empty() {
                 out.push(' ');
@@ -142,50 +171,120 @@ mod tests {
         assert!(!subtitle_has_text("WEBVTT\n\nNOTE recorded by whisper\n"));
     }
 
+    fn rejects(text: &str) -> bool {
+        HallucinationFilter::default().is_hallucinated(text)
+    }
+
     #[test]
     fn credit_lines_are_hallucinations() {
-        assert!(is_hallucinated_text("Subtitles by TeamWhatever"));
-        assert!(is_hallucinated_text("Subs by the Amara.org community"));
-        assert!(is_hallucinated_text("Thanks for watching!"));
-        assert!(is_hallucinated_text("Please subscribe and like"));
+        assert!(rejects("Subtitles by TeamWhatever"));
+        assert!(rejects("Subs by the Amara.org community"));
+        assert!(rejects("Thanks for watching!"));
+        assert!(rejects("Please subscribe and like"));
     }
 
     #[test]
     fn real_dialogue_is_not_a_hallucination() {
-        assert!(!is_hallucinated_text("I will be there by nine tonight"));
-        assert!(!is_hallucinated_text("Hello there, how are you?"));
+        assert!(!rejects("I will be there by nine tonight"));
+        assert!(!rejects("Hello there, how are you?"));
     }
 
     #[test]
     fn single_word_repetition_is_a_hallucination() {
-        assert!(is_hallucinated_text("the the the the the the the the"));
-        assert!(is_hallucinated_text(
-            "thank you thank you thank you thank you thank you thank you thank you"
-        ));
+        assert!(rejects("the the the the the the the the"));
+        assert!(rejects("thank you thank you thank you thank you thank you thank you thank you"));
     }
 
     #[test]
     fn short_repeats_are_kept() {
-        assert!(!is_hallucinated_text("no no no"));
-        assert!(!is_hallucinated_text("run run"));
+        assert!(!rejects("no no no"));
+        assert!(!rejects("run run"));
     }
 
     #[test]
     fn empty_text_is_not_a_hallucination() {
-        assert!(!is_hallucinated_text("   "));
+        assert!(!rejects("   "));
     }
 
     #[test]
     fn single_token_character_loop_is_a_hallucination() {
         let blob = "\u{06d5}".repeat(200);
-        assert!(is_hallucinated_text(&blob));
-        assert!(is_hallucinated_text("aaaaaaaaaaaaaaaaaaaa"));
+        assert!(rejects(&blob));
+        assert!(rejects("aaaaaaaaaaaaaaaaaaaa"));
     }
 
     #[test]
     fn varied_long_text_is_not_low_diversity() {
-        assert!(!is_hallucinated_text(
-            "the quick brown fox jumps over the lazy dog near the river"
-        ));
+        assert!(!rejects("the quick brown fox jumps over the lazy dog near the river"));
+    }
+
+    #[test]
+    fn the_default_filter_holds_the_english_phrases() {
+        assert_eq!(
+            HallucinationFilter::default(),
+            HallucinationFilter::new(DEFAULT_HALLUCINATION_PHRASES)
+        );
+        for phrase in DEFAULT_HALLUCINATION_PHRASES {
+            assert!(rejects(&format!("Cue: {phrase}!")), "{phrase}");
+        }
+    }
+
+    #[test]
+    fn configured_phrases_replace_the_defaults() {
+        let filter = HallucinationFilter::new(&["字幕志愿者", "subtitle volunteer"]);
+
+        assert!(filter.is_hallucinated("字幕志愿者 李宗盛"));
+        assert!(filter.is_hallucinated(") Subtitle volunteer: Lee Jong-seong"));
+        assert!(!filter.is_hallucinated("Thanks for watching!"));
+        assert!(!filter.is_hallucinated("真的是美啊"));
+    }
+
+    #[test]
+    fn phrases_are_written_the_way_the_text_is_read() {
+        let filter = HallucinationFilter::new(&["  Subtitles,   BY! "]);
+
+        assert!(filter.is_hallucinated("subtitles by someone"));
+        assert!(filter.is_hallucinated("SUBTITLES - by - someone"));
+        assert!(!filter.is_hallucinated("subtitle by someone"));
+    }
+
+    #[test]
+    fn an_apostrophe_joins_the_word_it_sits_in() {
+        assert!(rejects("Don't forget to subscribe!"));
+        assert!(rejects("Don’t forget to subscribe"));
+        let filter = HallucinationFilter::new(&["won't stop"]);
+        assert!(filter.is_hallucinated("I wont stop"));
+        assert!(filter.is_hallucinated("I won’t stop"));
+        assert!(!filter.is_hallucinated("I won t stop"));
+    }
+
+    #[test]
+    fn the_filter_counts_only_the_phrases_it_keeps() {
+        assert_eq!(
+            HallucinationFilter::default().phrase_count(),
+            DEFAULT_HALLUCINATION_PHRASES.len()
+        );
+        assert_eq!(
+            HallucinationFilter::new(&["字幕志愿者", "", "-", " subtitle volunteer "])
+                .phrase_count(),
+            2
+        );
+    }
+
+    #[test]
+    fn a_blank_phrase_matches_nothing() {
+        let filter = HallucinationFilter::new(&["", "   ", "!!", "-"]);
+
+        assert!(!filter.is_hallucinated("I will be there by nine tonight"));
+        assert!(!filter.is_hallucinated("真的是美啊"));
+    }
+
+    #[test]
+    fn the_repetition_checks_stay_whatever_the_phrases() {
+        let filter = HallucinationFilter::new::<&str>(&[]);
+
+        assert!(filter.is_hallucinated("the the the the the the the the"));
+        assert!(filter.is_hallucinated("aaaaaaaaaaaaaaaaaaaa"));
+        assert!(!filter.is_hallucinated("Subtitles by TeamWhatever"));
     }
 }

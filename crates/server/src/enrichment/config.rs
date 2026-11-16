@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use domain::media::DEFAULT_HALLUCINATION_PHRASES;
 use serde::{Deserialize, Serialize};
 
 use crate::enrichment::{TranscriptionConfig, TranslationConfig, UpscalingConfig};
@@ -9,6 +10,7 @@ use crate::enrichment::{TranscriptionConfig, TranslationConfig, UpscalingConfig}
 pub struct EnrichmentConfig {
     pub model_cache: PathBuf,
     pub threads: Option<usize>,
+    pub hallucination_phrases: Vec<String>,
     pub transcription: TranscriptionConfig,
     pub translation: TranslationConfig,
     pub upscaling: UpscalingConfig,
@@ -19,6 +21,10 @@ impl Default for EnrichmentConfig {
         Self {
             model_cache: PathBuf::from("data/enrichment-models"),
             threads: None,
+            hallucination_phrases: DEFAULT_HALLUCINATION_PHRASES
+                .iter()
+                .map(|phrase| (*phrase).to_owned())
+                .collect(),
             transcription: TranscriptionConfig::default(),
             translation: TranslationConfig::default(),
             upscaling: UpscalingConfig::default(),

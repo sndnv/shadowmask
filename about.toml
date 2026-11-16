@@ -22,6 +22,3 @@ ignore-transitive-dependencies = false
 
 [private]
 ignore = true
-
-[ar_archive_writer]
-accepted = ["Apache-2.0 WITH LLVM-exception"]

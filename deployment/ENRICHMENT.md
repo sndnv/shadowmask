@@ -72,7 +72,8 @@ is restarted. Models are only looked for at startup.
 
 A folder is a valid model when it contains:
 
-- transcription: `model.bin`, `config.json`, `tokenizer.json`, `preprocessor_config.json`
+- transcription: `model.bin`, `config.json`, `tokenizer.json`, and `vocabulary.json` or
+  `vocabulary.txt`
 - translation: `model.bin`, `config.json`, and a tokenizer the runtime can read, which is
   `tokenizer.json`, or `source.spm` and `target.spm`, or `vocab.json` and `merges.txt`
 
@@ -103,8 +104,13 @@ The `faster-whisper` models on Hugging Face are already in CTranslate2 format, s
 is enough. Put the model folder under `transcription/`. Larger models are more accurate and slower.
 Prefer an `int8` build for the CPU-only image, for the same reason as translation (see the
 `--quantization int8` note below): a float16 model is promoted to float32 on load and takes about
-twice the RAM. If only a float16 build is available, re-quantize it with
-`ct2-transformers-converter --model <hf-whisper-model> --output_dir <dir> --quantization int8`.
+twice the RAM. If only a float16 build is available, re-quantize it with:
+
+```
+ct2-transformers-converter --model <hf-whisper-model> \
+  --output_dir models/transcription/<name> \
+  --quantization int8 --copy_files tokenizer.json
+```
 
 ### Translation
 
@@ -212,7 +218,7 @@ failing its job. Budget the model's on-disk size plus 1-2G for the server. A tra
 its model when it starts and releases it when it ends; a translation job does so for each target
 language.
 
-Transcription works on 4 minutes of audio at a time and translation on 32 cues at a time, so a job's
+Transcription works on 30 seconds of audio at a time and translation on 32 cues at a time, so a job's
 memory does not grow with the film's length, apart from its decoded audio (about 0.5G for 2 hours).
 
 Set `mem_limit` on the container so a kill is contained to it; the production compose defaults to
@@ -224,9 +230,29 @@ likely, including when it cannot read that limit.
 
 - Transcription and translation are CPU-bound and can be slow on large media; they run as background
   jobs and never block playback.
-- Transcription detects the spoken language for each 4-minute window, unless a language is chosen
+- Transcription decodes 30 seconds at a time, each piece starting where the last complete line ended,
+  with the text before it as context. A piece whose text repeats itself or has low confidence is
+  decoded again with more randomness; a piece of silence is skipped.
+- Transcription detects the spoken language every 4 minutes of audio, unless a language is chosen
   when it is started by hand. Automatic transcription always detects it.
 - Model weights are downloaded by you and are not part of any Shadowmask image.
+
+## Hallucination filter
+
+A transcribed or translated cue is dropped when it contains a configured phrase, has at least 6
+words of which at most a quarter differ, or has at least 16 letters or digits of which at most 2
+differ.
+
+`SHADOWMASK_ENRICHMENT_HALLUCINATION_PHRASES` (comma-separated) or `hallucination_phrases` under
+`[enrichment]` in `shadowmask.toml` replaces the default list. A blank variable is ignored; an
+empty list in the file means no phrases. Matching ignores case and apostrophes, treats other
+punctuation as a space, and finds a phrase anywhere in a cue.
+
+Default: `subtitles by`, `subtitle by`, `subs by`, `subbed by`, `subtitled by`,
+`subtitles provided by`, `subtitles created by`, `captions by`, `captioning by`, `corrected by`,
+`synced by`, `sync and corrections by`, `translation by`, `translated by`, `amara org`,
+`thanks for watching`, `thank you for watching`, `please subscribe`, `like and subscribe`,
+`dont forget to subscribe`, `see you next time`, `see you in the next video`.
 
 ## Licensing and attribution
 
@@ -235,14 +261,14 @@ model weights you supply carry their own licenses.
 
 ### Bundled in the enrichment image
 
-The `ct2rs`, `onednn-src` and `sentencepiece-sys` crates compile vendored C++ source into the
+The `ct2rs-sys`, `onednn-src` and `sentencepiece-sys` crates compile vendored C++ source into the
 `-enrichment` binary; `onednn-src` only on amd64. `cargo-about` cannot see that source, so
 `THIRD-PARTY-LICENSES.md` credits only the crates themselves.
 
 Every `LICENSE*`, `COPYING*` and `THIRD-PARTY*` file in those crate sources is therefore swept into
 [`licenses/enrichment/`](../licenses/enrichment) and copied into the image at
 `/usr/share/doc/shadowmask/third-party-licenses/`. Paths are preserved, so each text names the
-library it came from: `ct2rs/CTranslate2/third_party/ruy/LICENSE`, and so on.
+library it came from: `ct2rs-sys/CTranslate2/third_party/ruy/LICENSE`, and so on.
 
 Refresh the sweep with `python3 licenses/refresh_licenses.py`; `qa.py`'s `vendored` step fails when
 it has drifted from the locked crate versions. A new dependency that vendors C/C++ source must be

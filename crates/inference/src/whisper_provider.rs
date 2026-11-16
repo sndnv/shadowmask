@@ -1,7 +1,7 @@
 use domain::common::LanguageCode;
 use domain::error::TranscriptionError;
 use domain::media::{
-    FetchedSubtitle, SubtitleFormat, TranscriptionProvider, TranscriptionSpec, is_hallucinated_text,
+    FetchedSubtitle, HallucinationFilter, SubtitleFormat, TranscriptionProvider, TranscriptionSpec,
 };
 use domain::process::ProcessSpawner;
 
@@ -12,11 +12,12 @@ use crate::vtt::segments_to_vtt;
 pub struct WhisperProvider<E, S> {
     engine: E,
     spawner: S,
+    filter: HallucinationFilter,
 }
 
 impl<E, S> WhisperProvider<E, S> {
-    pub fn new(engine: E, spawner: S) -> Self {
-        Self { engine, spawner }
+    pub fn new(engine: E, spawner: S, filter: HallucinationFilter) -> Self {
+        Self { engine, spawner, filter }
     }
 }
 
@@ -34,7 +35,7 @@ where
                 .await?;
         let language = request.source_language.as_ref().map(whisper_language);
         let mut segments = self.engine.transcribe(samples, language).await?;
-        segments.retain(|segment| !is_hallucinated_text(&segment.text));
+        segments.retain(|segment| !self.filter.is_hallucinated(&segment.text));
         Ok(FetchedSubtitle { content: segments_to_vtt(&segments), format: SubtitleFormat::Vtt })
     }
 }
@@ -103,6 +104,7 @@ mod tests {
                 result: Ok(vec![Segment { start_ms: 0, end_ms: 1000, text: "hello".to_owned() }]),
             },
             MockSpawner { ok: true },
+            HallucinationFilter::default(),
         );
 
         let subtitle = provider.transcribe(&request()).await.unwrap();
@@ -131,7 +133,11 @@ mod tests {
     #[tokio::test]
     async fn whisper_gets_the_language_by_its_own_name() {
         let engine = LanguageEngine::default();
-        let provider = WhisperProvider::new(engine.clone(), MockSpawner { ok: true });
+        let provider = WhisperProvider::new(
+            engine.clone(),
+            MockSpawner { ok: true },
+            HallucinationFilter::default(),
+        );
 
         for code in ["ja", "pt-BR", "fil", "nb", "EN"] {
             let spec = TranscriptionSpec {
@@ -168,6 +174,7 @@ mod tests {
                 ]),
             },
             MockSpawner { ok: true },
+            HallucinationFilter::default(),
         );
 
         let subtitle = provider.transcribe(&request()).await.unwrap();
@@ -175,6 +182,27 @@ mod tests {
         assert!(subtitle.content.contains("Real dialogue here"));
         assert!(!subtitle.content.contains("Thanks for watching"));
         assert!(!subtitle.content.contains("the the the"));
+    }
+
+    #[tokio::test]
+    async fn drops_segments_matching_the_configured_phrases() {
+        let provider = WhisperProvider::new(
+            MockEngine {
+                result: Ok(vec![
+                    Segment {
+                        start_ms: 0, end_ms: 1000, text: "字幕志愿者 李宗盛".to_owned()
+                    },
+                    Segment { start_ms: 1000, end_ms: 2000, text: "真的是美啊".to_owned() },
+                ]),
+            },
+            MockSpawner { ok: true },
+            HallucinationFilter::new(&["字幕志愿者"]),
+        );
+
+        let subtitle = provider.transcribe(&request()).await.unwrap();
+
+        assert!(!subtitle.content.contains("字幕志愿者"));
+        assert!(subtitle.content.contains("真的是美啊"));
     }
 
     #[tokio::test]
@@ -188,6 +216,7 @@ mod tests {
                 }]),
             },
             MockSpawner { ok: true },
+            HallucinationFilter::default(),
         );
 
         let subtitle = provider.transcribe(&request()).await.unwrap();
@@ -197,8 +226,11 @@ mod tests {
 
     #[tokio::test]
     async fn propagates_decode_error() {
-        let provider =
-            WhisperProvider::new(MockEngine { result: Ok(vec![]) }, MockSpawner { ok: false });
+        let provider = WhisperProvider::new(
+            MockEngine { result: Ok(vec![]) },
+            MockSpawner { ok: false },
+            HallucinationFilter::default(),
+        );
         assert!(matches!(
             provider.transcribe(&request()).await.unwrap_err(),
             TranscriptionError::Backend(_)
@@ -210,6 +242,7 @@ mod tests {
         let provider = WhisperProvider::new(
             MockEngine { result: Err("boom".to_owned()) },
             MockSpawner { ok: true },
+            HallucinationFilter::default(),
         );
         assert!(matches!(
             provider.transcribe(&request()).await.unwrap_err(),
