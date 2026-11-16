@@ -118,6 +118,7 @@ pub fn router<S: AppServices>(state: S) -> Router {
         .route("/admin/jobs/{id}/cancel", post(admin::cancel_job::<S>))
         .route("/admin/jobs/{id}/retry", post(admin::retry_job::<S>))
         .route("/admin/versions", get(admin::versions::<S>))
+        .route("/admin/titles", get(admin::titles::<S>))
         .route("/admin/movies/{id}", delete(admin::delete_movie::<S>))
         .route("/admin/series/{id}", delete(admin::delete_series::<S>))
         .route("/admin/seasons/{id}", delete(admin::delete_season::<S>))

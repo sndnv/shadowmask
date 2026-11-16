@@ -21,6 +21,7 @@ mod series_detail;
 mod subtitle_candidate;
 mod subtitle_text;
 mod title_batch;
+mod title_row;
 mod update_collection_request;
 mod version;
 mod version_detail;
@@ -51,6 +52,7 @@ pub use series_detail::SeriesDetailResponse;
 pub use subtitle_candidate::SubtitleCandidateDto;
 pub use subtitle_text::SubtitleTextResponse;
 pub use title_batch::{TitleBatchRequest, TitleCardResponse};
+pub use title_row::TitleRowResponse;
 pub use update_collection_request::UpdateCollectionRequest;
 pub use version::VersionResponse;
 pub use version_detail::{

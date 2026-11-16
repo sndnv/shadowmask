@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shadowmask/api/admin_api.dart';
 import 'package:shadowmask/api/api_client.dart';
+import 'package:shadowmask/model/catalog/title_row.dart';
 import 'package:shadowmask/model/common/title_ref.dart';
 import 'package:shadowmask/model/job/job_node.dart';
 import 'package:shadowmask/model/job/jobs_feed.dart';
@@ -236,6 +237,77 @@ void main() {
     expect(seen.url.queryParameters['available'], 'false');
     await admin.versions(available: true);
     expect(seen.url.queryParameters['available'], 'true');
+  });
+
+  test('titles sends its filters and parses each row', () async {
+    late http.Request seen;
+    final AdminApi admin = _admin(
+      _capture(
+        (http.Request req) => seen = req,
+        body: jsonEncode(<String, dynamic>{
+          'items': <dynamic>[
+            <String, dynamic>{
+              'kind': 'episode',
+              'id': 'e1',
+              'series_id': 's1',
+              'season_id': 'se1',
+              'title': 'Earth',
+              'series_title': 'Skyline',
+              'season_number': 2,
+              'episode_number': 3,
+              'files': 1,
+              'available': false,
+              'readable': true,
+              'added_at': '2026-11-15T10:00:00Z',
+            },
+          ],
+          'total': 1,
+          'offset': 0,
+          'limit': 50,
+        }),
+      ),
+    );
+
+    final Paged<TitleRow> page = await admin.titles();
+    expect(seen.url.path, '/api/v1/admin/titles');
+    for (final String key in <String>['filter', 'kind', 'availability']) {
+      expect(seen.url.queryParameters.containsKey(key), isFalse, reason: key);
+    }
+    final TitleRow row = page.items.single;
+    expect(row.kind, TitleKind.episode);
+    expect((row.id, row.seriesId, row.seasonId), ('e1', 's1', 'se1'));
+    expect((row.title, row.seriesTitle), ('Earth', 'Skyline'));
+    expect((row.seasonNumber, row.episodeNumber, row.year), (2, 3, null));
+    expect((row.files, row.episodes, row.seasons), (1, null, null));
+    expect((row.available, row.readable), (false, true));
+
+    await admin.titles(
+      offset: 50,
+      filter: 'sky',
+      kind: TitleKind.season,
+      availability: TitleAvailability.noVersion,
+    );
+    expect(seen.url.queryParameters, <String, String>{
+      'offset': '50',
+      'filter': 'sky',
+      'kind': 'season',
+      'availability': 'no_version',
+    });
+    await admin.titles(availability: TitleAvailability.unavailable);
+    expect(seen.url.queryParameters['availability'], 'unavailable');
+    await admin.titles(availability: TitleAvailability.available);
+    expect(seen.url.queryParameters['availability'], 'available');
+
+    await admin.titles(sort: TitleSort.kind, descending: true);
+    expect(seen.url.queryParameters['sort'], 'kind');
+    expect(seen.url.queryParameters['order'], 'desc');
+    for (final TitleSort sort in TitleSort.values.skip(1)) {
+      await admin.titles(sort: sort);
+      expect(seen.url.queryParameters['sort'], sort.wire);
+      expect(seen.url.queryParameters.containsKey('order'), isFalse);
+    }
+    await admin.titles(sort: TitleSort.title);
+    expect(seen.url.queryParameters.containsKey('sort'), isFalse);
   });
 
   test('versionJobs GETs the version\'s work and parses each row', () async {

@@ -5,8 +5,8 @@ use domain::catalog::{
     ArtworkId, ArtworkOwner, ArtworkRef, ArtworkWidth, CatalogClean, CleanScope, Collection,
     CollectionId, Episode, EpisodeCard, EpisodeContext, EpisodeId, LibraryFootprint, LibraryPurge,
     Movie, MovieDetail, MovieId, RandomScope, Season, SeasonId, Series, SeriesDetail, SeriesId,
-    SortOrder, TitleId, TitleKind, TitleListFilter, TitleRef, TitleSort, Version, VersionDetail,
-    VersionId, VersionReconcile,
+    SortOrder, TitleId, TitleKind, TitleListFilter, TitleOutline, TitleRef, TitleSort, Version,
+    VersionCounts, VersionDetail, VersionId, VersionReconcile,
 };
 use domain::common::{LanguageCode, Page, PageRequest, Quality};
 use domain::discovery::{SearchKind, SearchResult};
@@ -84,6 +84,12 @@ const DELETE_SEASON_SQL: &str = "DELETE FROM seasons WHERE id = ? AND NOT EXISTS
      (SELECT 1 FROM episodes WHERE season_id = ?)";
 const DELETE_EPISODE_SQL: &str = "DELETE FROM episodes WHERE id = ? AND NOT EXISTS \
      (SELECT 1 FROM versions WHERE title_kind = 'episode' AND title_id = ?)";
+
+const TITLE_VERSION_COUNTS_SQL: &str = "WITH granted(id) AS (SELECT value FROM json_each(?)) \
+     SELECT title_kind, title_id, COUNT(*) AS total, \
+     SUM(library_id IN (SELECT id FROM granted)) AS granted, \
+     SUM(available = 1 AND library_id IN (SELECT id FROM granted)) AS present \
+     FROM versions GROUP BY title_kind, title_id";
 
 const SERIES_EPISODE_COUNTS_SQL: &str = "SELECT COUNT(*) AS total, \
      COALESCE(SUM(CASE WHEN EXISTS \
@@ -2479,6 +2485,46 @@ impl CatalogRepository for SqliteCatalogRepo {
             .map_err(backend)?;
         let items = rows.iter().map(row_to_version).collect::<Result<Vec<_>, _>>()?;
         Ok(Page { items, total, offset: page.offset, limit: page.limit })
+    }
+
+    async fn title_outline(
+        &self,
+        libraries: &[LibraryId],
+    ) -> Result<TitleOutline, RepositoryError> {
+        let _op = DbOpGuard::new("catalog", "title_outline");
+        let granted: Vec<&str> = libraries.iter().map(|library| library.0.as_str()).collect();
+        let granted = serde_json::to_string(&granted).map_err(backend)?;
+        let movies =
+            sqlx::query("SELECT * FROM movies").fetch_all(&self.pool).await.map_err(backend)?;
+        let series =
+            sqlx::query("SELECT * FROM series").fetch_all(&self.pool).await.map_err(backend)?;
+        let seasons =
+            sqlx::query("SELECT * FROM seasons").fetch_all(&self.pool).await.map_err(backend)?;
+        let episodes =
+            sqlx::query("SELECT * FROM episodes").fetch_all(&self.pool).await.map_err(backend)?;
+        let counted = sqlx::query(TITLE_VERSION_COUNTS_SQL)
+            .bind(granted)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(backend)?;
+        let mut versions = HashMap::new();
+        for row in &counted {
+            let title =
+                title_from_parts(&column::<String>(row, "title_kind")?, column(row, "title_id")?)?;
+            let counts = VersionCounts {
+                total: column::<i64>(row, "total")? as u32,
+                granted: column::<i64>(row, "granted")? as u32,
+                present: column::<i64>(row, "present")? as u32,
+            };
+            versions.insert(title, counts);
+        }
+        Ok(TitleOutline {
+            movies: movies.iter().map(row_to_movie).collect::<Result<_, _>>()?,
+            series: series.iter().map(row_to_series).collect::<Result<_, _>>()?,
+            seasons: seasons.iter().map(row_to_season).collect::<Result<_, _>>()?,
+            episodes: episodes.iter().map(row_to_episode).collect::<Result<_, _>>()?,
+            versions,
+        })
     }
 
     async fn version_detail(

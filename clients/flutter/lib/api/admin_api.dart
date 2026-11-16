@@ -1,5 +1,6 @@
 import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/model/catalog/subtitle_candidate.dart';
+import 'package:shadowmask/model/catalog/title_row.dart';
 import 'package:shadowmask/model/catalog/version.dart';
 import 'package:shadowmask/model/common/title_ref.dart';
 import 'package:shadowmask/model/job/job.dart';
@@ -77,6 +78,26 @@ class AdminApi {
       if (available != null) 'available': '$available',
     }),
     Version.fromJson,
+  );
+
+  Future<Paged<TitleRow>> titles({
+    int offset = 0,
+    int? limit,
+    String? filter,
+    TitleKind? kind,
+    TitleAvailability? availability,
+    TitleSort sort = TitleSort.title,
+    bool descending = false,
+  }) => _api.getPage(
+    withQuery('/api/v1/admin/titles', <String, String?>{
+      ..._pageParams(offset, limit),
+      if (filter != null && filter.isNotEmpty) 'filter': filter,
+      'kind': kind?.wire,
+      'availability': availability?.wire,
+      if (sort != TitleSort.title) 'sort': sort.wire,
+      if (descending) 'order': 'desc',
+    }),
+    TitleRow.fromJson,
   );
 
   Future<List<VersionJob>> versionJobs(String id) => _api.getJsonArray(

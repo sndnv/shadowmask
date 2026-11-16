@@ -7,7 +7,8 @@ use crate::catalog::{
     ArtworkId, ArtworkOwner, ArtworkRef, CatalogClean, CleanScope, Collection, CollectionId,
     Episode, EpisodeContext, EpisodeId, LibraryFootprint, LibraryPurge, Movie, MovieDetail,
     MovieId, RandomScope, Season, SeasonId, Series, SeriesDetail, SeriesId, TitleId, TitleKind,
-    TitleListFilter, TitleRef, TitleSet, Version, VersionDetail, VersionId, VersionReconcile,
+    TitleListFilter, TitleOutline, TitleRef, TitleSet, Version, VersionDetail, VersionId,
+    VersionReconcile,
 };
 use crate::common::{Page, PageRequest};
 use crate::diagnostics::{Report, ReportId, ReportSummary};
@@ -150,6 +151,10 @@ pub trait CatalogRepository {
         &self,
         page: PageRequest,
     ) -> impl Future<Output = Result<Page<Version>, RepositoryError>> + Send;
+    fn title_outline(
+        &self,
+        libraries: &[LibraryId],
+    ) -> impl Future<Output = Result<TitleOutline, RepositoryError>> + Send;
     fn version_detail(
         &self,
         id: &VersionId,

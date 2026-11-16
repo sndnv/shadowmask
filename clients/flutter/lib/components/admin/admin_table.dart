@@ -21,11 +21,13 @@ class AdminTable<T> extends StatefulWidget {
     required this.rows,
     required this.emptyText,
     this.onRowTap,
+    this.canTapRow,
     this.rowLabel,
     this.rowColor,
     this.minWidth = 720,
     this.initialSortColumn,
     this.initialSortAscending = true,
+    this.onSort,
     this.selectable = false,
   });
 
@@ -33,11 +35,13 @@ class AdminTable<T> extends StatefulWidget {
   final List<T> rows;
   final String emptyText;
   final void Function(T row)? onRowTap;
+  final bool Function(T row)? canTapRow;
   final String? rowLabel;
   final Color? Function(T row)? rowColor;
   final double minWidth;
   final int? initialSortColumn;
   final bool initialSortAscending;
+  final void Function(int column, bool ascending)? onSort;
   final bool selectable;
 
   @override
@@ -68,6 +72,7 @@ class _AdminTableState<T> extends State<AdminTable<T>> {
       }
       _cache = null;
     });
+    widget.onSort?.call(index, _ascending);
   }
 
   List<int> _visible(bool narrow) {
@@ -88,6 +93,9 @@ class _AdminTableState<T> extends State<AdminTable<T>> {
     if (current == null || visible.contains(current)) {
       return current;
     }
+    if (widget.onSort != null) {
+      return null;
+    }
     for (final int i in visible) {
       if (widget.columns[i].sortKey != null) {
         return i;
@@ -97,6 +105,9 @@ class _AdminTableState<T> extends State<AdminTable<T>> {
   }
 
   List<T> _sorted(int? index) {
+    if (widget.onSort != null) {
+      return widget.rows;
+    }
     final List<T>? cached = _cache;
     if (cached != null && _cacheColumn == index) {
       return cached;
@@ -231,7 +242,7 @@ class _AdminTableState<T> extends State<AdminTable<T>> {
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
     );
-    if (col.sortKey == null) {
+    if (!col.sorts) {
       return label;
     }
     return InkWell(
@@ -262,11 +273,12 @@ class _AdminTableState<T> extends State<AdminTable<T>> {
     required bool narrow,
   }) {
     final void Function(T row)? tap = widget.onRowTap;
+    final bool tappable = widget.canTapRow?.call(row) ?? true;
     return _TableRow(
       tint: widget.rowColor?.call(row),
       last: last,
       label: widget.rowLabel,
-      onTap: tap == null ? null : () => tap(row),
+      onTap: tap == null || !tappable ? null : () => tap(row),
       children: <Widget>[
         for (final int i in visible)
           _slot(

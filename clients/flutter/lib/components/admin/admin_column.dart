@@ -28,6 +28,7 @@ class AdminColumn<T> {
     this.fixedWidth,
     this.align = AdminColumnAlign.start,
     this.sortKey,
+    this.sortable = false,
     this.essential = false,
     this.narrowCell,
     this.narrowFixedWidth,
@@ -40,10 +41,13 @@ class AdminColumn<T> {
   final double? fixedWidth;
   final AdminColumnAlign align;
   final AdminSortKey<T>? sortKey;
+  final bool sortable;
   final bool essential;
   final AdminCell<T>? narrowCell;
   final double? narrowFixedWidth;
   final String? help;
+
+  bool get sorts => sortable || sortKey != null;
 
   AdminCell<T> cellFor(bool narrow) => narrow ? (narrowCell ?? cell) : cell;
 

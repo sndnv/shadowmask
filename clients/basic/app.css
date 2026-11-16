@@ -598,6 +598,16 @@ tbody tr.sm-row-unavailable {
   background: var(--danger-bg);
 }
 
+tbody tr.sm-row-no-version {
+  background: var(--warn-bg);
+}
+
+.sm-row-context {
+  display: block;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
 tbody tr.sm-detail-row > td {
   background: var(--surface-alt);
   padding-left: 2.5em;

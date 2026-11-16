@@ -63,6 +63,19 @@ void main() {
     expect(find.text('Server logs'), findsNothing);
   });
 
+  testWidgets('the Titles card opens the title list', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester);
+
+    expect(find.text(Strings.adminTitlesAbout), findsOneWidget);
+
+    await tester.tap(find.text(Strings.adminTitles));
+    await tester.pumpAndSettle();
+
+    expect(find.text('went to /admin/titles'), findsOneWidget);
+  });
+
   testWidgets('the Reports card opens the reports', (
     WidgetTester tester,
   ) async {
