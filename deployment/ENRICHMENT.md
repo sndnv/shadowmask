@@ -201,6 +201,10 @@ The startup log names any kind in that state.
 One enrichment job uses `SHADOWMASK_ENRICHMENT_THREADS` cores, defaulting to half the machine so
 the rest stays available for playback and the API.
 
+CTranslate2 runs its matrix maths on oneDNN in the published enrichment image, which is amd64
+only, and on Ruy in an arm64 image you build yourself. `CT2_VERBOSE=1` on the container logs the
+CPU features and the backend it selected when a model loads.
+
 ## Memory
 
 The model is linked into the server process, so an oversized model kills the server rather than
@@ -231,11 +235,11 @@ model weights you supply carry their own licenses.
 
 ### Bundled in the enrichment image
 
-The `ct2rs` and `sentencepiece-sys` crates compile vendored C++ source into the `-enrichment`
-binary. `cargo-about` cannot see that source, so `THIRD-PARTY-LICENSES.md` credits only the crates
-themselves.
+The `ct2rs`, `onednn-src` and `sentencepiece-sys` crates compile vendored C++ source into the
+`-enrichment` binary; `onednn-src` only on amd64. `cargo-about` cannot see that source, so
+`THIRD-PARTY-LICENSES.md` credits only the crates themselves.
 
-Every `LICENSE*` and `COPYING*` file in those two crate sources is therefore swept into
+Every `LICENSE*`, `COPYING*` and `THIRD-PARTY*` file in those crate sources is therefore swept into
 [`licenses/enrichment/`](../licenses/enrichment) and copied into the image at
 `/usr/share/doc/shadowmask/third-party-licenses/`. Paths are preserved, so each text names the
 library it came from: `ct2rs/CTranslate2/third_party/ruy/LICENSE`, and so on.

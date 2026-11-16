@@ -762,6 +762,7 @@ dependencies = [
  "cxx-build",
  "mel_spec",
  "ndarray",
+ "onednn-src",
  "sentencepiece",
  "serde",
  "serde_json",
@@ -2677,6 +2678,15 @@ name = "once_cell_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
+
+[[package]]
+name = "onednn-src"
+version = "0.1.24"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2bf4c94ee8046399659a2205d7730b6e3b282aa31984a3a7e3c4c473f47a1ac4"
+dependencies = [
+ "cmake",
+]
 
 [[package]]
 name = "onig"
