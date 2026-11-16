@@ -13,8 +13,8 @@ from pathlib import Path
 DESCRIPTION = 'Refresh the vendored third-party license texts bundled by the enrichment build'
 
 TARGET = 'licenses/enrichment'
-CRATES = ['ct2rs', 'sentencepiece-sys']
-PATTERNS = ['LICENSE*', 'COPYING*']
+CRATES = ['ct2rs', 'onednn-src', 'sentencepiece-sys']
+PATTERNS = ['LICENSE*', 'COPYING*', 'THIRD-PARTY*']
 METADATA_CMD = ['cargo', 'metadata', '--locked', '--all-features', '--format-version', '1']
 REFRESH_CMD = 'python3 licenses/refresh_licenses.py'
 
