@@ -1,4 +1,5 @@
 import 'package:shadowmask/model/job/job.dart';
+import 'package:shadowmask/util/format.dart';
 
 String jobKindLabel(JobKind kind) => switch (kind) {
   JobKind.libraryScan => 'Library scan',
@@ -33,6 +34,14 @@ final RegExp _failurePrefix = RegExp(
 String? jobFailureReason(String? raw) {
   final String text = (raw ?? '').replaceFirst(_failurePrefix, '').trim();
   return text.isEmpty ? null : text;
+}
+
+String? jobNarrowLine(Job job) {
+  final List<String> parts = <String>[
+    ?dateTimeText(job.startedAt),
+    if (job.status == JobStatus.running) '${(job.progress * 100).round()}%',
+  ];
+  return parts.isEmpty ? null : parts.join(' · ');
 }
 
 String jobPriorityLabel(JobPriority priority) => switch (priority) {

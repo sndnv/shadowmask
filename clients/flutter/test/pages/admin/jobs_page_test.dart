@@ -6,12 +6,15 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/components/admin/admin_filter_field.dart';
+import 'package:shadowmask/components/admin/admin_two_line_cell.dart';
+import 'package:shadowmask/components/admin/job_status_chip.dart';
 import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/pages/admin/jobs_page.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
 import 'package:shadowmask/theme/theme_scope.dart';
+import 'package:shadowmask/util/format.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 Map<String, dynamic> _job(
@@ -20,6 +23,7 @@ Map<String, dynamic> _job(
   String status, {
   String? parent,
   String created = '2026-08-17T07:00:00Z',
+  String? started,
 }) => <String, dynamic>{
   'id': id,
   'kind': kind,
@@ -31,6 +35,7 @@ Map<String, dynamic> _job(
   'retryable':
       (status == 'failed' || status == 'cancelled') && kind != 'library_scan',
   'parent_id': ?parent,
+  'started_at': ?started,
   'created_at': created,
   'updated_at': created,
 };
@@ -125,8 +130,9 @@ Future<_Server> _pump(
   WidgetTester tester,
   List<Map<String, dynamic>> jobs, {
   Set<String> refuse = const <String>{},
+  Size size = const Size(1800, 1200),
 }) async {
-  tester.view.physicalSize = const Size(1800, 1200);
+  tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   final _Server server = _Server(jobs, refuse: refuse);
@@ -176,6 +182,32 @@ void main() {
     expect(find.text(Strings.jobsAllCount(2)), findsOneWidget);
     expect(find.text('Library scan'), findsOneWidget);
     expect(find.text('Metadata'), findsNothing);
+  });
+
+  testWidgets('a phone keeps the start and the progress under the kind, and '
+      'the status', (WidgetTester tester) async {
+    await _pump(tester, <Map<String, dynamic>>[
+      _job('j1', 'metadata', 'running', started: '2026-08-17T07:05:00Z'),
+      _job('j2', 'artwork', 'queued'),
+    ], size: const Size(400, 900));
+
+    expect(
+      find.text('${dateTimeText('2026-08-17T07:05:00Z')} · 50%'),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<AdminTwoLineCell>(
+            find.ancestor(
+              of: find.text('Artwork'),
+              matching: find.byType(AdminTwoLineCell),
+            ),
+          )
+          .below,
+      isNull,
+    );
+    expect(find.byType(JobStatusChip), findsNWidgets(2));
+    expect(find.text(Strings.columnStarted.toUpperCase()), findsNothing);
   });
 
   testWidgets('cancelling names the job kind and says what is kept', (

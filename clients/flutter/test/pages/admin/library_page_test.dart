@@ -197,6 +197,43 @@ void main() {
     expect(find.text('Skyline · S02E02'), findsOneWidget);
   });
 
+  testWidgets('a phone keeps the title, quality and size under the file name, '
+      'and the availability', (WidgetTester tester) async {
+    await _pump(
+      tester,
+      _api((http.Request req) {
+        if (req.url.path == '/api/v1/libraries/lib1/versions') {
+          return http.Response(
+            jsonEncode(<String, dynamic>{
+              'items': <dynamic>[
+                <String, dynamic>{
+                  'id': 'v9',
+                  'title': <String, dynamic>{'type': 'movie', 'id': 'm1'},
+                  'library_id': 'lib1',
+                  'quality': 'hd',
+                  'container': 'mkv',
+                  'size_bytes': 1258291200,
+                  'path': '/media/films/alpha.mkv',
+                },
+              ],
+              'total': 1,
+              'offset': 0,
+              'limit': 50,
+            }),
+            200,
+          );
+        }
+        return _detailRoute(req);
+      }),
+      width: 400,
+    );
+
+    expect(find.text('alpha.mkv'), findsOneWidget);
+    expect(find.text('m1 · HD · 1.2 GB'), findsOneWidget);
+    expect(find.text(Strings.columnAvailable.toUpperCase()), findsOneWidget);
+    expect(find.text(Strings.columnQuality.toUpperCase()), findsNothing);
+  });
+
   testWidgets('the card actions still fit a narrow window', (
     WidgetTester tester,
   ) async {

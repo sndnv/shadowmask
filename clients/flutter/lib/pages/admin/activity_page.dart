@@ -5,6 +5,7 @@ import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/api/user_admin_api.dart';
 import 'package:shadowmask/components/admin/admin_column.dart';
 import 'package:shadowmask/components/admin/admin_table.dart';
+import 'package:shadowmask/components/admin/admin_two_line_cell.dart';
 import 'package:shadowmask/components/hover_tap.dart';
 import 'package:shadowmask/components/page_actions.dart';
 import 'package:shadowmask/components/pagination.dart';
@@ -131,7 +132,6 @@ class _ActivityBodyState extends State<_ActivityBody> {
               columns: <AdminColumn<NowPlaying>>[
                 AdminColumn<NowPlaying>(
                   label: Strings.columnUsername,
-                  essential: true,
                   sortKey: (NowPlaying n) => data.names[n.userId] ?? n.userId,
                   cell: (BuildContext c, NowPlaying n) => _RowLink(
                     label: data.names[n.userId] ?? n.userId,
@@ -144,20 +144,14 @@ class _ActivityBodyState extends State<_ActivityBody> {
                   essential: true,
                   sortKey: (NowPlaying n) =>
                       n.card == null ? n.versionId : _cardName(n.card!),
-                  cell: (BuildContext c, NowPlaying n) {
-                    final ResumeCard? card = n.card;
-                    if (card == null) {
-                      return Text(
-                        n.versionId,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      );
-                    }
-                    return _RowLink(
-                      label: _cardName(card),
-                      route: titleRoute(card.title.type, card.title.id),
-                    );
-                  },
+                  cell: (BuildContext c, NowPlaying n) => _titleCell(n),
+                  narrowCell: (BuildContext c, NowPlaying n) =>
+                      AdminTwoLineCell(
+                        first: _titleCell(n),
+                        below:
+                            '${data.names[n.userId] ?? n.userId} · '
+                            '${n.state} · ${clock(n.positionMs)}',
+                      ),
                 ),
                 AdminColumn<NowPlaying>(
                   label: Strings.columnProgress,
@@ -209,6 +203,17 @@ class _ActivityBodyState extends State<_ActivityBody> {
       },
     );
   }
+}
+
+Widget _titleCell(NowPlaying n) {
+  final ResumeCard? card = n.card;
+  if (card == null) {
+    return Text(n.versionId, maxLines: 1, overflow: TextOverflow.ellipsis);
+  }
+  return _RowLink(
+    label: _cardName(card),
+    route: titleRoute(card.title.type, card.title.id),
+  );
 }
 
 String _cardName(ResumeCard card) {

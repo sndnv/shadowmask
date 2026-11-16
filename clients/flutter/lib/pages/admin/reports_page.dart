@@ -8,6 +8,7 @@ import 'package:shadowmask/api/user_admin_api.dart';
 import 'package:shadowmask/components/admin/admin_column.dart';
 import 'package:shadowmask/components/admin/admin_filter_field.dart';
 import 'package:shadowmask/components/admin/admin_table.dart';
+import 'package:shadowmask/components/admin/admin_two_line_cell.dart';
 import 'package:shadowmask/components/breadcrumbs.dart';
 import 'package:shadowmask/components/crumb.dart';
 import 'package:shadowmask/components/page_actions.dart';
@@ -192,10 +193,14 @@ class _ReportsBodyState extends State<_ReportsBody> {
               sortKey: (ReportSummary r) => r.createdAt,
               cell: (BuildContext c, ReportSummary r) =>
                   _cell(preciseDateTimeText(r.createdAt) ?? ''),
+              narrowCell: (BuildContext c, ReportSummary r) =>
+                  AdminTwoLineCell.text(
+                    preciseDateTimeText(r.createdAt) ?? '',
+                    below: '${r.playerId} · ${r.platform}',
+                  ),
             ),
             AdminColumn<ReportSummary>(
               label: Strings.reportPlayer,
-              essential: true,
               sortKey: (ReportSummary r) => r.playerId,
               cell: (BuildContext c, ReportSummary r) => _cell(r.playerId),
             ),
@@ -219,7 +224,6 @@ class _ReportsBodyState extends State<_ReportsBody> {
             AdminColumn<ReportSummary>(
               label: Strings.reportPlatform,
               size: AdminColumnSize.large,
-              essential: true,
               sortKey: (ReportSummary r) => r.platform,
               cell: (BuildContext c, ReportSummary r) => _cell(r.platform),
             ),

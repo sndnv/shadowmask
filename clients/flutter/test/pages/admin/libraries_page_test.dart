@@ -161,6 +161,20 @@ void main() {
     );
   });
 
+  testWidgets('a phone keeps the kind and the origin under the name', (
+    WidgetTester tester,
+  ) async {
+    await _pumpLibraries(
+      tester,
+      (http.Request req) => null,
+      size: const Size(400, 900),
+    );
+
+    expect(find.text('Films'), findsOneWidget);
+    expect(find.text('Movie · Local'), findsOneWidget);
+    expect(find.text(Strings.columnKind.toUpperCase()), findsNothing);
+  });
+
   testWidgets('Clean all confirms, sends the wipe choice, toasts what went '
       'and reloads the list', (WidgetTester tester) async {
     final List<dynamic> bodies = <dynamic>[];
@@ -252,9 +266,10 @@ const String _cleanAllPath = '/api/v1/admin/clean';
 
 Future<void> _pumpLibraries(
   WidgetTester tester,
-  http.Response? Function(http.Request req) route,
-) async {
-  tester.view.physicalSize = const Size(1600, 900);
+  http.Response? Function(http.Request req) route, {
+  Size size = const Size(1600, 900),
+}) async {
+  tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   final ApiClient api = ApiClient(

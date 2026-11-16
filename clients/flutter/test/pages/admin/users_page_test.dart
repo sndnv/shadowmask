@@ -35,8 +35,12 @@ Map<String, dynamic> _user(
   'updated_at': '2026-08-17T07:24:11Z',
 };
 
-Future<void> _pump(WidgetTester tester, ApiClient api) async {
-  tester.view.physicalSize = const Size(1600, 1200);
+Future<void> _pump(
+  WidgetTester tester,
+  ApiClient api, {
+  Size size = const Size(1600, 1200),
+}) async {
+  tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(
@@ -47,8 +51,11 @@ Future<void> _pump(WidgetTester tester, ApiClient api) async {
         theme: buildTheme(AppThemeVariant.dark),
         builder: (BuildContext context, Widget? child) =>
             ToastHost(child: child ?? const SizedBox.shrink()),
-        onGenerateRoute: (_) =>
-            MaterialPageRoute<void>(builder: (_) => UsersPage(api: api)),
+        onGenerateRoute: (RouteSettings settings) => MaterialPageRoute<void>(
+          builder: (_) => settings.name == null || settings.name == '/'
+              ? UsersPage(api: api)
+              : Text('went to ${settings.name}'),
+        ),
       ),
     ),
   );
@@ -300,6 +307,63 @@ void main() {
     expect(mine.tooltip, Strings.cannotDeactivateSelf);
     expect(theirs.onPressed, isNotNull);
     expect(theirs.tooltip, Strings.deactivateUser);
+  });
+
+  testWidgets('a phone keeps the role and the status under the name, and the '
+      'actions', (WidgetTester tester) async {
+    await _pump(
+      tester,
+      _api(
+        listed: <Map<String, dynamic>>[
+          _user('u1', 'pat', role: 'admin'),
+          _user('u2', 'sam', active: false),
+        ],
+        total: 2,
+      ),
+      size: const Size(400, 900),
+    );
+
+    expect(find.text('admin · ${Strings.statusActive}'), findsOneWidget);
+    expect(find.text('user · ${Strings.statusInactive}'), findsOneWidget);
+    expect(find.text(Strings.columnRole.toUpperCase()), findsNothing);
+    expect(find.text(Strings.columnStatus.toUpperCase()), findsNothing);
+    expect(
+      tester.widget<DangerIconButton>(_deleteIn('sam')).tooltip,
+      Strings.deleteUser,
+    );
+    expect(
+      tester.widget<IconButton>(_activeIn('sam')).tooltip,
+      Strings.activateUser,
+    );
+  });
+
+  testWidgets('tapping a disabled action on a phone opens nothing', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      _api(
+        listed: <Map<String, dynamic>>[
+          _user('u1', 'pat', role: 'admin'),
+          _user('u2', 'sam'),
+        ],
+        total: 2,
+      ),
+      size: const Size(400, 900),
+    );
+
+    await tester.tap(_deleteIn('pat'));
+    await tester.pumpAndSettle();
+    await tester.tap(_activeIn('pat'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('went to'), findsNothing);
+    expect(find.text('pat'), findsOneWidget);
+
+    await tester.tap(find.text('sam'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('went to /admin/user?id=u2'), findsOneWidget);
   });
 
   testWidgets('an inactive account shows its status and offers activation', (
