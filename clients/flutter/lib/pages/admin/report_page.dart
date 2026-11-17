@@ -20,7 +20,8 @@ import 'package:shadowmask/pages/default/mutations.dart';
 import 'package:shadowmask/pages/default/page_states.dart';
 import 'package:shadowmask/pages/default/section_page.dart';
 import 'package:shadowmask/theme/app_theme.dart';
-import 'package:shadowmask/theme/radii.dart';
+import 'package:shadowmask/theme/shapes.dart';
+import 'package:shadowmask/theme/shapes_context.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
@@ -136,10 +137,10 @@ class _ReportBodyState extends State<_ReportBody> with Mutations<_ReportBody> {
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(Space.s3),
-              decoration: BoxDecoration(
+              decoration: context.shapes.box(
+                Corners.inset,
                 color: t.bg,
-                borderRadius: const BorderRadius.all(Radii.sm),
-                border: Border.all(color: t.border),
+                side: BorderSide(color: context.shapes.lineSoft(t.border)),
               ),
               child: SelectionArea(
                 child: Text(

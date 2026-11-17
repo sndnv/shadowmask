@@ -23,7 +23,8 @@ import 'package:shadowmask/pages/default/immersive_scope.dart';
 import 'package:shadowmask/theme/app_menu.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/breakpoints.dart';
-import 'package:shadowmask/theme/radii.dart';
+import 'package:shadowmask/theme/shapes.dart';
+import 'package:shadowmask/theme/shapes_context.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
@@ -466,13 +467,10 @@ class _ShellHeader extends SliverPersistentHeaderDelegate {
                     as EdgeInsets,
             child: Container(
               clipBehavior: Clip.antiAlias,
-              decoration: BoxDecoration(
-                color: t.surface,
-                borderRadius: const BorderRadius.all(Radii.lg),
-              ),
-              foregroundDecoration: BoxDecoration(
-                borderRadius: const BorderRadius.all(Radii.lg),
-                border: Border.all(color: t.border),
+              decoration: context.shapes.box(Corners.shell, color: t.surface),
+              foregroundDecoration: context.shapes.box(
+                Corners.shell,
+                side: BorderSide(color: context.shapes.lineSoft(t.border)),
               ),
               child: _TopNav(api: api, current: current, user: user),
             ),
@@ -621,7 +619,7 @@ class _NavMenu extends StatelessWidget {
     final Tokens t = context.tokens;
     return MenuAnchor(
       alignmentOffset: kMenuOffset,
-      style: appMenuStyle(t, minWidth: 180),
+      style: appMenuStyle(context, minWidth: 180),
       menuChildren: <Widget>[
         for (final NavDestination d in destinations)
           MenuItemButton(
@@ -671,7 +669,7 @@ class _Brand extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
-      borderRadius: const BorderRadius.all(Radii.sm),
+      customBorder: context.shapes.border(Corners.button),
       child: const Padding(
         padding: EdgeInsets.all(Space.s1),
         child: BrandMark(size: 24),
@@ -717,8 +715,8 @@ class _AccountLink extends StatelessWidget {
         ),
         minimumSize: const WidgetStatePropertyAll<Size>(Size.zero),
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        shape: const WidgetStatePropertyAll<OutlinedBorder>(
-          RoundedRectangleBorder(borderRadius: BorderRadius.all(Radii.sm)),
+        shape: WidgetStatePropertyAll<OutlinedBorder>(
+          context.shapes.border(Corners.button),
         ),
       ),
       child: Row(
@@ -728,9 +726,8 @@ class _AccountLink extends StatelessWidget {
           const SizedBox(width: Space.s1),
           Text(
             username,
-            style: monoStyle.copyWith(
-              fontWeight: FontWeight.w700,
-              fontSize: 13,
+            style: context.shapes.mono(
+              monoStyle.copyWith(fontWeight: FontWeight.w700, fontSize: 13),
             ),
           ),
         ],
@@ -755,55 +752,71 @@ class _NavItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final Tokens t = context.tokens;
+    final Shapes shapes = context.shapes;
+    final Widget button = _button(t, shapes);
     return Padding(
       padding: const EdgeInsets.only(right: kNavItemGap),
-      child: TextButton(
-        onPressed: onTap,
-        style: ButtonStyle(
-          backgroundColor: WidgetStateProperty.resolveWith<Color>((
-            Set<WidgetState> states,
-          ) {
-            if (active) {
-              return t.accent;
-            }
-            if (states.contains(WidgetState.hovered)) {
-              return t.surfaceAlt;
-            }
-            return Colors.transparent;
-          }),
-          foregroundColor: WidgetStateProperty.resolveWith<Color>((
-            Set<WidgetState> states,
-          ) {
-            if (active) {
-              return t.accentContrast;
-            }
-            if (admin) {
-              return t.accent;
-            }
-            if (states.contains(WidgetState.hovered)) {
-              return t.text;
-            }
-            return t.muted;
-          }),
-          overlayColor: const WidgetStatePropertyAll<Color>(Colors.transparent),
-          elevation: const WidgetStatePropertyAll<double>(0),
-          padding: const WidgetStatePropertyAll<EdgeInsetsGeometry>(
-            EdgeInsets.symmetric(horizontal: kNavItemHPad, vertical: 6),
-          ),
-          minimumSize: const WidgetStatePropertyAll<Size>(Size.zero),
-          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          shape: WidgetStatePropertyAll<OutlinedBorder>(
-            RoundedRectangleBorder(
-              borderRadius: const BorderRadius.all(Radii.sm),
-              side: admin && !active
-                  ? BorderSide(color: t.border)
-                  : BorderSide.none,
-            ),
-          ),
-          textStyle: const WidgetStatePropertyAll<TextStyle>(kNavItemText),
-        ),
-        child: Text(label),
-      ),
+      child: shapes.cut
+          ? DecoratedBox(
+              position: DecorationPosition.foreground,
+              decoration: active
+                  ? BoxDecoration(
+                      border: Border(
+                        bottom: BorderSide(color: t.accent, width: 2),
+                      ),
+                    )
+                  : const BoxDecoration(),
+              child: button,
+            )
+          : button,
     );
   }
+
+  Widget _button(Tokens t, Shapes shapes) => TextButton(
+    onPressed: onTap,
+    style: ButtonStyle(
+      backgroundColor: WidgetStateProperty.resolveWith<Color>((
+        Set<WidgetState> states,
+      ) {
+        if (active && !shapes.cut) {
+          return t.accent;
+        }
+        if (states.contains(WidgetState.hovered)) {
+          return t.surfaceAlt;
+        }
+        return Colors.transparent;
+      }),
+      foregroundColor: WidgetStateProperty.resolveWith<Color>((
+        Set<WidgetState> states,
+      ) {
+        if (active) {
+          return shapes.cut ? t.text : t.accentContrast;
+        }
+        if (admin) {
+          return t.accent;
+        }
+        if (states.contains(WidgetState.hovered)) {
+          return t.text;
+        }
+        return t.muted;
+      }),
+      overlayColor: const WidgetStatePropertyAll<Color>(Colors.transparent),
+      elevation: const WidgetStatePropertyAll<double>(0),
+      padding: const WidgetStatePropertyAll<EdgeInsetsGeometry>(
+        EdgeInsets.symmetric(horizontal: kNavItemHPad, vertical: 6),
+      ),
+      minimumSize: const WidgetStatePropertyAll<Size>(Size.zero),
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      shape: WidgetStatePropertyAll<OutlinedBorder>(
+        shapes.border(
+          Corners.button,
+          side: admin && !active
+              ? BorderSide(color: shapes.line(t.border))
+              : BorderSide.none,
+        ),
+      ),
+      textStyle: const WidgetStatePropertyAll<TextStyle>(kNavItemText),
+    ),
+    child: Text(label),
+  );
 }

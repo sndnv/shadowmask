@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
-import 'package:shadowmask/theme/radii.dart';
+import 'package:shadowmask/theme/shapes.dart';
+import 'package:shadowmask/theme/shapes_context.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
@@ -37,10 +38,13 @@ class ToggleButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final Tokens t = context.tokens;
+    final Shapes shapes = context.shapes;
     final bool lit = pressed && highlight;
     final Color labelColor = lit ? t.accent : t.text;
     final Color iconColor = lit ? t.accent : t.muted;
-    final Color bg = lit ? t.accent.withValues(alpha: 0.12) : t.surface;
+    final Color bg = lit
+        ? shapes.wash(t.accent.withValues(alpha: 0.12))
+        : shapes.panel(t.surface);
     final IconData glyph = pressed ? filledIcon : icon;
     final Widget content = compact
         ? Icon(glyph, size: 20, color: iconColor)
@@ -73,12 +77,18 @@ class ToggleButton extends StatelessWidget {
           height: height,
           child: Material(
             color: bg,
-            shape: RoundedRectangleBorder(
-              borderRadius: const BorderRadius.all(Radii.sm),
-              side: BorderSide(color: lit ? t.accent : t.border),
+            shape: shapes.border(
+              Corners.button,
+              side: BorderSide(
+                color: lit
+                    ? shapes.line(t.accent)
+                    : highlight
+                    ? shapes.lineSoft(t.border)
+                    : shapes.line(t.border),
+              ),
             ),
             child: InkWell(
-              borderRadius: const BorderRadius.all(Radii.sm),
+              customBorder: shapes.border(Corners.button),
               onTap: busy ? null : onToggle,
               child: Padding(
                 padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 14),

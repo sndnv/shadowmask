@@ -23,6 +23,8 @@ class Tokens {
     required this.isDark,
     this.rowTintAlpha = 0.12,
     this.rowHoverAlpha = 0.06,
+    this.textureAlpha = 0.06,
+    this.textureOnAccent = false,
   });
 
   final Color bg;
@@ -43,6 +45,8 @@ class Tokens {
   final bool isDark;
   final double rowTintAlpha;
   final double rowHoverAlpha;
+  final double textureAlpha;
+  final bool textureOnAccent;
 
   static const Tokens dark = Tokens(
     bg: Color(0xFF0B1113),
@@ -101,11 +105,33 @@ class Tokens {
     isDark: true,
   );
 
+  static const Tokens hologram = Tokens(
+    bg: Color(0xFF05080D),
+    surface: Color(0xFF0A1621),
+    surfaceAlt: Color(0xFF10202F),
+    text: Color(0xFFE3F3FF),
+    muted: Color(0xFF82A6C0),
+    border: Color(0xFF1B3449),
+    accent: Color(0xFF45B8FF),
+    accentContrast: Color(0xFF03111C),
+    ok: Color(0xFF3FE0A5),
+    warn: Color(0xFFFFB547),
+    danger: Color(0xFFFF4D5E),
+    okBg: Color(0xFF0A2620),
+    warnBg: Color(0xFF2B2010),
+    dangerBg: Color(0xFF2C0E15),
+    artBg: Color(0xFF020407),
+    isDark: true,
+    textureAlpha: 0.11,
+    textureOnAccent: true,
+  );
+
   static Tokens of(AppThemeVariant variant, {bool highContrast = false}) {
     final Tokens base = switch (variant) {
       AppThemeVariant.dark => dark,
       AppThemeVariant.light => light,
       AppThemeVariant.retro => retro,
+      AppThemeVariant.hologram => hologram,
     };
     return highContrast ? base.hardened() : base;
   }
@@ -129,12 +155,16 @@ class Tokens {
     isDark: isDark,
     rowTintAlpha: 0.3,
     rowHoverAlpha: 0.18,
+    textureAlpha: textureAlpha,
+    textureOnAccent: textureOnAccent,
   );
 
   Color get rowOk => ok.withValues(alpha: rowTintAlpha);
   Color get rowWarn => warn.withValues(alpha: rowTintAlpha);
   Color get rowDanger => danger.withValues(alpha: rowTintAlpha);
   Color get rowHover => text.withValues(alpha: rowHoverAlpha);
+  Color get texture =>
+      (textureOnAccent ? accent : text).withValues(alpha: textureAlpha);
 
   Color get fieldBorder => Color.lerp(border, muted, 0.7)!;
 }

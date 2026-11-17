@@ -43,6 +43,12 @@
                     <Poster id="glyph" visible="false" />
                     <Rectangle id="progressTrack" visible="false" />
                     <Rectangle id="progressFill" visible="false" />
+                    <Group id="segments" visible="false">
+                        <Poster id="segmentTrack" />
+                        <Group id="segmentFill">
+                            <Poster id="segmentLit" />
+                        </Group>
+                    </Group>
                     <Poster id="watchedRing" visible="false" />
                     <Poster id="watchedDisc" visible="false" />
                     <Poster id="dismiss" visible="false" />

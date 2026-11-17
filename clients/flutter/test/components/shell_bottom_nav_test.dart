@@ -32,6 +32,7 @@ Future<({List<String> routes, List<String> calls})> _pump(
   WidgetTester tester, {
   required SelfUser? user,
   NavSection current = NavSection.movies,
+  AppThemeVariant variant = AppThemeVariant.dark,
 }) async {
   final List<String> routes = <String>[];
   final List<String> calls = <String>[];
@@ -44,7 +45,7 @@ Future<({List<String> routes, List<String> calls})> _pump(
   );
   await tester.pumpWidget(
     MaterialApp(
-      theme: buildTheme(AppThemeVariant.dark),
+      theme: buildTheme(variant),
       onGenerateRoute: (RouteSettings settings) {
         routes.add(settings.name ?? '');
         return MaterialPageRoute<void>(
@@ -369,4 +370,57 @@ void main() {
       destinationsFor(_admin).map((NavDestination d) => d.label).toSet(),
     );
   });
+
+  testWidgets('hologram underlines the current tab instead of filling it', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, user: _player, variant: AppThemeVariant.hologram);
+    const Tokens t = Tokens.hologram;
+    final NavigationBar bar = tester.widget<NavigationBar>(
+      find.byType(NavigationBar),
+    );
+
+    expect(bar.indicatorColor, Colors.transparent);
+    expect(
+      bar.indicatorShape,
+      Border(bottom: BorderSide(color: t.accent, width: 2)),
+    );
+    expect(_selectedIcon(tester, bar).color, t.text);
+    expect(_topEdge(tester), t.accent.withValues(alpha: 0.26));
+  });
+
+  for (final AppThemeVariant variant in AppThemeVariant.values.where(
+    (AppThemeVariant v) => v != AppThemeVariant.hologram,
+  )) {
+    testWidgets('${variant.name} fills the current tab', (
+      WidgetTester tester,
+    ) async {
+      await _pump(tester, user: _player, variant: variant);
+      final Tokens t = Tokens.of(variant);
+      final NavigationBar bar = tester.widget<NavigationBar>(
+        find.byType(NavigationBar),
+      );
+
+      expect(bar.indicatorColor, t.accent);
+      expect(bar.indicatorShape, isA<RoundedRectangleBorder>());
+      expect(_selectedIcon(tester, bar).color, t.accentContrast);
+      expect(_topEdge(tester), t.border);
+    });
+  }
+}
+
+Icon _selectedIcon(WidgetTester tester, NavigationBar bar) =>
+    (bar.destinations[bar.selectedIndex] as NavigationDestination).selectedIcon!
+        as Icon;
+
+Color _topEdge(WidgetTester tester) {
+  final DecoratedBox edge = tester.widget<DecoratedBox>(
+    find
+        .ancestor(
+          of: find.byType(NavigationBar),
+          matching: find.byType(DecoratedBox),
+        )
+        .first,
+  );
+  return ((edge.decoration as BoxDecoration).border! as Border).top.color;
 }

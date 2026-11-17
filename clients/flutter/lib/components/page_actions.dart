@@ -5,8 +5,6 @@ import 'package:shadowmask/theme/app_button.dart';
 import 'package:shadowmask/theme/app_menu.dart';
 import 'package:shadowmask/theme/breakpoints.dart';
 import 'package:shadowmask/theme/space.dart';
-import 'package:shadowmask/theme/tokens.dart';
-import 'package:shadowmask/theme/tokens_context.dart';
 
 class PageAction {
   const PageAction({
@@ -117,11 +115,10 @@ class _ActionsMenu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final Tokens t = context.tokens;
     final Color danger = Theme.of(context).colorScheme.error;
     return MenuAnchor(
       alignmentOffset: kMenuOffset,
-      style: appMenuStyle(t),
+      style: appMenuStyle(context),
       menuChildren: <Widget>[
         for (final PageAction action in actions) _item(action, danger),
       ],

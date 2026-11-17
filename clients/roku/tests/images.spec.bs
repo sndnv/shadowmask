@@ -253,6 +253,61 @@ namespace tests
             m.assertTrue(HeroArtWidth(LandscapeAspect()) < BackdropImageWidth())
         end sub
 
+        @describe("shape set")
+
+        @it("cuts hologram's boxes, chips and focus ring and rounds every other theme's")
+        sub boxesFollowTheTheme()
+            cut = ThemeTokens("hologram")
+            m.assertEqual(BoxFillUri(cut), "pkg:/images/cut-fill.9.png")
+            m.assertEqual(BoxLineUri(cut), "pkg:/images/cut-line.9.png")
+            m.assertEqual(FocusRingUri(cut), "pkg:/images/cut-focus.9.png")
+            m.assertEqual(ChipCapUri("left", cut), "pkg:/images/chip-cut-left.png")
+            m.assertEqual(ChipCapUri("right", cut), "pkg:/images/chip-cut-right.png")
+            m.assertEqual(ChipCapLineUri("left", cut), "pkg:/images/chip-cut-left-line.png")
+            m.assertEqual(ChipCapLineUri("right", cut), "pkg:/images/chip-cut-right-line.png")
+
+            for each name in ["dark", "light", "retro"]
+                theme = ThemeTokens(name)
+                m.assertEqual(BoxFillUri(theme), "pkg:/images/button-fill.9.png", name)
+                m.assertEqual(BoxLineUri(theme), "pkg:/images/button-line.9.png", name)
+                m.assertEqual(FocusRingUri(theme), "pkg:/images/focus-ring.9.png", name)
+                m.assertEqual(ChipCapUri("left", theme), "pkg:/images/chip-cap-left.png", name)
+                m.assertEqual(ChipCapUri("right", theme), "pkg:/images/chip-cap-right.png", name)
+                m.assertEqual(ChipCapLineUri("left", theme), "pkg:/images/chip-cap-left-line.png", name)
+                m.assertEqual(ChipCapLineUri("right", theme), "pkg:/images/chip-cap-right-line.png", name)
+            end for
+        end sub
+
+        @it("turns hologram's circles into hexagons and keeps every other theme's round")
+        sub circlesFollowTheTheme()
+            cut = ThemeTokens("hologram")
+            m.assertEqual(DiscUri(cut), "pkg:/images/hex-disc.png")
+            m.assertEqual(RingUri(cut), "pkg:/images/hex-ring.png")
+            m.assertEqual(WatchedDiscUri(cut), "pkg:/images/watched-hex-disc.png")
+            m.assertEqual(WatchedRingUri(cut), "pkg:/images/watched-hex-ring.png")
+
+            for each name in ["dark", "light", "retro"]
+                theme = ThemeTokens(name)
+                m.assertEqual(DiscUri(theme), "pkg:/images/disc.png", name)
+                m.assertEqual(RingUri(theme), "pkg:/images/ring.png", name)
+                m.assertEqual(WatchedDiscUri(theme), "pkg:/images/watched-disc.png", name)
+                m.assertEqual(WatchedRingUri(theme), "pkg:/images/watched-ring.png", name)
+            end for
+        end sub
+
+        @it("keeps the cut set under high contrast")
+        sub contrastKeepsTheCut()
+            hard = ThemedTokens("hologram", true)
+            m.assertEqual(BoxFillUri(hard), "pkg:/images/cut-fill.9.png")
+            m.assertEqual(DiscUri(hard), "pkg:/images/hex-disc.png")
+        end sub
+
+        @it("draws the rounded set before a theme arrives")
+        sub roundedWithoutATheme()
+            m.assertEqual(BoxFillUri(invalid), "pkg:/images/button-fill.9.png")
+            m.assertEqual(DiscUri({}), "pkg:/images/disc.png")
+        end sub
+
     end class
 
 end namespace

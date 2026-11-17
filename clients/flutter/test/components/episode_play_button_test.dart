@@ -9,6 +9,7 @@ import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/api/catalog_api.dart';
 import 'package:shadowmask/components/episode_play_button.dart';
 import 'package:shadowmask/components/play_on_button.dart';
+import 'package:shadowmask/components/resume_ring.dart';
 import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/components/toggle_button.dart';
 import 'package:shadowmask/l10n/strings.dart';
@@ -69,6 +70,7 @@ Future<_Pushes> _pump(
   double width = 800,
   bool withSeason = true,
   PlayOnServer? server,
+  AppThemeVariant variant = AppThemeVariant.dark,
 }) async {
   final ApiClient api = ApiClient(
     baseUrl: 'http://test',
@@ -108,7 +110,7 @@ Future<_Pushes> _pump(
   final _Pushes pushes = _Pushes();
   await tester.pumpWidget(
     MaterialApp(
-      theme: buildTheme(AppThemeVariant.dark),
+      theme: buildTheme(variant),
       navigatorObservers: <NavigatorObserver>[pushes],
       builder: (BuildContext context, Widget? child) =>
           ToastHost(child: child ?? const SizedBox.shrink()),
@@ -231,6 +233,86 @@ void main() {
       reason: 'a screen reader hears the season spelled out, not S02',
     );
   });
+
+  for (final AppThemeVariant variant in AppThemeVariant.values) {
+    testWidgets('${variant.name} resumes an episode from the button', (
+      WidgetTester tester,
+    ) async {
+      final _Pushes pushes = await _pump(
+        tester,
+        Future<NextEpisode?>.value(_next(progress: 40)),
+        versions: <Map<String, dynamic>>[_version('v1')],
+        variant: variant,
+      );
+      await tester.pump();
+
+      expect(find.byType(ResumeRing), findsNothing);
+      final Finder resume = find.widgetWithText(
+        FilledButton,
+        Strings.resumeAction,
+      );
+      expect(resume, findsOneWidget);
+
+      await tester.tap(resume);
+      await tester.pumpAndSettle();
+
+      expect(pushes.names.last, '/watch?version=v1');
+    });
+  }
+
+  for (final AppThemeVariant variant in <AppThemeVariant>[
+    AppThemeVariant.hologram,
+    AppThemeVariant.dark,
+  ]) {
+    testWidgets('a ${variant.name} reload keeps the episode it knew until the '
+        'new one is known', (WidgetTester tester) async {
+      final ValueNotifier<Future<NextEpisode?>> next =
+          ValueNotifier<Future<NextEpisode?>>(
+            Future<NextEpisode?>.value(_next(progress: 40)),
+          );
+      addTearDown(next.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildTheme(variant),
+          home: Scaffold(
+            body: ValueListenableBuilder<Future<NextEpisode?>>(
+              valueListenable: next,
+              builder: (BuildContext _, Future<NextEpisode?> f, Widget? _) =>
+                  EpisodePlayButton(
+                    catalog: CatalogApi(
+                      ApiClient(
+                        baseUrl: 'http://test',
+                        httpClient: MockClient(
+                          (http.Request _) async => http.Response('', 404),
+                        ),
+                      ),
+                    ),
+                    userId: 'u1',
+                    seriesId: 's1',
+                    next: f,
+                    withSeason: true,
+                  ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      Finder resuming() =>
+          find.widgetWithText(FilledButton, Strings.resumeAction);
+      expect(resuming(), findsOneWidget);
+
+      final Completer<NextEpisode?> later = Completer<NextEpisode?>();
+      next.value = later.future;
+      await tester.pump();
+      expect(resuming(), findsOneWidget);
+
+      later.complete(_next());
+      await tester.pump();
+      await tester.pump();
+      expect(resuming(), findsNothing);
+      expect(find.widgetWithText(FilledButton, Strings.play), findsOneWidget);
+    });
+  }
 
   testWidgets('the season page leaves the season out of the note', (
     WidgetTester tester,

@@ -34,6 +34,17 @@ void main() {
     expect(find.byType(SvgPicture), findsOneWidget);
   });
 
+  testWidgets('the hologram mark is the plain mark in its accent', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, AppThemeVariant.hologram);
+
+    expect(
+      tester.widget<SvgPicture>(find.byType(SvgPicture)).bytesLoader,
+      SvgStringLoader(brandMarkSvg('#45b8ff', retro: false)),
+    );
+  });
+
   testWidgets('exposes the app name as its semantic label', (
     WidgetTester tester,
   ) async {

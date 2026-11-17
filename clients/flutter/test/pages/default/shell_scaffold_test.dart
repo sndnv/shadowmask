@@ -34,6 +34,7 @@ import 'package:shadowmask/util/app_version.dart';
 import 'package:shadowmask/util/page_director.dart';
 
 import '../../support/backdrops.dart';
+import '../../support/shape_guard.dart';
 
 ApiClient _api() => ApiClient(
   baseUrl: 'http://test',
@@ -45,11 +46,12 @@ Widget _host(
   bool fullWidth = false,
   bool fitViewport = false,
   VersionLoader loadVersion = defaultVersion,
+  AppThemeVariant variant = AppThemeVariant.dark,
 }) => ThemeScope(
-  variant: AppThemeVariant.dark,
+  variant: variant,
   setVariant: (_) {},
   child: MaterialApp(
-    theme: buildTheme(AppThemeVariant.dark),
+    theme: buildTheme(variant),
     home: ShellScaffold(
       api: _api(),
       current: NavSection.movies,
@@ -147,6 +149,54 @@ Route<void> _title(
 String _backdropOf(int id) => 'http://test/artwork/$id/$kBackdropWidth';
 
 void main() {
+  for (final AppThemeVariant variant in AppThemeVariant.values) {
+    for (final Size window in const <Size>[Size(1600, 900), Size(390, 844)]) {
+      testWidgets(
+        'the shell draws the ${variant.name} shapes at ${window.width}',
+        (WidgetTester tester) async {
+          tester.view.physicalSize = window;
+          tester.view.devicePixelRatio = 1;
+          addTearDown(tester.view.reset);
+          await tester.pumpWidget(_host(_body, variant: variant));
+          await tester.pumpAndSettle();
+
+          expectShapesOf(tester, variant);
+        },
+      );
+    }
+  }
+
+  for (final AppThemeVariant variant in AppThemeVariant.values) {
+    testWidgets('the ${variant.name} top bar marks the current section', (
+      WidgetTester tester,
+    ) async {
+      tester.view.physicalSize = const Size(1600, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(_host(_body, variant: variant));
+      await tester.pumpAndSettle();
+      final Tokens t = Tokens.of(variant);
+      final bool hologram = variant == AppThemeVariant.hologram;
+      final ButtonStyle style = tester
+          .widget<TextButton>(_navButton(Strings.navigationMovies))
+          .style!;
+
+      expect(
+        style.backgroundColor!.resolve(<WidgetState>{}),
+        hologram ? Colors.transparent : t.accent,
+      );
+      expect(
+        style.foregroundColor!.resolve(<WidgetState>{}),
+        hologram ? t.text : t.accentContrast,
+      );
+      expect(
+        _underline(tester, Strings.navigationMovies),
+        hologram ? Border(bottom: BorderSide(color: t.accent, width: 2)) : null,
+      );
+      expect(_underline(tester, Strings.navigationSeries), isNull);
+    });
+  }
+
   testWidgets('a page with no artwork of its own clears the backdrop', (
     WidgetTester tester,
   ) async {
@@ -1441,4 +1491,28 @@ class _TitleBodyState extends State<_TitleBody> {
           )
         : const SizedBox.shrink(),
   );
+}
+
+Finder _navButton(String label) =>
+    find.ancestor(of: find.text(label), matching: find.byType(TextButton));
+
+Border? _underline(WidgetTester tester, String label) {
+  final Iterable<DecoratedBox> marks = tester
+      .widgetList<DecoratedBox>(
+        find.ancestor(
+          of: _navButton(label),
+          matching: find.byType(DecoratedBox),
+        ),
+      )
+      .where(
+        (DecoratedBox box) =>
+            box.position == DecorationPosition.foreground &&
+            box.decoration is BoxDecoration &&
+            (box.decoration as BoxDecoration).border is Border &&
+            ((box.decoration as BoxDecoration).border! as Border).top ==
+                BorderSide.none,
+      );
+  return marks.isEmpty
+      ? null
+      : (marks.first.decoration as BoxDecoration).border! as Border;
 }

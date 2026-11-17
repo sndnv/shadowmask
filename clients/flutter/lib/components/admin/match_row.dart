@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
-import 'package:shadowmask/theme/radii.dart';
+import 'package:shadowmask/theme/shapes.dart';
+import 'package:shadowmask/theme/shapes_context.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
@@ -34,7 +35,7 @@ class MatchRow extends StatelessWidget {
       message: tooltip,
       child: InkWell(
         onTap: enabled ? onTap : null,
-        borderRadius: const BorderRadius.all(Radii.sm),
+        customBorder: context.shapes.border(Corners.row),
         child: Padding(
           padding: const EdgeInsets.symmetric(
             horizontal: Space.s2,

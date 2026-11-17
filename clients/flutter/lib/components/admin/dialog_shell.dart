@@ -1,7 +1,9 @@
 import 'package:material_ui/material_ui.dart';
 
-import 'package:shadowmask/l10n/strings.dart';
-import 'package:shadowmask/theme/radii.dart';
+import 'package:shadowmask/components/edged_box.dart';
+import 'package:shadowmask/components/title_bar.dart';
+import 'package:shadowmask/theme/shapes.dart';
+import 'package:shadowmask/theme/shapes_context.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
@@ -34,25 +36,23 @@ class DialogShell extends StatelessWidget {
       insetPadding: const EdgeInsets.all(Space.s5),
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: width, maxHeight: maxHeight),
-        child: Container(
-          clipBehavior: Clip.antiAlias,
-          decoration: BoxDecoration(
-            color: t.surface,
-            borderRadius: const BorderRadius.all(Radii.md),
-            border: Border.all(color: t.border),
-            boxShadow: <BoxShadow>[
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.5),
-                blurRadius: 24,
-                offset: const Offset(0, 8),
-              ),
-            ],
-          ),
+        child: EdgedBox(
+          corner: Corners.panel,
+          color: t.surface,
+          edge: BorderSide(color: context.shapes.line(t.border)),
+          inset: false,
+          shadows: <BoxShadow>[
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.5),
+              blurRadius: 24,
+              offset: const Offset(0, 8),
+            ),
+          ],
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              _Header(
+              TitleBar(
                 title: title,
                 onClose: !enableClose
                     ? null
@@ -79,51 +79,6 @@ class DialogShell extends StatelessWidget {
                 ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _Header extends StatelessWidget {
-  const _Header({required this.title, required this.onClose});
-
-  final String title;
-  final VoidCallback? onClose;
-
-  @override
-  Widget build(BuildContext context) {
-    final Tokens t = context.tokens;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        border: Border(bottom: BorderSide(color: t.border)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(Space.s4, 10, Space.s3, 10),
-        child: Row(
-          children: <Widget>[
-            Expanded(
-              child: Text(
-                title,
-                style: TextStyle(
-                  color: t.text,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-            const SizedBox(width: Space.s3),
-            IconButton(
-              onPressed: onClose,
-              tooltip: Strings.close,
-              icon: const Icon(Icons.close, size: 18),
-              color: t.muted,
-              hoverColor: t.surfaceAlt,
-              padding: const EdgeInsets.all(Space.s1),
-              constraints: const BoxConstraints(),
-              visualDensity: VisualDensity.compact,
-            ),
-          ],
         ),
       ),
     );

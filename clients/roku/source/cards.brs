@@ -132,6 +132,42 @@ function FocusClipRect(width as float, height as float, peek = false as boolean)
     return [- margin, 0, Int(width) + margin * 2, Int(height)]
 end function
 
+function CardGrows(theme as dynamic, focused as boolean) as boolean
+    return focused and not IsCut(theme)
+end function
+
+function CardBrackets(theme as dynamic, lit as boolean) as boolean
+    return lit and IsCut(theme)
+end function
+
+function BracketRects(width as integer, height as integer) as object
+    reach = BracketReach()
+    arm = BracketArm()
+    stroke = BracketStroke()
+    left = - reach
+    top = - reach
+    right = width + reach
+    bottom = height + reach
+
+    return [
+        [left, top, arm, stroke],
+        [left, top, stroke, arm],
+        [right - arm, top, arm, stroke],
+        [right - stroke, top, stroke, arm],
+        [left, bottom - stroke, arm, stroke],
+        [left, bottom - arm, stroke, arm],
+        [right - arm, bottom - stroke, arm, stroke],
+        [right - stroke, bottom - arm, stroke, arm]
+    ]
+end function
+
+function CastClipRect(width as integer, height as integer, theme as dynamic) as object
+    if not IsCut(theme) then return [0, 0, width, height]
+
+    reach = BracketReach()
+    return [- reach, - reach, width + reach * 2, height + reach * 2]
+end function
+
 function VisibleSlots(available as float, slotHeight as integer, spacing as integer) as integer
     if slotHeight <= 0 then return 1
 

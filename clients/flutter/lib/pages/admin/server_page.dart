@@ -49,7 +49,8 @@ import 'package:shadowmask/pages/default/mutations.dart';
 import 'package:shadowmask/pages/default/page_states.dart';
 import 'package:shadowmask/pages/default/section_page.dart';
 import 'package:shadowmask/theme/app_theme.dart';
-import 'package:shadowmask/theme/radii.dart';
+import 'package:shadowmask/theme/shapes.dart';
+import 'package:shadowmask/theme/shapes_context.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
@@ -332,10 +333,7 @@ class _PrepNotice extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: Space.s4),
       child: Container(
         padding: const EdgeInsets.all(Space.s3),
-        decoration: BoxDecoration(
-          color: t.warnBg,
-          borderRadius: const BorderRadius.all(Radii.sm),
-        ),
+        decoration: context.shapes.box(Corners.inset, color: t.warnBg),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[

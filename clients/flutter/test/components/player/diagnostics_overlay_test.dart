@@ -10,6 +10,8 @@ import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
 import 'package:shadowmask/theme/theme_scope.dart';
 
+import '../../support/shape_guard.dart';
+
 class _StubController implements PlayerController {
   _StubController(this.lines);
 
@@ -27,11 +29,12 @@ Widget _host({
   EdgeInsets viewPadding = EdgeInsets.zero,
   List<DisplayFeature> features = const <DisplayFeature>[],
   List<String> lines = const <String>['mode: direct'],
+  AppThemeVariant variant = AppThemeVariant.dark,
 }) => ThemeScope(
-  variant: AppThemeVariant.dark,
+  variant: variant,
   setVariant: (_) {},
   child: MaterialApp(
-    theme: buildTheme(AppThemeVariant.dark),
+    theme: buildTheme(variant),
     home: MediaQuery(
       data: MediaQueryData(
         padding: padding,
@@ -49,6 +52,18 @@ String _text(WidgetTester tester) =>
     tester.widget<SelectableText>(find.byType(SelectableText)).data ?? '';
 
 void main() {
+  for (final AppThemeVariant variant in AppThemeVariant.values) {
+    testWidgets('the overlay draws the ${variant.name} shapes', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(_host(variant: variant));
+      await tester.pump();
+
+      expect(find.byType(DiagnosticsOverlay), findsOneWidget);
+      expectShapesOf(tester, variant);
+    });
+  }
+
   testWidgets('the overlay reports the insets the layout is working from', (
     WidgetTester tester,
   ) async {

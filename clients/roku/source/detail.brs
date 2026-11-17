@@ -815,6 +815,31 @@ function FactsText(facts as dynamic) as string
     return JoinParts(values)
 end function
 
+function ReadoutLabels() as object
+    return [Phrase("fact.year"), Phrase("fact.quality")]
+end function
+
+function IsReadout(fact as object) as boolean
+    for each label in ReadoutLabels()
+        if fact.label = label then return true
+    end for
+    return false
+end function
+
+function ReadoutSplit(facts as dynamic) as object
+    split = { readouts: [], rest: [] }
+    if type(facts) <> "roArray" then return split
+
+    for each fact in facts
+        if IsReadout(fact)
+            split.readouts.Push(fact)
+        else
+            split.rest.Push(fact)
+        end if
+    end for
+    return split
+end function
+
 function LabelledFactsText(facts as dynamic) as string
     parts = []
     if type(facts) <> "roArray" then return ""

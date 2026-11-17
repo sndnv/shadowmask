@@ -37,18 +37,15 @@ sub render()
 
     UnifyAspect(cards)
     metrics = CardMetrics(m.top.cardWidth, AspectForSet(cards), m.top.captionRows)
-    labelHeight = Int(sizes.textXl * 1.4) + space.s2
+    labelHeight = ThemedHeadingHeight(theme, Int(sizes.textXl * 1.4)) + space.s2
     room = FocusRoom(metrics.width, metrics.height, space.s4)
     rowTop = labelHeight + room.y
     m.room = room
 
+    m.heading.size = sizes.textXl
+    m.heading.headingWidth = m.top.railWidth
     m.heading.text = m.top.heading
-    m.heading.color = theme.text
-    m.heading.font = SizedBoldFont(sizes.textXl)
-    m.heading.width = m.top.railWidth
-    m.heading.height = labelHeight
-    m.heading.maxLines = 1
-    m.heading.ellipsisText = "…"
+    m.heading.theme = theme
     m.heading.translation = [0, 0]
 
     viewport = RailViewportWidth(Int(m.top.railWidth), metrics.width, space.s4)
@@ -168,7 +165,7 @@ sub RenderArrows(theme as object)
         if shown[index]
             arrow.group.translation = [lefts[index], top]
 
-            arrow.disc.uri = GlyphUri("disc")
+            arrow.disc.uri = DiscUri(theme)
             arrow.disc.width = disc
             arrow.disc.height = disc
             arrow.disc.blendColor = theme.surface

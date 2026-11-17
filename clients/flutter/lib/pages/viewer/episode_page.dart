@@ -278,7 +278,7 @@ class _EpisodeBodyState extends State<_EpisodeBody>
               compactPosterWidth: double.infinity,
               poster: PosterPlay(
                 progressPercent: resumeAt,
-                tooltip: resumeAt != null
+                label: resumeAt != null
                     ? Strings.resume(resumeAt)
                     : Strings.play,
                 onTap: shortcut == null

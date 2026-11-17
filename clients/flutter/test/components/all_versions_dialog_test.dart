@@ -11,14 +11,17 @@ import 'package:shadowmask/api/catalog_api.dart';
 import 'package:shadowmask/api/playback_api.dart';
 import 'package:shadowmask/components/all_versions_dialog.dart';
 import 'package:shadowmask/components/long_menu_item.dart';
+import 'package:shadowmask/components/tab_heading.dart';
 import 'package:shadowmask/components/outline_pill.dart';
 import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/components/toggle_button.dart';
+import 'package:shadowmask/components/version_label.dart';
 import 'package:shadowmask/components/version_picker.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/model/catalog/version.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
+import 'package:shadowmask/theme/shapes.dart';
 import 'package:shadowmask/theme/theme_scope.dart';
 import 'package:shadowmask/util/downloads.dart';
 import 'package:shadowmask/view/version_jobs_watch.dart';
@@ -27,6 +30,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../support/finders.dart';
 import '../support/play_on.dart';
+import '../support/shape_guard.dart';
 
 Map<String, dynamic> _json(String id, String quality) => <String, dynamic>{
   'id': id,
@@ -540,6 +544,7 @@ void main() {
       bool? adminPages,
       double width = 760,
       Version? version,
+      AppThemeVariant variant = AppThemeVariant.dark,
     }) async {
       final List<String> routes = <String>[];
       tester.view.physicalSize = const Size(1200, 900);
@@ -547,10 +552,10 @@ void main() {
       addTearDown(tester.view.reset);
       await tester.pumpWidget(
         ThemeScope(
-          variant: AppThemeVariant.dark,
+          variant: variant,
           setVariant: (_) {},
           child: MaterialApp(
-            theme: buildTheme(AppThemeVariant.dark),
+            theme: buildTheme(variant),
             onGenerateRoute: (RouteSettings settings) {
               routes.add(settings.name ?? '');
               return MaterialPageRoute<void>(
@@ -665,6 +670,77 @@ void main() {
       expect(find.text('English · eac3 · 6ch'), findsOneWidget);
       expect(find.text('Spanish · aac · 2ch'), findsOneWidget);
     });
+
+    testWidgets('hologram shows a version line in capitals and monospace', (
+      WidgetTester tester,
+    ) async {
+      final SemanticsHandle handle = tester.ensureSemantics();
+      await pumpPicker(
+        tester,
+        api: adminApi(withFiles: true),
+        admin: false,
+        variant: AppThemeVariant.hologram,
+      );
+
+      expect(find.text(Strings.versionsHeading.toUpperCase()), findsOneWidget);
+      expect(
+        tester
+            .widget<Text>(
+              find.descendant(
+                of: find.byType(TabHeading),
+                matching: find.text('1'),
+              ),
+            )
+            .style
+            ?.fontFamily,
+        kMonoFamily,
+      );
+      final String line = versionLabelText(single, versionNumberLabel(0));
+      final Finder shown = find.text(line.toUpperCase());
+      expect(shown, findsOneWidget);
+      expect(
+        tester.widget<Text>(shown).textSpan!.style!.fontFamily,
+        kMonoFamily,
+      );
+      expect(find.bySemanticsLabel(RegExp(RegExp.escape(line))), findsWidgets);
+      expect(
+        find.bySemanticsLabel(RegExp(RegExp.escape(line.toUpperCase()))),
+        findsNothing,
+      );
+      handle.dispose();
+    });
+
+    testWidgets('a version line keeps its case under the other themes', (
+      WidgetTester tester,
+    ) async {
+      await pumpPicker(tester, api: adminApi(withFiles: true), admin: false);
+
+      expect(
+        find.text(versionLabelText(single, versionNumberLabel(0))),
+        findsOneWidget,
+      );
+    });
+
+    for (final AppThemeVariant variant in AppThemeVariant.values) {
+      testWidgets('an open row and its submenus draw the ${variant.name} '
+          'shapes', (WidgetTester tester) async {
+        await pumpPicker(
+          tester,
+          api: adminApi(withFiles: true),
+          admin: true,
+          variant: variant,
+        );
+
+        await _expand(tester);
+        await tester.tap(find.byTooltip(Strings.subtitlesHeading));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(Strings.transcribe));
+        await tester.pumpAndSettle();
+
+        expect(find.text('English · eac3 · 6ch'), findsOneWidget);
+        expectShapesOf(tester, variant);
+      });
+    }
 
     testWidgets('translate has nothing to offer without a subtitle file', (
       WidgetTester tester,

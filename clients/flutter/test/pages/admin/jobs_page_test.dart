@@ -13,9 +13,12 @@ import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/pages/admin/jobs_page.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
+import 'package:shadowmask/theme/shapes.dart';
 import 'package:shadowmask/theme/theme_scope.dart';
 import 'package:shadowmask/util/format.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../../support/shape_guard.dart';
 
 Map<String, dynamic> _job(
   String id,
@@ -131,6 +134,7 @@ Future<_Server> _pump(
   List<Map<String, dynamic>> jobs, {
   Set<String> refuse = const <String>{},
   Size size = const Size(1800, 1200),
+  AppThemeVariant variant = AppThemeVariant.dark,
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
@@ -142,10 +146,10 @@ Future<_Server> _pump(
   );
   await tester.pumpWidget(
     ThemeScope(
-      variant: AppThemeVariant.dark,
+      variant: variant,
       setVariant: (_) {},
       child: MaterialApp(
-        theme: buildTheme(AppThemeVariant.dark),
+        theme: buildTheme(variant),
         builder: (BuildContext context, Widget? child) =>
             ToastHost(child: child ?? const SizedBox.shrink()),
         onGenerateRoute: (RouteSettings settings) => MaterialPageRoute<void>(
@@ -168,6 +172,35 @@ Future<void> _type(WidgetTester tester, String text) async {
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
+
+  testWidgets('hologram sets the table headers in monospace', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, <Map<String, dynamic>>[
+      _job('parent', 'library_scan', 'running'),
+    ], variant: AppThemeVariant.hologram);
+
+    expect(
+      tester
+          .widget<Text>(find.text(Strings.columnKind.toUpperCase()))
+          .style
+          ?.fontFamily,
+      kMonoFamily,
+    );
+  });
+
+  for (final AppThemeVariant variant in AppThemeVariant.values) {
+    testWidgets('the jobs page draws the ${variant.name} shapes', (
+      WidgetTester tester,
+    ) async {
+      await _pump(tester, <Map<String, dynamic>>[
+        _job('parent', 'library_scan', 'running'),
+        _job('kid', 'metadata', 'failed', parent: 'parent'),
+      ], variant: variant);
+
+      expectShapesOf(tester, variant);
+    });
+  }
 
   testWidgets('Active is the default and asks the server for active only', (
     WidgetTester tester,

@@ -39,19 +39,16 @@ sub render()
     sizes = TypeScale()
     space = SpacingScale()
     metrics = CardMetrics(m.top.cardWidth, PosterAspect(), 1)
-    labelHeight = Int(sizes.textXl * 1.4) + space.s2
+    labelHeight = ThemedHeadingHeight(theme, Int(sizes.textXl * 1.4)) + space.s2
 
+    m.heading.size = sizes.textXl
+    m.heading.headingWidth = m.top.railWidth
     m.heading.text = m.top.heading
-    m.heading.color = theme.text
-    m.heading.font = SizedBoldFont(sizes.textXl)
-    m.heading.width = m.top.railWidth
-    m.heading.height = labelHeight
-    m.heading.maxLines = 1
-    m.heading.ellipsisText = "…"
+    m.heading.theme = theme
     m.heading.translation = [0, 0]
 
     m.viewport.translation = [0, labelHeight]
-    m.viewport.clippingRect = [0, 0, Int(m.top.railWidth), metrics.height]
+    m.viewport.clippingRect = CastClipRect(Int(m.top.railWidth), metrics.height, theme)
 
     m.top.railHeight = labelHeight + metrics.height
 

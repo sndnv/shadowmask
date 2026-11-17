@@ -666,7 +666,7 @@ class _Subtitles extends StatelessWidget {
     return MenuAnchor(
       controller: controller,
       alignmentOffset: kMenuOffset,
-      style: appMenuStyle(context.tokens),
+      style: appMenuStyle(context),
       menuChildren: <Widget>[
         MenuItemButton(
           leadingIcon: const Icon(Icons.subject),

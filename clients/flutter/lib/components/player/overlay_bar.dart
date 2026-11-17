@@ -6,6 +6,8 @@ import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/player/player_snapshot.dart';
 import 'package:shadowmask/theme/app_menu.dart';
 import 'package:shadowmask/theme/app_theme.dart';
+import 'package:shadowmask/theme/shapes.dart';
+import 'package:shadowmask/theme/shapes_context.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
@@ -107,9 +109,11 @@ class OverlayBar extends StatelessWidget {
                     ),
                     child: Text(
                       '${clock(_shownMs)} / ${clock(snapshot.durationMs)}',
-                      style: monoStyle.copyWith(
-                        color: const Color(0xFFE8EEF0),
-                        fontSize: 12.5,
+                      style: context.shapes.mono(
+                        monoStyle.copyWith(
+                          color: const Color(0xFFE8EEF0),
+                          fontSize: 12.5,
+                        ),
                       ),
                     ),
                   ),
@@ -124,15 +128,19 @@ class OverlayBar extends StatelessWidget {
             builder: (BuildContext context, BoxConstraints constraints) {
               final bool compact =
                   touch || constraints.maxWidth < _fullBarWidth;
+              final bool apart = context.shapes.cut && !touch;
               return Row(
                 children: <Widget>[
-                  if (previousEpisode != null)
+                  if (previousEpisode != null) ...<Widget>[
                     _IcBtn(
                       icon: Icons.skip_previous,
                       tooltip: previousEpisode!.tooltip,
                       onPressed: previousEpisode!.onPressed,
                       touch: touch,
+                      plate: Marks.skipButton,
                     ),
+                    if (apart) const SizedBox(width: Space.s1),
+                  ],
                   _IcBtn(
                     icon: snapshot.playing ? Icons.pause : Icons.play_arrow,
                     tooltip: snapshot.playing
@@ -140,14 +148,18 @@ class OverlayBar extends StatelessWidget {
                         : Strings.playerPlay,
                     onPressed: onPlayPause,
                     touch: touch,
+                    plate: Marks.playButton,
                   ),
-                  if (nextEpisode != null)
+                  if (nextEpisode != null) ...<Widget>[
+                    if (apart) const SizedBox(width: Space.s1),
                     _IcBtn(
                       icon: Icons.skip_next,
                       tooltip: nextEpisode!.tooltip,
                       onPressed: nextEpisode!.onPressed,
                       touch: touch,
+                      plate: Marks.skipButton,
                     ),
+                  ],
                   const SizedBox(width: _gap),
                   _IcBtn(
                     icon: _volumeIcon,
@@ -240,7 +252,7 @@ class _PanelMenuState extends State<_PanelMenu> {
     return MenuAnchor(
       controller: _controller,
       alignmentOffset: kMenuOffset,
-      style: appMenuStyle(t),
+      style: appMenuStyle(context),
       menuChildren: <Widget>[
         for (final PlayerPanel panel in PlayerPanel.values)
           TapRegion(
@@ -273,6 +285,7 @@ class _IcBtn extends StatelessWidget {
     this.icon,
     this.glyph,
     this.touch = false,
+    this.plate,
   });
 
   final IconData? icon;
@@ -280,9 +293,12 @@ class _IcBtn extends StatelessWidget {
   final String tooltip;
   final VoidCallback? onPressed;
   final bool touch;
+  final Size? plate;
 
   @override
   Widget build(BuildContext context) {
+    final Shapes shapes = context.shapes;
+    final Size? size = plate;
     return IconButton(
       onPressed: onPressed,
       color: _chrome,
@@ -294,7 +310,27 @@ class _IcBtn extends StatelessWidget {
         minHeight: touch ? 44 : 32,
       ),
       tooltip: tooltip,
+      style: size != null && shapes.cut ? _plate(context, shapes, size) : null,
       icon: glyph ?? Icon(icon),
+    );
+  }
+
+  ButtonStyle _plate(BuildContext context, Shapes shapes, Size size) {
+    final Tokens t = context.tokens;
+    final Color ink = shapes.highContrast ? t.accentContrast : _chrome;
+    final Color plate = shapes.lineSoft(t.border);
+    return IconButton.styleFrom(
+      foregroundColor: ink,
+      disabledForegroundColor: ink.withValues(alpha: 0.38),
+      backgroundColor: plate,
+      disabledBackgroundColor: plate,
+      fixedSize: size,
+      minimumSize: size,
+      padding: EdgeInsets.zero,
+      shape: Shapes.hexagon(size),
+      tapTargetSize: touch
+          ? MaterialTapTargetSize.padded
+          : MaterialTapTargetSize.shrinkWrap,
     );
   }
 }

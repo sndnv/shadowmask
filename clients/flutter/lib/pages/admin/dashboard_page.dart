@@ -5,6 +5,7 @@ import 'package:shadowmask/components/admin/admin_link_card.dart';
 import 'package:shadowmask/components/breadcrumbs.dart';
 import 'package:shadowmask/components/crumb.dart';
 import 'package:shadowmask/components/status_text.dart';
+import 'package:shadowmask/components/tab_heading.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/model/user/self_user.dart';
 import 'package:shadowmask/nav/nav_section.dart';
@@ -123,7 +124,7 @@ class _Group extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        Text(heading, style: Theme.of(context).textTheme.headlineMedium),
+        RuledHeading(heading),
         const SizedBox(height: Space.s3),
         Wrap(spacing: Space.s4, runSpacing: Space.s4, children: children),
       ],

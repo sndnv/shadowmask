@@ -94,4 +94,22 @@ void main() {
       }
     });
   });
+
+  group('ticks', () {
+    test('a tick every 5% from one end of the bar to the other', () {
+      final List<double> ticks = TimelineMarks.ticks(400);
+
+      expect(ticks, hasLength(21));
+      expect(ticks.first, 0);
+      expect(ticks[1], 20);
+      expect(ticks[10], 200);
+      expect(ticks[19], 380);
+      expect(ticks.last, 399);
+    });
+
+    test('a bar too narrow for a tick has none', () {
+      expect(TimelineMarks.ticks(0), isEmpty);
+      expect(TimelineMarks.ticks(0.5), isEmpty);
+    });
+  });
 }

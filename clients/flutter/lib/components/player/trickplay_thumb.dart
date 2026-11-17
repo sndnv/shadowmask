@@ -1,8 +1,10 @@
 import 'package:material_ui/material_ui.dart';
 
+import 'package:shadowmask/components/edged_box.dart';
 import 'package:shadowmask/components/player/trickplay_tile.dart';
 import 'package:shadowmask/theme/app_theme.dart';
-import 'package:shadowmask/theme/radii.dart';
+import 'package:shadowmask/theme/shapes.dart';
+import 'package:shadowmask/theme/shapes_context.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
@@ -23,20 +25,18 @@ class TrickplayThumb extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final Tokens t = context.tokens;
+    final Shapes shapes = context.shapes;
     final double aspect = tile?.aspect ?? 16 / 9;
     final double height = width / aspect;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
-        Container(
+        EdgedBox(
           width: width,
           height: height,
-          clipBehavior: Clip.antiAlias,
-          decoration: BoxDecoration(
-            color: t.artBg,
-            border: Border.all(color: t.border),
-            borderRadius: const BorderRadius.all(Radii.sm),
-          ),
+          corner: Corners.inset,
+          color: t.artBg,
+          edge: BorderSide(color: shapes.lineSoft(t.border)),
           child: tile == null
               ? null
               : CustomPaint(painter: _TilePainter(tile!)),
@@ -47,13 +47,10 @@ class TrickplayThumb extends StatelessWidget {
             horizontal: Space.s2,
             vertical: 2,
           ),
-          decoration: BoxDecoration(
-            color: t.surface,
-            borderRadius: const BorderRadius.all(Radii.sm),
-          ),
+          decoration: shapes.box(Corners.label, color: t.surface),
           child: Text(
             clock(positionMs),
-            style: monoStyle.copyWith(color: t.text, fontSize: 12),
+            style: shapes.mono(monoStyle.copyWith(color: t.text, fontSize: 12)),
           ),
         ),
       ],

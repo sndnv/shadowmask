@@ -1,9 +1,15 @@
+import 'dart:math' as math;
+
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shadowmask/components/detail_split.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
+import 'package:shadowmask/theme/shapes.dart';
+import 'package:shadowmask/theme/shapes_context.dart';
 import 'package:shadowmask/theme/theme_scope.dart';
+
+import '../support/raster.dart';
 
 Future<void> _pump(
   WidgetTester tester,
@@ -135,5 +141,56 @@ void main() {
       _top(tester, find.byKey(const Key('poster'))),
       lessThan(_top(tester, find.text('info'))),
     );
+  });
+
+  testWidgets('a hologram poster meets its frame edge on the cuts', (
+    WidgetTester tester,
+  ) async {
+    const Key frame = ValueKey<String>('frame');
+    const Key art = ValueKey<String>('art');
+    const Color fill = Color(0xFF305070);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildTheme(AppThemeVariant.hologram),
+        home: Scaffold(
+          body: RepaintBoundary(
+            key: frame,
+            child: DetailSplit(
+              poster: Builder(
+                builder: (BuildContext context) => context.shapes.clip(
+                  Corners.card,
+                  child: const SizedBox(
+                    key: art,
+                    height: 330,
+                    child: ColoredBox(color: fill),
+                  ),
+                ),
+              ),
+              info: const SizedBox.shrink(),
+            ),
+          ),
+        ),
+      ),
+    );
+    final Rect poster = tester.getRect(
+      find
+          .ancestor(of: find.byKey(art), matching: find.byType(Container))
+          .first,
+    );
+    final Offset origin = poster.topLeft - tester.getTopLeft(find.byKey(frame));
+    final Offset far =
+        poster.bottomRight - tester.getTopLeft(find.byKey(frame));
+    final double step = 1.2 / math.sqrt2;
+
+    final List<Color> pixels = await pixelsAt(
+      tester,
+      find.byKey(frame),
+      <Offset>[
+        origin + Offset(5 + step, 5 + step),
+        far - Offset(5 + step, 5 + step),
+      ],
+    );
+
+    expect(pixels, <Matcher>[isPixel(fill), isPixel(fill)]);
   });
 }

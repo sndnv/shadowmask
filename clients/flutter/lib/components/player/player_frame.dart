@@ -6,6 +6,8 @@ import 'package:shadowmask/components/player/player_sheet.dart';
 import 'package:shadowmask/components/player/settings_panel.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/theme/app_theme.dart';
+import 'package:shadowmask/theme/shapes.dart';
+import 'package:shadowmask/theme/shapes_context.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
@@ -424,9 +426,9 @@ class _PlayerFrameState extends State<PlayerFrame> {
               groupId: kPlayerPanelGroup,
               onTapOutside: (_) => _dismissPanel(),
               child: ConstrainedBox(
-                constraints: const BoxConstraints(
-                  maxWidth: 340,
-                  maxHeight: 360,
+                constraints: BoxConstraints(
+                  maxWidth: context.shapes.cut ? 480 : 340,
+                  maxHeight: context.shapes.cut ? 480 : 360,
                 ),
                 child: widget.settings!,
               ),
@@ -499,9 +501,9 @@ class _CentreAction extends StatelessWidget {
       message: ended ? Strings.playerReplay : Strings.playerPlay,
       child: Material(
         color: const Color(0xB3000000),
-        shape: const CircleBorder(),
+        shape: context.shapes.round(),
         child: InkWell(
-          customBorder: const CircleBorder(),
+          customBorder: context.shapes.round(),
           onTap: onPressed,
           child: Padding(
             padding: const EdgeInsets.all(Space.s3),
@@ -531,9 +533,9 @@ class _SpeedBadge extends StatelessWidget {
         horizontal: Space.s3,
         vertical: Space.s2,
       ),
-      decoration: const BoxDecoration(
-        color: Color(0xB3000000),
-        borderRadius: BorderRadius.all(Radius.circular(6)),
+      decoration: context.shapes.box(
+        Corners.label,
+        color: const Color(0xB3000000),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -566,10 +568,7 @@ class _SeekBadge extends StatelessWidget {
           horizontal: Space.s3,
           vertical: Space.s2,
         ),
-        decoration: const BoxDecoration(
-          color: Color(0xB3000000),
-          shape: BoxShape.circle,
-        ),
+        decoration: context.shapes.roundBox(color: const Color(0xB3000000)),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
@@ -618,9 +617,9 @@ class _Waiting extends StatelessWidget {
             horizontal: Space.s4,
             vertical: Space.s3,
           ),
-          decoration: BoxDecoration(
+          decoration: context.shapes.box(
+            Corners.card,
             color: const Color(0xB3000000),
-            borderRadius: BorderRadius.circular(Space.s2),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,

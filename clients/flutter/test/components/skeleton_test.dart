@@ -1,10 +1,17 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shadowmask/components/catalog_card_tile.dart';
+import 'package:shadowmask/components/edged_box.dart';
 import 'package:shadowmask/components/skeleton.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/pages/default/page_states.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
+import 'package:shadowmask/theme/shapes.dart';
+import 'package:shadowmask/theme/tokens.dart';
+import 'package:shadowmask/view/card_aspect.dart';
+
+import '../support/raster.dart';
 
 Widget _host(Widget child, {bool disableAnimations = false}) => MaterialApp(
   theme: buildTheme(AppThemeVariant.dark),
@@ -137,6 +144,86 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
     await tester.pumpAndSettle();
   });
+
+  testWidgets('the table placeholder is an edged panel like the table', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(_host(const SkeletonRows(rows: 2)));
+
+    final EdgedBox box = tester.widget<EdgedBox>(
+      find.descendant(
+        of: find.byType(SkeletonRows),
+        matching: find.byType(EdgedBox),
+      ),
+    );
+
+    expect(box.corner, Corners.panel);
+    expect(box.edge, BorderSide(color: Tokens.dark.border));
+  });
+
+  testWidgets('a hologram loading card keeps its cut corner', (
+    WidgetTester tester,
+  ) async {
+    const Key frame = ValueKey<String>('frame');
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildTheme(AppThemeVariant.hologram),
+        home: const Align(
+          alignment: Alignment.topLeft,
+          child: RepaintBoundary(
+            key: frame,
+            child: SkeletonCard(aspect: CardAspect.poster, width: 148),
+          ),
+        ),
+      ),
+    );
+
+    final List<Color> pixels = await pixelsAt(
+      tester,
+      find.byKey(frame),
+      const <Offset>[Offset(2, 2)],
+    );
+
+    expect(pixels.single, isPixel(const Color(0x00000000)));
+    expect(
+      tester.widget<EdgedBox>(find.byType(EdgedBox)).inset,
+      isFalse,
+      reason: 'the plate runs to the edge as a card\'s art does',
+    );
+  });
+
+  for (final AppThemeVariant variant in <AppThemeVariant>[
+    AppThemeVariant.dark,
+    AppThemeVariant.hologram,
+  ]) {
+    testWidgets('a ${variant.name} loading card is the size of a card', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildTheme(variant),
+          home: const Align(
+            alignment: Alignment.topLeft,
+            child: SkeletonCard(aspect: CardAspect.poster, width: 148),
+          ),
+        ),
+      );
+
+      expect(
+        tester.getSize(find.byType(SkeletonCard)),
+        const Size(148, 222 + kCardTextBlockHeight),
+      );
+      expect(
+        tester.getSize(
+          find.descendant(
+            of: find.byType(SkeletonCard),
+            matching: find.byType(AspectRatio),
+          ),
+        ),
+        const Size(148, 222),
+      );
+    });
+  }
 
   testWidgets('a load faster than the reveal delay shows no skeleton', (
     WidgetTester tester,

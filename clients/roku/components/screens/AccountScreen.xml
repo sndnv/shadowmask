@@ -54,17 +54,17 @@
                 <Group id="profileSection" visible="false">
                     <RoundedBox id="profilePanel" />
                     <RoundedBox id="supportPanel" />
-                    <Label id="profileHeading" />
+                    <TabHeading id="profileHeading" />
                     <FactList id="profileFacts" />
                     <Label id="profileHelp" />
-                    <Label id="supportHeading" />
+                    <TabHeading id="supportHeading" />
                     <Label id="supportChanged" />
                     <FactList id="supportFacts" />
                     <ActionBar id="supportActions" />
                 </Group>
                 <Group id="playbackSection" visible="false">
                     <RoundedBox id="playbackPanel" />
-                    <Label id="playbackHeading" />
+                    <TabHeading id="playbackHeading" />
                     <Label id="autoplayName" />
                     <ActionBar id="autoplayActions" />
                     <Label id="autoplayHelp" />
@@ -79,21 +79,21 @@
                 </Group>
                 <Group id="videoSection" visible="false">
                     <RoundedBox id="videoPanel" />
-                    <Label id="videoHeading" />
+                    <TabHeading id="videoHeading" />
                     <Label id="deliveryName" />
                     <ActionBar id="deliveryActions" />
                     <Label id="deliveryHelp" />
                 </Group>
                 <Group id="subtitlesSection" visible="false">
                     <RoundedBox id="subtitlesPanel" />
-                    <Label id="subtitlesHeading" />
+                    <TabHeading id="subtitlesHeading" />
                     <Label id="subtitleSizeName" />
                     <ActionBar id="subtitleSizeActions" />
                     <Label id="subtitleSizeHelp" />
                 </Group>
                 <Group id="soundSection" visible="false">
                     <RoundedBox id="soundPanel" />
-                    <Label id="soundHeading" />
+                    <TabHeading id="soundHeading" />
                     <Label id="downmixName" />
                     <ActionBar id="downmixActions" />
                     <Label id="downmixHelp" />
@@ -112,14 +112,14 @@
                 </Group>
                 <Group id="childModeSection" visible="false">
                     <RoundedBox id="childModePanel" />
-                    <Label id="childModeHeading" />
+                    <TabHeading id="childModeHeading" />
                     <Label id="childModeName" />
                     <ActionBar id="childModeActions" />
                     <Label id="childModeHelp" />
                 </Group>
                 <Group id="appearanceSection" visible="false">
                     <RoundedBox id="appearancePanel" />
-                    <Label id="appearanceHeading" />
+                    <TabHeading id="appearanceHeading" />
                     <ThemeCards id="themeCards" />
                     <Label id="contrastName" />
                     <ActionBar id="contrastBar" />
@@ -131,19 +131,19 @@
                 </Group>
                 <Group id="serverSection" visible="false">
                     <RoundedBox id="serverPanel" />
-                    <Label id="serverHeading" />
+                    <TabHeading id="serverHeading" />
                     <Label id="serverAddress" />
                     <ActionBar id="serverActions" />
                 </Group>
                 <Group id="sessionSection" visible="false">
                     <RoundedBox id="sessionPanel" />
-                    <Label id="sessionHeading" />
+                    <TabHeading id="sessionHeading" />
                     <Label id="deviceLine" />
                     <ActionBar id="sessionActions" />
                 </Group>
                 <Group id="aboutSection" visible="false">
                     <RoundedBox id="aboutPanel" />
-                    <Label id="aboutHeading" />
+                    <TabHeading id="aboutHeading" />
                     <Label id="aboutApp" />
                     <Label id="aboutLegal" />
                     <Label id="aboutBundled" />

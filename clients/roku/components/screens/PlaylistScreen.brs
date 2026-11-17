@@ -59,13 +59,12 @@ sub render()
 
     m.titlesHeading.visible = m.loaded
     if m.titlesHeading.visible
+        m.titlesHeading.size = sizes.textXl
+        m.titlesHeading.headingWidth = ContentWidth()
         m.titlesHeading.text = CountedHeading(Phrase("heading.titles"), m.cards.Count())
-        m.titlesHeading.color = theme.text
-        m.titlesHeading.font = SizedBoldFont(sizes.textXl)
-        m.titlesHeading.width = ContentWidth()
-        m.titlesHeading.maxLines = 1
+        m.titlesHeading.theme = theme
         m.titlesHeading.translation = [left, gridTop]
-        gridTop = gridTop + Int(sizes.textXl * 1.35) + space.s3
+        gridTop = gridTop + ThemedHeadingHeight(theme, Int(sizes.textXl * 1.35)) + space.s3
     end if
 
     m.grid.theme = theme

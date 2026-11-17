@@ -12,6 +12,8 @@ import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/model/catalog/version.dart';
 import 'package:shadowmask/model/discovery/continue_feed.dart';
 import 'package:shadowmask/nav/routes.dart';
+import 'package:shadowmask/theme/shapes.dart';
+import 'package:shadowmask/theme/shapes_context.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/view/failure_reason.dart';
 import 'package:shadowmask/view/play_target.dart';
@@ -246,7 +248,9 @@ class PlayButtonState extends State<PlayButton> with PlayOnTargets<PlayButton> {
       message: Strings.resume(resume.percent),
       child: FilledButton.icon(
         onPressed: _busy ? null : onPressed,
-        style: paired ? segmented(_style, kSegmentLeading) : _style,
+        style: paired
+            ? segmented(_style, context.shapes, CornerPart.leading)
+            : _style,
         icon: const Icon(Icons.play_arrow, size: 20),
         label: const Text(Strings.resumeAction),
       ),

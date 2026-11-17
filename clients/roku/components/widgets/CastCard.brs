@@ -59,11 +59,13 @@ sub render()
 
     m.ring.theme = theme
     m.ring.fill = ""
-    m.ring.lineColor = BorderColorFor(theme, m.top.lit)
+    m.ring.lineColor = CardLineColorFor(theme, m.top.lit)
     m.ring.ringWidth = width
     m.ring.ringHeight = metrics.height
     m.ring.thickness = edge
     m.ring.translation = [0, 0]
+    m.ring.bracketColor = theme.accent
+    m.ring.brackets = CardBrackets(theme, m.top.lit)
 
     RenderBelow(theme, sizes, space, metrics, edge, width, expanded)
     RenderBeside(theme, space, metrics, width, expanded)

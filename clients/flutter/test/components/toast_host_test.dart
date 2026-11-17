@@ -5,11 +5,14 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shadowmask/components/bottom_chrome.dart';
+import 'package:shadowmask/components/status_node.dart';
 import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
+
+import '../support/shape_guard.dart';
 
 Rect _cardRect(WidgetTester tester, String message) => tester.getRect(
   find.ancestor(of: find.text(message), matching: find.byType(Container)).first,
@@ -61,6 +64,39 @@ Future<double> _widestSwing(WidgetTester tester, String message) async {
 }
 
 void main() {
+  for (final AppThemeVariant variant in AppThemeVariant.values) {
+    testWidgets('toasts draw the ${variant.name} shapes', (
+      WidgetTester tester,
+    ) async {
+      late BuildContext ctx;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildTheme(variant),
+          home: Scaffold(
+            body: ToastHost(
+              child: Builder(
+                builder: (BuildContext c) {
+                  ctx = c;
+                  return const SizedBox.expand();
+                },
+              ),
+            ),
+          ),
+        ),
+      );
+
+      Toasts.of(ctx).success('Saved.');
+      Toasts.of(ctx).error('Delete failed.');
+      await tester.pumpAndSettle();
+
+      expect(find.text('Delete failed.'), findsOneWidget);
+      expectShapesOf(tester, variant);
+
+      await tester.pump(const Duration(seconds: 10));
+      await tester.pumpAndSettle();
+    });
+  }
+
   testWidgets('shows a toast then auto-dismisses after its duration', (
     WidgetTester tester,
   ) async {
@@ -185,6 +221,117 @@ void main() {
     expect(_groundOf(tester, 'Save failed.'), Tokens.dark.danger);
     expect(_groundOf(tester, 'Partly done.'), Tokens.dark.warn);
     expect(_groundOf(tester, 'Queued.'), Tokens.dark.text);
+
+    await tester.pump(kErrorToastDuration + const Duration(milliseconds: 100));
+  });
+
+  testWidgets('high contrast hologram draws every toast edge solid', (
+    WidgetTester tester,
+  ) async {
+    late BuildContext ctx;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildTheme(AppThemeVariant.hologram, highContrast: true),
+        home: Scaffold(
+          body: ToastHost(
+            child: Builder(
+              builder: (BuildContext c) {
+                ctx = c;
+                return const SizedBox.expand();
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+
+    Toasts.of(ctx).success('Saved.');
+    Toasts.of(ctx).error('Save failed.');
+    Toasts.of(ctx).warning('Partly done.');
+    Toasts.of(ctx).info('Queued.');
+    await tester.pump();
+
+    const Tokens t = Tokens.hologram;
+    for (final (String message, Color edge) in <(String, Color)>[
+      ('Saved.', t.ok),
+      ('Save failed.', t.danger),
+      ('Partly done.', t.warn),
+      ('Queued.', t.accent),
+    ]) {
+      final ShapeDecoration ground =
+          tester
+                  .widget<Container>(
+                    find
+                        .ancestor(
+                          of: find.text(message),
+                          matching: find.byType(Container),
+                        )
+                        .first,
+                  )
+                  .decoration!
+              as ShapeDecoration;
+      expect(
+        (ground.shape as OutlinedBorder).side.color,
+        edge,
+        reason: message,
+      );
+    }
+
+    await tester.pump(kErrorToastDuration + const Duration(milliseconds: 100));
+  });
+
+  testWidgets('hologram toasts sit on the surface behind an edge and a node', (
+    WidgetTester tester,
+  ) async {
+    late BuildContext ctx;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildTheme(AppThemeVariant.hologram),
+        home: Scaffold(
+          body: ToastHost(
+            child: Builder(
+              builder: (BuildContext c) {
+                ctx = c;
+                return const SizedBox.expand();
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+
+    Toasts.of(ctx).success('Saved.');
+    Toasts.of(ctx).error('Save failed.');
+    Toasts.of(ctx).warning('Partly done.');
+    Toasts.of(ctx).info('Queued.');
+    await tester.pump();
+
+    const Tokens t = Tokens.hologram;
+    for (final (String message, Color mark, Color edge)
+        in <(String, Color, Color)>[
+          ('Saved.', t.ok, t.ok.withValues(alpha: 0.6)),
+          ('Save failed.', t.danger, t.danger.withValues(alpha: 0.65)),
+          ('Partly done.', t.warn, t.warn.withValues(alpha: 0.6)),
+          ('Queued.', t.accent, t.accent.withValues(alpha: 0.62)),
+        ]) {
+      final Finder card = find
+          .ancestor(of: find.text(message), matching: find.byType(Container))
+          .first;
+      final ShapeDecoration ground =
+          tester.widget<Container>(card).decoration! as ShapeDecoration;
+
+      expect(ground.color, t.surface, reason: message);
+      expect((ground.shape as OutlinedBorder).side.color, edge);
+      expect(
+        tester
+            .widget<StatusNode>(
+              find.descendant(of: card, matching: find.byType(StatusNode)),
+            )
+            .color,
+        mark,
+      );
+      expect(tester.widget<Text>(find.text(message)).style?.color, t.text);
+    }
 
     await tester.pump(kErrorToastDuration + const Duration(milliseconds: 100));
   });

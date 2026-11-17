@@ -25,7 +25,8 @@ import 'package:shadowmask/pages/default/page_states.dart';
 import 'package:shadowmask/pages/default/section_page.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/breakpoints.dart';
-import 'package:shadowmask/theme/radii.dart';
+import 'package:shadowmask/theme/shapes.dart';
+import 'package:shadowmask/theme/shapes_context.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
@@ -341,7 +342,7 @@ class _ParentLink extends StatelessWidget {
       alignment: Alignment.centerLeft,
       child: InkWell(
         onTap: () => Navigator.of(context).pushReplacementNamed(jobRoute(id)),
-        borderRadius: const BorderRadius.all(Radii.sm),
+        customBorder: context.shapes.border(Corners.button),
         child: Text(
           id,
           style: monoStyle.copyWith(

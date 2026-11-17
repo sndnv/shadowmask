@@ -113,6 +113,24 @@ function TimelineFraction(positionMs as dynamic, durationMs as dynamic) as float
     return at / total
 end function
 
+function TimelineTickXs(width as integer) as object
+    xs = []
+    if width < 1 then return xs
+
+    for index = 0 to 20
+        xs.Push(ClampInt(Int(width * index / 20), 0, width - 1))
+    end for
+    return xs
+end function
+
+function TimelineTickGap() as integer
+    return Px(5)
+end function
+
+function TimelineTickHeight() as integer
+    return Px(7)
+end function
+
 function ControlsHideSeconds() as integer
     return 3
 end function

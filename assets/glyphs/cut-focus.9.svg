@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 30 30" role="img" aria-label="Cut focus ring">
+    <path d="M11.38 2.5 H27.5 V18.62 L18.62 27.5 H2.5 V11.38 Z" fill="none" stroke="#ffffff" stroke-width="3" stroke-linejoin="miter"/>
+    <rect x="14" y="0" width="2" height="1" fill="#000000"/>
+    <rect x="0" y="14" width="1" height="2" fill="#000000"/>
+</svg>

@@ -1,7 +1,8 @@
 import 'package:material_ui/material_ui.dart';
 
 import 'package:shadowmask/l10n/strings.dart';
-import 'package:shadowmask/theme/radii.dart';
+import 'package:shadowmask/theme/shapes.dart';
+import 'package:shadowmask/theme/shapes_context.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
@@ -16,10 +17,7 @@ class EditedNotice extends StatelessWidget {
     final Tokens t = context.tokens;
     return Container(
       padding: const EdgeInsets.all(Space.s3),
-      decoration: BoxDecoration(
-        color: t.warnBg,
-        borderRadius: const BorderRadius.all(Radii.sm),
-      ),
+      decoration: context.shapes.box(Corners.inset, color: t.warnBg),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[

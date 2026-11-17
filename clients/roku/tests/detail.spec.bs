@@ -957,6 +957,34 @@ namespace tests
             m.assertEqual(FactsText(facts), "2008 · 3 of 10 watched")
         end sub
 
+        @it("lifts the year and quality out of a movie's facts for the read-outs, the rest kept in order")
+        sub splitsTheReadouts()
+            detail = { year: 2010, runtime_minutes: 148, content_rating: { system: "mpaa", code: "pg-13" } }
+            split = ReadoutSplit(MovieFacts(detail, m.version("v1", "uhd", 100)))
+
+            m.assertEqual(split.readouts.Count(), 2)
+            m.assertEqual(split.readouts[0], { label: Phrase("fact.year"), value: "2010" })
+            m.assertEqual(split.readouts[1], { label: Phrase("fact.quality"), value: "UHD" })
+            m.assertEqual(FactsText(split.rest), "148 min · MPAA PG-13")
+        end sub
+
+        @it("reads out a series' year alone and keeps its watched count as text")
+        sub splitsASeries()
+            split = ReadoutSplit(SeriesFacts({ year: 2008 }, { watched_episodes: 3, total_episodes: 10 }))
+
+            m.assertEqual(split.readouts.Count(), 1)
+            m.assertEqual(split.readouts[0].value, "2008")
+            m.assertEqual(FactsText(split.rest), "3 of 10 watched")
+        end sub
+
+        @it("splits nothing out of no facts")
+        sub splitsNothing()
+            split = ReadoutSplit(invalid)
+
+            m.assertEqual(split.readouts.Count(), 0)
+            m.assertEqual(split.rest.Count(), 0)
+        end sub
+
         @it("leads an episode's facts with its code")
         sub buildsEpisodeFacts()
             entry = { season_number: 1, number: 2, air_date: "2008-01-27", runtime_minutes: 48 }

@@ -93,7 +93,6 @@ class EpisodePlayButtonState extends State<EpisodePlayButton>
   void didUpdateWidget(EpisodePlayButton oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!identical(widget.next, oldWidget.next)) {
-      _next = null;
       _listen();
     }
   }

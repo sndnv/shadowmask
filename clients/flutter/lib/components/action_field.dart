@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
-import 'package:shadowmask/theme/radii.dart';
+import 'package:shadowmask/theme/shapes.dart';
+import 'package:shadowmask/theme/shapes_context.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
@@ -30,6 +31,7 @@ class ActionField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final Tokens t = context.tokens;
+    final Shapes shapes = context.shapes;
     return SizedBox(
       height: kControlHeight,
       child: Semantics(
@@ -47,10 +49,10 @@ class ActionField extends StatelessWidget {
               message: actionTooltip,
               child: Material(
                 color: enabled ? t.accent : t.surfaceAlt,
-                borderRadius: const BorderRadius.all(Radii.sm),
+                shape: shapes.border(Corners.field),
                 child: InkWell(
                   onTap: enabled ? onSubmitted : null,
-                  borderRadius: const BorderRadius.all(Radii.sm),
+                  customBorder: shapes.border(Corners.field),
                   child: SizedBox(
                     width: 34,
                     height: kControlHeight - 2,

@@ -4,6 +4,8 @@ import 'package:shadowmask/components/version_label.dart';
 import 'package:shadowmask/model/catalog/version.dart';
 import 'package:shadowmask/theme/app_menu.dart';
 import 'package:shadowmask/theme/app_theme.dart';
+import 'package:shadowmask/theme/shapes.dart';
+import 'package:shadowmask/theme/shapes_context.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
 import 'package:shadowmask/view/version_order.dart';
@@ -29,7 +31,7 @@ class VersionMenu extends StatelessWidget {
   Widget build(BuildContext context) => MenuAnchor(
     controller: controller,
     alignmentOffset: kMenuOffset,
-    style: appMenuStyle(context.tokens),
+    style: appMenuStyle(context),
     menuChildren: <Widget>[
       for (int i = 0; i < ordered.length; i++)
         if (ordered[i].available)
@@ -58,14 +60,16 @@ class VersionMenuItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final Tokens t = context.tokens;
+    final Shapes shapes = context.shapes;
     return MenuItemButton(
       onPressed: onTap,
       leadingIcon: Icon(Icons.play_arrow, size: 18, color: t.accent),
       child: Text.rich(
         TextSpan(
-          style: monoStyle.copyWith(color: t.text, fontSize: 13),
-          children: versionLabelSpans(t, version, number),
+          style: shapes.mono(monoStyle.copyWith(color: t.text, fontSize: 13)),
+          children: versionLabelSpans(t, version, number, caps: shapes.caps),
         ),
+        semanticsLabel: shapes.capsLabel(versionLabelText(version, number)),
       ),
     );
   }

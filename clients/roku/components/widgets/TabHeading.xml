@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="TabHeading" extends="Group">
+    <script type="text/brightscript" uri="pkg:/components/widgets/TabHeading.brs" />
+    <script type="text/brightscript" uri="pkg:/source/util.brs" />
+    <script type="text/brightscript" uri="pkg:/source/tokens.brs" />
+    <script type="text/brightscript" uri="pkg:/source/strings.brs" />
+    <script type="text/brightscript" uri="pkg:/source/about.brs" />
+    <script type="text/brightscript" uri="pkg:/source/format.brs" />
+    <script type="text/brightscript" uri="pkg:/source/api.brs" />
+    <script type="text/brightscript" uri="pkg:/source/cards.brs" />
+    <script type="text/brightscript" uri="pkg:/source/images.brs" />
+    <script type="text/brightscript" uri="pkg:/source/catalog.brs" />
+    <script type="text/brightscript" uri="pkg:/source/state.brs" />
+    <script type="text/brightscript" uri="pkg:/source/detail.brs" />
+    <script type="text/brightscript" uri="pkg:/source/prefs.brs" />
+    <script type="text/brightscript" uri="pkg:/source/session.brs" />
+    <script type="text/brightscript" uri="pkg:/source/screen.brs" />
+    <script type="text/brightscript" uri="pkg:/source/capability.brs" />
+    <script type="text/brightscript" uri="pkg:/source/playback.brs" />
+    <script type="text/brightscript" uri="pkg:/source/playbackstate.brs" />
+    <script type="text/brightscript" uri="pkg:/source/languages.brs" />
+    <script type="text/brightscript" uri="pkg:/source/work.brs" />
+    <script type="text/brightscript" uri="pkg:/source/report.brs" />
+    <script type="text/brightscript" uri="pkg:/source/subtitles.brs" />
+
+    <interface>
+        <field id="theme" type="assocarray" onChange="render" />
+        <field id="text" type="string" value="" onChange="render" />
+        <field id="count" type="integer" value="-1" onChange="render" />
+        <field id="size" type="integer" value="0" onChange="render" />
+        <field id="headingWidth" type="float" value="0" onChange="render" />
+    </interface>
+
+    <children>
+        <Label id="plain" />
+        <Group id="tab" visible="false">
+            <Rectangle id="rule" />
+            <Rectangle id="body" />
+            <Poster id="slant" muteAudioGuide="true" />
+            <Label id="label" />
+            <Label id="count" />
+        </Group>
+    </children>
+</component>

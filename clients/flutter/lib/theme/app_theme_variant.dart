@@ -1,1 +1,1 @@
-enum AppThemeVariant { dark, light, retro }
+enum AppThemeVariant { dark, light, retro, hologram }

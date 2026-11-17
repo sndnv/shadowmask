@@ -20,6 +20,10 @@ sub init()
     m.top.muteAudioGuide = true
     m.progressTrack = m.top.FindNode("progressTrack")
     m.progressFill = m.top.FindNode("progressFill")
+    m.segments = m.top.FindNode("segments")
+    m.segmentTrack = m.top.FindNode("segmentTrack")
+    m.segmentFill = m.top.FindNode("segmentFill")
+    m.segmentLit = m.top.FindNode("segmentLit")
     m.watchedRing = m.top.FindNode("watchedRing")
     m.watchedDisc = m.top.FindNode("watchedDisc")
     m.dismiss = m.top.FindNode("dismiss")
@@ -52,10 +56,10 @@ function CardFocused() as boolean
     return true
 end function
 
-sub Grow(focused as boolean)
-    m.grown = focused
+sub Grow(grows as boolean)
+    m.grown = grows
     scale = 1.0
-    if focused then scale = m.growTo
+    if grows then scale = m.growTo
 
     m.grow.control = "stop"
     m.growScale.keyValue = [m.pivot.scale, [scale, scale]]
@@ -109,7 +113,8 @@ sub render()
     m.growTo = content.growTo
     m.pivot.translation = m.centre
     m.frame.translation = [- m.centre[0], - m.centre[1]]
-    if focused <> m.grown then Grow(focused)
+    grows = CardGrows(theme, focused)
+    if grows <> m.grown then Grow(grows)
 
     m.plate.width = metrics.width
     m.plate.height = metrics.height
@@ -140,11 +145,13 @@ sub render()
 
     m.ring.theme = theme
     m.ring.fill = ""
-    m.ring.lineColor = BorderColorFor(theme, focused)
+    m.ring.lineColor = CardLineColorFor(theme, focused)
     m.ring.ringWidth = metrics.width
     m.ring.ringHeight = metrics.height
     m.ring.thickness = edge
     m.ring.translation = [0, 0]
+    m.ring.bracketColor = theme.accent
+    m.ring.brackets = CardBrackets(theme, focused)
 
     RenderProgress(theme, edge, inner, metrics.artHeight)
     RenderMarker(theme, space, edge, inner, focused, content.watched and not content.plain)
@@ -156,10 +163,17 @@ sub RenderProgress(theme as object, edge as integer, inner as integer, artBottom
     percent = m.top.itemContent.progressPercent
     if m.top.itemContent.plain then percent = 0
     height = ProgressBarHeight()
+    cut = IsCut(theme)
 
-    m.progressTrack.visible = percent > 0
-    m.progressFill.visible = percent > 0
+    m.progressTrack.visible = percent > 0 and not cut
+    m.progressFill.visible = percent > 0 and not cut
+    m.segments.visible = percent > 0 and cut
     if percent <= 0 then return
+
+    if cut
+        RenderSegments(theme, edge, inner, artBottom, percent)
+        return
+    end if
 
     top = artBottom - height
 
@@ -168,10 +182,28 @@ sub RenderProgress(theme as object, edge as integer, inner as integer, artBottom
     m.progressTrack.color = ProgressTrackColor()
     m.progressTrack.translation = [edge, top]
 
-    m.progressFill.width = inner * ClampInt(percent, 0, 100) / 100.0
+    m.progressFill.width = ProgressFillWidth(inner, percent)
     m.progressFill.height = height
     m.progressFill.color = theme.accent
     m.progressFill.translation = [edge, top]
+end sub
+
+sub RenderSegments(theme as object, edge as integer, inner as integer, artBottom as integer, percent as integer)
+    height = SegmentStripHeight()
+
+    m.segments.translation = [edge, artBottom - height]
+    m.segments.clippingRect = [0, 0, inner, height]
+    m.segmentFill.clippingRect = [0, 0, ProgressFillWidth(inner, percent), height]
+
+    PaintStrip(m.segmentTrack, SegmentTrackColor(theme))
+    PaintStrip(m.segmentLit, theme.accent)
+end sub
+
+sub PaintStrip(strip as object, color as string)
+    strip.uri = GlyphUri("segment-strip")
+    strip.width = SegmentStripWidth()
+    strip.height = SegmentStripHeight()
+    strip.blendColor = color
 end sub
 
 sub RenderMarker(theme as object, space as object, edge as integer, inner as integer, focused as boolean, watched as boolean)
@@ -196,7 +228,7 @@ sub RenderMarker(theme as object, space as object, edge as integer, inner as int
 
     if not m.watchedRing.visible then return
 
-    m.watchedRing.uri = "pkg:/images/watched-ring.png"
+    m.watchedRing.uri = WatchedRingUri(theme)
     m.watchedRing.width = ring
     m.watchedRing.height = ring
     m.watchedRing.blendColor = theme.surface
@@ -204,7 +236,7 @@ sub RenderMarker(theme as object, space as object, edge as integer, inner as int
 
     if not m.watchedDisc.visible then return
 
-    m.watchedDisc.uri = "pkg:/images/watched-disc.png"
+    m.watchedDisc.uri = WatchedDiscUri(theme)
     m.watchedDisc.width = disc
     m.watchedDisc.height = disc
     m.watchedDisc.blendColor = theme.ok
@@ -227,7 +259,7 @@ sub RenderBadge(theme as object, sizes as object, space as object, edge as integ
     m.badgePlate.boxWidth = width
     m.badgePlate.boxHeight = height
     m.badgePlate.fillColor = theme.surface
-    m.badgePlate.lineColor = theme.border
+    m.badgePlate.lineColor = theme.lineSoft
     m.badgePlate.translation = [left, top]
 
     m.badge.text = text

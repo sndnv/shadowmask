@@ -7,7 +7,8 @@ import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/model/session/capability_overrides.dart';
 import 'package:shadowmask/model/session/client_decoding.dart';
 import 'package:shadowmask/pages/account/playback_support_dialog.dart';
-import 'package:shadowmask/theme/radii.dart';
+import 'package:shadowmask/theme/shapes.dart';
+import 'package:shadowmask/theme/shapes_context.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
@@ -107,10 +108,10 @@ class _ChangedChip extends StatelessWidget {
     final Tokens t = context.tokens;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: Space.s2, vertical: 2),
-      decoration: BoxDecoration(
+      decoration: context.shapes.box(
+        Corners.badge,
         color: t.dangerBg,
-        borderRadius: const BorderRadius.all(Radii.pill),
-        border: Border.all(color: t.danger),
+        side: BorderSide(color: t.danger),
       ),
       child: Text(
         Strings.playbackSupportChanged,

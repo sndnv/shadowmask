@@ -9,7 +9,10 @@ import 'package:shadowmask/components/card_art.dart';
 import 'package:shadowmask/components/card_grid.dart';
 import 'package:shadowmask/components/card_menu.dart';
 import 'package:shadowmask/components/catalog_card_tile.dart';
+import 'package:shadowmask/components/corner_brackets.dart';
+import 'package:shadowmask/components/progress_bar.dart';
 import 'package:shadowmask/l10n/strings.dart';
+import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/components/watched_marker.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/model/common/title_ref.dart';
@@ -89,6 +92,61 @@ void main() {
     );
     expect(tester.getSize(find.byType(CatalogCardTile)), resting);
   });
+
+  testWidgets('hologram brackets a lit card and draws its frame on the line', (
+    WidgetTester tester,
+  ) async {
+    await _pumpTile(
+      tester,
+      _card(watched: false),
+      variant: AppThemeVariant.hologram,
+    );
+    const Tokens t = Tokens.hologram;
+    final Size resting = tester.getSize(find.byType(CatalogCardTile));
+    expect(find.byType(CornerBrackets), findsNothing);
+    expect(_cardBorder(tester).color, t.accent.withValues(alpha: 0.26));
+
+    await _hover(tester, find.byType(CatalogCardTile));
+
+    expect(
+      tester.getRect(find.byType(CornerBrackets)),
+      tester.getRect(find.byType(CatalogCardTile)).inflate(kBracketReach),
+    );
+    expect(
+      tester.widget<CornerBrackets>(find.byType(CornerBrackets)).color,
+      t.accent,
+    );
+    expect(_cardBorder(tester).color, t.accent.withValues(alpha: 0.62));
+    expect(tester.getSize(find.byType(CatalogCardTile)), resting);
+    expect(
+      tester
+          .widget<Stack>(
+            find
+                .ancestor(
+                  of: find.byType(CornerBrackets),
+                  matching: find.byType(Stack),
+                )
+                .first,
+          )
+          .clipBehavior,
+      Clip.none,
+    );
+  });
+
+  for (final AppThemeVariant variant in AppThemeVariant.values.where(
+    (AppThemeVariant v) => v != AppThemeVariant.hologram,
+  )) {
+    testWidgets('${variant.name} lights a card without brackets', (
+      WidgetTester tester,
+    ) async {
+      await _pumpTile(tester, _card(watched: false), variant: variant);
+
+      await _hover(tester, find.byType(CatalogCardTile));
+
+      expect(find.byType(CornerBrackets), findsNothing);
+      expect(_cardBorder(tester).color, Tokens.of(variant).accent);
+    });
+  }
 
   testWidgets('a dismissable card hides the watched marker', (
     WidgetTester tester,
@@ -192,6 +250,16 @@ void main() {
   });
 }
 
+Future<void> _hover(WidgetTester tester, Finder target) async {
+  final TestGesture pointer = await tester.createGesture(
+    kind: PointerDeviceKind.mouse,
+  );
+  addTearDown(pointer.removePointer);
+  await pointer.addPointer(location: Offset.zero);
+  await pointer.moveTo(tester.getCenter(target));
+  await tester.pumpAndSettle();
+}
+
 CatalogCard _card({required bool watched, String? dismissVersionId}) =>
     CatalogCard(
       ref: const TitleRef(type: TitleKind.movie, id: 'm1'),
@@ -211,7 +279,7 @@ BorderSide _cardBorder(WidgetTester tester) {
         )
         .first,
   );
-  return (card.shape! as RoundedRectangleBorder).side;
+  return (card.shape! as OutlinedBorder).side;
 }
 
 void _tooltipTests() {
@@ -255,6 +323,34 @@ void _tooltipTests() {
     expect(tooltipNamed('Arrival\n2016\nResume at 40%'), findsWidgets);
   });
 
+  for (final AppThemeVariant variant in <AppThemeVariant>[
+    AppThemeVariant.dark,
+    AppThemeVariant.hologram,
+  ]) {
+    testWidgets('a ${variant.name} card keeps its progress '
+        '${variant == AppThemeVariant.hologram ? 'off' : 'on'} the art edges', (
+      WidgetTester tester,
+    ) async {
+      await _pumpTile(
+        tester,
+        CatalogCard(
+          ref: const TitleRef(type: TitleKind.movie, id: 'm1'),
+          route: '/title?type=movie&id=m1',
+          title: 'Arrival',
+          progressPercent: 40,
+        ),
+        variant: variant,
+      );
+      final double inset = variant == AppThemeVariant.hologram ? Space.s1 : 0;
+      final Rect art = tester.getRect(find.byType(CardArt));
+      final Rect bar = tester.getRect(find.byType(ProgressBar));
+
+      expect(bar.left, art.left + inset);
+      expect(bar.right, art.right - inset);
+      expect(bar.bottom, art.bottom - inset);
+    });
+  }
+
   testWidgets('the dismiss button keeps its own tooltip, not the card text', (
     WidgetTester tester,
   ) async {
@@ -280,6 +376,7 @@ Future<void> _pumpTile(
   void Function(CatalogCard card)? onDismiss,
   String? badge,
   bool menued = false,
+  AppThemeVariant variant = AppThemeVariant.dark,
 }) async {
   final Widget tile = Center(
     child: CatalogCardTile(
@@ -292,7 +389,7 @@ Future<void> _pumpTile(
   );
   await tester.pumpWidget(
     MaterialApp(
-      theme: buildTheme(AppThemeVariant.dark),
+      theme: buildTheme(variant),
       home: Scaffold(
         body: menued
             ? CardMenuHost(

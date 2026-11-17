@@ -471,7 +471,7 @@ sub AskForVersion()
         labels.Push(row.label)
     end for
 
-    m.top.choiceRequest = { field: "version", title: Phrase("detail.chooseVersion"), kind: "choice", options: labels, selected: 0 }
+    m.top.choiceRequest = { field: "version", title: Phrase("detail.chooseVersion"), kind: "choice", options: labels, selected: 0, caps: true }
 end sub
 
 sub onChoice()

@@ -2,8 +2,10 @@ import 'package:flutter/gestures.dart';
 import 'package:material_ui/material_ui.dart';
 
 import 'package:shadowmask/components/card_menu.dart';
+import 'package:shadowmask/components/corner_brackets.dart';
 import 'package:shadowmask/components/link_heading.dart';
 import 'package:shadowmask/l10n/strings.dart';
+import 'package:shadowmask/theme/shapes_context.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
@@ -159,6 +161,8 @@ class _CardRailState extends State<CardRail> {
     CardAspect aspect,
   ) {
     final String? title = widget.title;
+    final bool cut = context.shapes.cut;
+    final Clip clip = cut ? Clip.none : Clip.hardEdge;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -172,60 +176,66 @@ class _CardRailState extends State<CardRail> {
         ],
         SizedBox(
           height: railHeight,
-          child: Listener(
-            onPointerSignal: _onPointerSignal,
-            child: NotificationListener<ScrollMetricsNotification>(
-              onNotification: (ScrollMetricsNotification _) {
-                _update();
-                return false;
-              },
-              child: Stack(
-                children: <Widget>[
-                  ScrollConfiguration(
-                    behavior: ScrollConfiguration.of(context).copyWith(
-                      dragDevices: <PointerDeviceKind>{
-                        ...ScrollConfiguration.of(context).dragDevices,
-                        PointerDeviceKind.mouse,
-                      },
-                    ),
-                    child: ListView.separated(
-                      controller: _controller,
-                      scrollDirection: Axis.horizontal,
-                      itemCount: widget.cards.length,
-                      separatorBuilder: (BuildContext _, int _) =>
-                          const SizedBox(width: Space.s4),
-                      itemBuilder: (BuildContext _, int i) => CatalogCardTile(
-                        card: widget.cards[i],
-                        imageBase: widget.imageBase,
-                        width: w,
-                        aspect: aspect,
-                        onDismiss: _dismissible(widget.cards[i])
-                            ? widget.onDismiss
-                            : null,
-                        onMenuAction: widget.onMenuAction,
-                        dismissBusy:
-                            widget.dismissBusy?.call(widget.cards[i]) ?? false,
-                        dismissTooltip: widget.dismissTooltip,
+          child: _reach(
+            cut,
+            Listener(
+              onPointerSignal: _onPointerSignal,
+              child: NotificationListener<ScrollMetricsNotification>(
+                onNotification: (ScrollMetricsNotification _) {
+                  _update();
+                  return false;
+                },
+                child: Stack(
+                  clipBehavior: clip,
+                  children: <Widget>[
+                    ScrollConfiguration(
+                      behavior: ScrollConfiguration.of(context).copyWith(
+                        dragDevices: <PointerDeviceKind>{
+                          ...ScrollConfiguration.of(context).dragDevices,
+                          PointerDeviceKind.mouse,
+                        },
+                      ),
+                      child: ListView.separated(
+                        controller: _controller,
+                        clipBehavior: clip,
+                        scrollDirection: Axis.horizontal,
+                        itemCount: widget.cards.length,
+                        separatorBuilder: (BuildContext _, int _) =>
+                            const SizedBox(width: Space.s4),
+                        itemBuilder: (BuildContext _, int i) => CatalogCardTile(
+                          card: widget.cards[i],
+                          imageBase: widget.imageBase,
+                          width: w,
+                          aspect: aspect,
+                          onDismiss: _dismissible(widget.cards[i])
+                              ? widget.onDismiss
+                              : null,
+                          onMenuAction: widget.onMenuAction,
+                          dismissBusy:
+                              widget.dismissBusy?.call(widget.cards[i]) ??
+                              false,
+                          dismissTooltip: widget.dismissTooltip,
+                        ),
                       ),
                     ),
-                  ),
-                  if (_canLeft)
-                    _RailArrow(
-                      height: artHeight,
-                      alignment: Alignment.centerLeft,
-                      icon: Icons.chevron_left,
-                      tooltip: Strings.previous,
-                      onTap: () => _nudge(-1),
-                    ),
-                  if (_canRight)
-                    _RailArrow(
-                      height: artHeight,
-                      alignment: Alignment.centerRight,
-                      icon: Icons.chevron_right,
-                      tooltip: Strings.next,
-                      onTap: () => _nudge(1),
-                    ),
-                ],
+                    if (_canLeft)
+                      _RailArrow(
+                        height: artHeight,
+                        alignment: Alignment.centerLeft,
+                        icon: Icons.chevron_left,
+                        tooltip: Strings.previous,
+                        onTap: () => _nudge(-1),
+                      ),
+                    if (_canRight)
+                      _RailArrow(
+                        height: artHeight,
+                        alignment: Alignment.centerRight,
+                        icon: Icons.chevron_right,
+                        tooltip: Strings.next,
+                        onTap: () => _nudge(1),
+                      ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -234,6 +244,19 @@ class _CardRailState extends State<CardRail> {
       ],
     );
   }
+
+  Widget _reach(bool cut, Widget rail) =>
+      cut ? ClipRect(clipper: const _BracketReach(), child: rail) : rail;
+}
+
+class _BracketReach extends CustomClipper<Rect> {
+  const _BracketReach();
+
+  @override
+  Rect getClip(Size size) => (Offset.zero & size).inflate(kBracketReach);
+
+  @override
+  bool shouldReclip(_BracketReach oldClipper) => false;
 }
 
 class _RailArrow extends StatelessWidget {
@@ -262,7 +285,9 @@ class _RailArrow extends StatelessWidget {
       child: Center(
         child: Material(
           color: t.surface.withValues(alpha: 0.9),
-          shape: CircleBorder(side: BorderSide(color: t.border)),
+          shape: context.shapes.round(
+            side: BorderSide(color: context.shapes.line(t.border)),
+          ),
           clipBehavior: Clip.antiAlias,
           child: Tooltip(
             message: tooltip,

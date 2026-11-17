@@ -24,7 +24,7 @@ Future<void> _pump(
             child: SizedBox(
               width: 200,
               child: PosterPlay(
-                tooltip: 'Play',
+                label: 'Play',
                 onTap: onTap,
                 progressPercent: percent,
                 child: const CardArt(

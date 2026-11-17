@@ -28,10 +28,11 @@ Future<void> _pump(
   required List<String> visited,
   double width = 600,
   int cards = 8,
+  AppThemeVariant variant = AppThemeVariant.dark,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
-      theme: buildTheme(AppThemeVariant.dark),
+      theme: buildTheme(variant),
       onGenerateRoute: (RouteSettings settings) {
         visited.add(settings.name ?? '');
         return MaterialPageRoute<void>(
@@ -275,4 +276,47 @@ void main() {
 
     expect(visited, contains('/movie/m1'));
   });
+
+  testWidgets('a hologram rail clips past its edge by the reach of a bracket', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, visited: <String>[], variant: AppThemeVariant.hologram);
+
+    final ClipRect reach = tester.widget<ClipRect>(_reachingClip);
+    expect(
+      reach.clipper!.getClip(const Size(100, 50)),
+      const Rect.fromLTRB(-7, -7, 107, 57),
+    );
+    expect(_railList(tester).clipBehavior, Clip.none);
+    expect(_railStack(tester).clipBehavior, Clip.none);
+  });
+
+  for (final AppThemeVariant variant in AppThemeVariant.values.where(
+    (AppThemeVariant v) => v != AppThemeVariant.hologram,
+  )) {
+    testWidgets('a ${variant.name} rail clips at its edge', (
+      WidgetTester tester,
+    ) async {
+      await _pump(tester, visited: <String>[], variant: variant);
+
+      expect(_reachingClip, findsNothing);
+      expect(_railList(tester).clipBehavior, Clip.hardEdge);
+      expect(_railStack(tester).clipBehavior, Clip.hardEdge);
+    });
+  }
 }
+
+Finder get _reachingClip => find.descendant(
+  of: find.byType(CardRail),
+  matching: find.byWidgetPredicate(
+    (Widget w) => w is ClipRect && w.clipper != null,
+  ),
+);
+
+ListView _railList(WidgetTester tester) => tester.widget<ListView>(
+  find.descendant(of: find.byType(CardRail), matching: find.byType(ListView)),
+);
+
+Stack _railStack(WidgetTester tester) => tester.widget<Stack>(
+  find.ancestor(of: find.byType(ListView), matching: find.byType(Stack)).first,
+);

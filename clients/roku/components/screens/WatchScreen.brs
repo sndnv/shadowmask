@@ -177,7 +177,7 @@ sub DrawPausedMark(theme as object)
     size = PausedMarkSize()
     glyph = PausedGlyphSize()
 
-    m.pausedDisc.uri = GlyphUri("disc")
+    m.pausedDisc.uri = DiscUri(theme)
     m.pausedDisc.width = size
     m.pausedDisc.height = size
     m.pausedDisc.blendColor = theme.bg

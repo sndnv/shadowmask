@@ -3,6 +3,12 @@ namespace tests
     @suite("playback")
     class PlaybackTests extends rooibos.BaseTestSuite
 
+        function colour(value as string) as dynamic
+            probe = CreateObject("roSGNode", "Rectangle")
+            probe.color = value
+            return probe.color
+        end function
+
         function startingState() as object
             return PlaybackStep(PlaybackOpens("v1", DefaultControls()), { kind: "opened", durationMs: 600000, resumeMs: 0, remote: DefaultControls() }).state
         end function
@@ -678,6 +684,73 @@ namespace tests
 
             m.assertEqual(span.fillTo, span.previewTo)
             m.assertTrue(span.ghost)
+        end sub
+
+        @describe("TimelineTickXs")
+
+        @it("puts a tick every 5% from 0% to 100%, the last on the bar's final pixel")
+        sub ticksEveryFivePercent()
+            xs = TimelineTickXs(1000)
+
+            m.assertEqual(xs.Count(), 21)
+            m.assertEqual(xs[0], 0)
+            m.assertEqual(xs[1], 50)
+            m.assertEqual(xs[10], 500)
+            m.assertEqual(xs[19], 950)
+            m.assertEqual(xs[20], 999)
+        end sub
+
+        @it("puts no tick on a bar with no width")
+        sub noTicksWithoutWidth()
+            m.assertEqual(TimelineTickXs(0).Count(), 0)
+        end sub
+
+        @it("draws the ticks under the track in hologram's soft line, and none in another theme")
+        sub timelineTicksUnderHologram()
+            theme = ThemeTokens("hologram")
+            bar = CreateObject("roSGNode", "Timeline")
+            bar.barWidth = 1000
+            bar.theme = theme
+
+            ticks = bar.FindNode("ticks")
+            track = bar.FindNode("track")
+            xs = TimelineTickXs(1000)
+            below = Int(track.translation[1] + track.height) + TimelineTickGap()
+            m.assertTrue(ticks.visible)
+            m.assertEqual(ticks.GetChildCount(), xs.Count())
+            for index = 0 to xs.Count() - 1
+                tick = ticks.GetChild(index)
+                m.assertEqual(Int(tick.translation[0]), xs[index], "tick " + index.ToStr())
+                m.assertEqual(Int(tick.translation[1]), below, "tick " + index.ToStr())
+                m.assertEqual(Int(tick.width), 1)
+                m.assertEqual(Int(tick.height), TimelineTickHeight())
+                m.assertEqual(tick.color, m.colour(theme.lineSoft))
+            end for
+
+            bar.theme = ThemeTokens("dark")
+            m.assertFalse(ticks.visible)
+        end sub
+
+        @it("leaves the ticks alone while the position moves, and redraws them for a new width or line colour")
+        sub ticksRedrawOnlyWhenTheyChange()
+            bar = CreateObject("roSGNode", "Timeline")
+            bar.barWidth = 1000
+            bar.theme = ThemeTokens("hologram")
+
+            tick = bar.FindNode("ticks").GetChild(20)
+            tick.width = 3
+            bar.durationMs = 600000
+            bar.positionMs = 60000
+            bar.scrubMs = 120000
+            m.assertEqual(Int(tick.width), 3)
+
+            bar.barWidth = 500
+            m.assertEqual(Int(tick.width), 1)
+            m.assertEqual(Int(tick.translation[0]), TimelineTickXs(500)[20])
+
+            hard = ThemedTokens("hologram", true)
+            bar.theme = hard
+            m.assertEqual(tick.color, m.colour(hard.lineSoft))
         end sub
 
         @describe("NextEpisodeAfter")

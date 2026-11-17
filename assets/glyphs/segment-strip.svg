@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="8" viewBox="0 0 1920 8" role="img" aria-label="Segment strip">
+    <defs>
+        <pattern id="segment" width="11" height="8" patternUnits="userSpaceOnUse">
+            <rect width="8" height="8" fill="#ffffff"/>
+        </pattern>
+    </defs>
+    <rect width="1920" height="8" fill="url(#segment)"/>
+</svg>

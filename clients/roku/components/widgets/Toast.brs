@@ -1,5 +1,7 @@
 sub init()
     m.surface = m.top.FindNode("surface")
+    m.plate = m.top.FindNode("plate")
+    m.node = m.top.FindNode("node")
     m.glyph = m.top.FindNode("glyph")
     m.message = m.top.FindNode("message")
     m.hold = m.top.FindNode("hold")
@@ -27,8 +29,12 @@ sub show()
     size = m.top.fontSize
     space = SpacingScale()
     palette = ToastPalette(m.top.kind, theme)
+    cut = IsCut(theme)
+    node = ToastNodeSize()
+    glyphLeft = space.s4
+    if cut then glyphLeft = space.s4 + node + space.s2
     width = ToastWidth()
-    textLeft = space.s4 + size + space.s3
+    textLeft = glyphLeft + size + space.s3
     inner = width - textLeft - space.s4
     lines = ClampInt(TextLineCount(m.top.message, inner - SpaceWidth(size), size), 1, ToastMaxLines())
     height = TextBlockHeight(size, lines) + space.s3 * 2
@@ -48,12 +54,21 @@ sub show()
     m.glyph.uri = GlyphUri(palette.glyph)
     m.glyph.width = size
     m.glyph.height = size
-    m.glyph.blendColor = palette.ink
-    m.glyph.translation = [space.s4, Int((height - size) / 2)]
+    m.glyph.blendColor = ValueAt(palette, "tone", palette.ink)
+    m.glyph.translation = [glyphLeft, Int((height - size) / 2)]
 
-    m.surface.color = palette.ground
+    m.node.visible = cut
+    if cut
+        m.node.uri = DiscUri(theme)
+        m.node.width = node
+        m.node.height = node
+        m.node.blendColor = palette.tone
+        m.node.translation = [space.s4, Int((height - node) / 2)]
+    end if
+
     m.surface.width = width
     m.surface.height = height
+    RenderGround(palette, cut, width, height)
 
     Enter(- width, - height)
 
@@ -61,6 +76,21 @@ sub show()
     m.hold.control = "start"
 
     SpeakAgain(m.top.message)
+end sub
+
+sub RenderGround(palette as object, cut as boolean, width as integer, height as integer)
+    if not cut
+        m.surface.color = palette.ground
+        m.plate.boxWidth = 0
+        m.plate.boxHeight = 0
+        return
+    end if
+
+    m.surface.color = "0x00000000"
+    m.plate.fillColor = palette.ground
+    m.plate.lineColor = palette.edge
+    m.plate.boxWidth = width
+    m.plate.boxHeight = height
 end sub
 
 sub Enter(restX as float, restY as float)

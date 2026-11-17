@@ -4,6 +4,8 @@ import 'package:flutter/gestures.dart';
 import 'package:material_ui/material_ui.dart';
 
 import 'package:shadowmask/l10n/strings.dart';
+import 'package:shadowmask/theme/shapes.dart';
+import 'package:shadowmask/theme/shapes_context.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
 import 'package:shadowmask/util/format.dart';
@@ -11,6 +13,7 @@ import 'package:shadowmask/view/player_shortcuts.dart';
 import 'package:shadowmask/view/timeline_marks.dart';
 
 const Duration _kPreviewLinger = Duration(milliseconds: 900);
+const Color _halo = Color(0x4D000000);
 
 class Timeline extends StatefulWidget {
   const Timeline({
@@ -66,6 +69,7 @@ class _TimelineState extends State<Timeline> {
   @override
   Widget build(BuildContext context) {
     final Tokens t = context.tokens;
+    final Shapes shapes = context.shapes;
     final void Function(double fraction)? seek = widget.onSeek;
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
@@ -127,6 +131,8 @@ class _TimelineState extends State<Timeline> {
                         track: Colors.white.withValues(alpha: 0.28),
                         bufferedColor: Colors.white.withValues(alpha: 0.45),
                         fill: t.accent,
+                        hexagon: shapes.cut,
+                        tick: shapes.cut ? shapes.lineSoft(t.accent) : null,
                       ),
                     ),
                     if (scrub != null && widget.thumbBuilder != null)
@@ -170,6 +176,8 @@ class _TrackPainter extends CustomPainter {
     required this.track,
     required this.bufferedColor,
     required this.fill,
+    required this.hexagon,
+    required this.tick,
   });
 
   final double fraction;
@@ -178,12 +186,14 @@ class _TrackPainter extends CustomPainter {
   final Color track;
   final Color bufferedColor;
   final Color fill;
+  final bool hexagon;
+  final Color? tick;
 
   @override
   void paint(Canvas canvas, Size size) {
     final double y = size.height / 2;
     final Paint paint = Paint()
-      ..strokeCap = StrokeCap.round
+      ..strokeCap = hexagon ? StrokeCap.butt : StrokeCap.round
       ..strokeWidth = 4;
     canvas.drawLine(Offset(0, y), Offset(size.width, y), paint..color = track);
     if (buffered > 0) {
@@ -192,6 +202,13 @@ class _TrackPainter extends CustomPainter {
         Offset(size.width * buffered.clamp(0.0, 1.0), y),
         paint..color = bufferedColor,
       );
+    }
+    final Color? tick = this.tick;
+    if (tick != null) {
+      final Paint tickPaint = Paint()..color = tick;
+      for (final double x in TimelineMarks.ticks(size.width)) {
+        canvas.drawRect(Rect.fromLTWH(x, y + 5, 1, 4), tickPaint);
+      }
     }
 
     final TimelineMarks marks = TimelineMarks.of(
@@ -217,17 +234,33 @@ class _TrackPainter extends CustomPainter {
   }
 
   void _thumb(Canvas canvas, double x, double y, Color color) {
-    canvas.drawCircle(
-      Offset(x, y),
-      9,
-      Paint()..color = const Color(0x4D000000),
-    );
+    if (hexagon) {
+      _hexagon(canvas, Offset(x, y), Marks.playheadHalo, _halo);
+      _hexagon(canvas, Offset(x, y), Marks.playhead, color);
+      return;
+    }
+    canvas.drawCircle(Offset(x, y), 9, Paint()..color = _halo);
     canvas.drawCircle(Offset(x, y), 6, Paint()..color = color);
+  }
+
+  void _hexagon(Canvas canvas, Offset at, Size size, Color color) {
+    final Rect box = Rect.fromCenter(
+      center: at,
+      width: size.width,
+      height: size.height,
+    );
+    canvas.drawPath(
+      Shapes.hexagon(size).getOuterPath(box),
+      Paint()..color = color,
+    );
   }
 
   @override
   bool shouldRepaint(_TrackPainter oldDelegate) =>
       oldDelegate.fraction != fraction ||
       oldDelegate.preview != preview ||
-      oldDelegate.buffered != buffered;
+      oldDelegate.buffered != buffered ||
+      oldDelegate.fill != fill ||
+      oldDelegate.hexagon != hexagon ||
+      oldDelegate.tick != tick;
 }

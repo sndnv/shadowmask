@@ -2,7 +2,9 @@ import 'package:material_ui/material_ui.dart';
 
 import 'package:shadowmask/components/card_grid.dart';
 import 'package:shadowmask/components/catalog_card_tile.dart';
-import 'package:shadowmask/theme/radii.dart';
+import 'package:shadowmask/components/edged_box.dart';
+import 'package:shadowmask/theme/shapes.dart';
+import 'package:shadowmask/theme/shapes_context.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
@@ -13,7 +15,6 @@ const Curve kShimmerCurve = Curves.easeInOut;
 
 const double _kBarHeight = 12;
 const double _kBarGap = 9;
-const Radius _kBarRadius = Radius.circular(4);
 const List<double> _kLineWidths = <double>[1, 0.82, 0.58];
 
 class SkeletonPulse extends StatefulWidget {
@@ -89,14 +90,14 @@ class Skeleton extends StatefulWidget {
     this.width,
     this.widthFactor,
     this.height = _kBarHeight,
-    this.radius = _kBarRadius,
+    this.corner = Corners.skeletonBar,
     this.aspectRatio,
   });
 
   final double? width;
   final double? widthFactor;
   final double height;
-  final Radius radius;
+  final Corner corner;
   final double? aspectRatio;
 
   @override
@@ -135,9 +136,9 @@ class _SkeletonState extends State<Skeleton>
       t.muted.withValues(alpha: 0.22),
       base,
     );
-    final BorderRadius radius = BorderRadius.all(widget.radius);
+    final Shapes shapes = context.shapes;
     final Widget plate = DecoratedBox(
-      decoration: BoxDecoration(color: base, borderRadius: radius),
+      decoration: shapes.box(widget.corner, color: base),
     );
     final Widget bar = MediaQuery.disableAnimationsOf(context)
         ? plate
@@ -149,10 +150,7 @@ class _SkeletonState extends State<Skeleton>
                 FadeTransition(
                   opacity: _sweep,
                   child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: highlight,
-                      borderRadius: radius,
-                    ),
+                    decoration: shapes.box(widget.corner, color: highlight),
                   ),
                 ),
               ],
@@ -240,45 +238,56 @@ class SkeletonCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final Tokens t = context.tokens;
+    final Shapes shapes = context.shapes;
+    final BorderSide edge = BorderSide(color: shapes.lineSoft(t.border));
+    final Widget content = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        Skeleton(
+          aspectRatio: aspect == CardAspect.landscape ? 16 / 9 : 2 / 3,
+          corner: Corners.none,
+        ),
+        SizedBox(
+          height: kCardTextBlockHeight,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 10,
+              vertical: Space.s2,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                const Skeleton(widthFactor: 0.82),
+                const Spacer(),
+                Skeleton(
+                  widthFactor: 0.42,
+                  height: kCardSubtitleBlockHeight - 7,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
     return SizedBox(
       width: width ?? cardWidthFor(aspect),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: t.surface,
-          borderRadius: const BorderRadius.all(Radii.md),
-          border: Border.all(color: t.border),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Skeleton(
-              aspectRatio: aspect == CardAspect.landscape ? 16 / 9 : 2 / 3,
-              radius: Radius.zero,
-            ),
-            SizedBox(
-              height: kCardTextBlockHeight,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: Space.s2,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    const Skeleton(widthFactor: 0.82),
-                    const Spacer(),
-                    Skeleton(
-                      widthFactor: 0.42,
-                      height: kCardSubtitleBlockHeight - 7,
-                    ),
-                  ],
-                ),
+      child: shapes.cut
+          ? EdgedBox(
+              corner: Corners.card,
+              color: t.surface,
+              edge: edge,
+              inset: false,
+              child: content,
+            )
+          : DecoratedBox(
+              decoration: shapes.box(
+                Corners.card,
+                color: t.surface,
+                side: edge,
               ),
+              child: content,
             ),
-          ],
-        ),
-      ),
     );
   }
 }
@@ -328,14 +337,12 @@ class SkeletonRows extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final Tokens t = context.tokens;
+    final Shapes shapes = context.shapes;
     return SkeletonPulse(
-      child: Container(
-        clipBehavior: Clip.antiAlias,
-        decoration: BoxDecoration(
-          color: t.surface,
-          borderRadius: const BorderRadius.all(Radii.md),
-          border: Border.all(color: t.border),
-        ),
+      child: EdgedBox(
+        corner: Corners.panel,
+        color: shapes.panel(t.surface),
+        edge: BorderSide(color: shapes.line(t.border)),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
@@ -393,7 +400,7 @@ class SkeletonDetail extends StatelessWidget {
             width: cardWidthFor(aspect),
             child: Skeleton(
               aspectRatio: aspect == CardAspect.landscape ? 16 / 9 : 2 / 3,
-              radius: Radii.md,
+              corner: Corners.card,
             ),
           ),
           const SizedBox(width: Space.s5),
@@ -442,9 +449,9 @@ class SkeletonPage extends StatelessWidget {
                 children: <Widget>[
                   for (int i = 0; i < 3; i++)
                     DecoratedBox(
-                      decoration: BoxDecoration(
-                        borderRadius: const BorderRadius.all(Radii.sm),
-                        border: Border.all(color: t.border),
+                      decoration: context.shapes.box(
+                        Corners.button,
+                        side: BorderSide(color: context.shapes.line(t.border)),
                       ),
                       child: const SizedBox(
                         width: 120,

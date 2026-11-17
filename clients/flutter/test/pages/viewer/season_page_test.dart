@@ -8,6 +8,7 @@ import 'package:http/testing.dart';
 import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/components/catalog_card_tile.dart';
 import 'package:shadowmask/components/episode_play_button.dart';
+import 'package:shadowmask/components/poster_play.dart';
 import 'package:shadowmask/components/random_button.dart';
 import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/components/toggle_button.dart';
@@ -172,6 +173,26 @@ void main() {
       find.byType(CatalogCardTile),
     );
     expect(tile.card.subtitle, 'The Show · S00E01');
+  });
+
+  testWidgets('the season poster resumes from the episode in progress', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      _api(
+        <String>[],
+        episodes: <Map<String, dynamic>>[_episode('e1', 1), _episode('e2', 2)],
+        inProgress: 'e1',
+      ),
+    );
+
+    final PosterPlay poster = tester.widget<PosterPlay>(
+      find.byType(PosterPlay),
+    );
+    expect(poster.resumePercent, 40);
+    expect(poster.progressPercent, isNull);
+    expect(poster.label, Strings.resume(40));
   });
 
   testWidgets('the play button names the next episode, without the season', (

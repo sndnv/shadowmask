@@ -93,7 +93,7 @@ class PlayOnSubmenu extends StatelessWidget {
     final Tokens t = context.tokens;
     final Toasts toasts = Toasts.of(context);
     return SubmenuButton(
-      menuStyle: appMenuStyle(t),
+      menuStyle: appMenuStyle(context),
       leadingIcon: const Icon(Icons.devices),
       menuChildren: _deviceItems(
         t,
@@ -186,7 +186,7 @@ class _PlayOnButtonState extends State<PlayOnButton> {
       child: MenuAnchor(
         controller: _menu,
         alignmentOffset: kMenuOffset,
-        style: appMenuStyle(t),
+        style: appMenuStyle(context),
         menuChildren: _items(t),
         child: ToggleButton(
           icon: Icons.devices,

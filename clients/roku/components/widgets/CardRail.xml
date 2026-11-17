@@ -41,7 +41,7 @@
     </interface>
 
     <children>
-        <Label id="heading" />
+        <TabHeading id="heading" />
         <RowList id="row" />
         <Group id="leftArrow" visible="false">
             <Poster id="leftDisc" />

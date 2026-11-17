@@ -253,16 +253,25 @@ class _SeasonBodyState extends State<_SeasonBody>
               imageBase: _catalog.imageBase,
             ),
             DetailSplit(
-              poster: PosterPlay(
-                tooltip: Strings.play,
-                onTap: data.cards.isEmpty
-                    ? null
-                    : () => _play.currentState?.press(),
-                child: CardArt(
-                  artwork: _poster(data),
-                  aspect: CardAspect.poster,
-                  imageBase: _catalog.imageBase,
-                ),
+              poster: FutureBuilder<NextEpisode?>(
+                future: data.next,
+                builder: (BuildContext context, AsyncSnapshot<NextEpisode?> s) {
+                  final int? resume = nextEpisodeResume(s.data);
+                  return PosterPlay(
+                    label: resume == null
+                        ? Strings.play
+                        : Strings.resume(resume),
+                    resumePercent: resume,
+                    onTap: data.cards.isEmpty
+                        ? null
+                        : () => _play.currentState?.press(),
+                    child: CardArt(
+                      artwork: _poster(data),
+                      aspect: CardAspect.poster,
+                      imageBase: _catalog.imageBase,
+                    ),
+                  );
+                },
               ),
               info: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -352,10 +361,8 @@ class _SeasonBodyState extends State<_SeasonBody>
             ),
             const SizedBox(height: Space.s5),
             SectionHeading(
-              title: Strings.countLabel(
-                Strings.episodesHeading,
-                data.cards.length,
-              ),
+              title: Strings.episodesHeading,
+              count: data.cards.length,
               trailing: data.cards.isEmpty
                   ? null
                   : RandomButton(

@@ -9,7 +9,12 @@ import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/player/player_snapshot.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
+import 'package:shadowmask/theme/shapes.dart';
+import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/theme_scope.dart';
+import 'package:shadowmask/theme/tokens.dart';
+
+import '../../support/shape_guard.dart';
 
 final List<PlayerPanel> _opened = <PlayerPanel>[];
 
@@ -22,6 +27,8 @@ Future<void> _pump(
   EdgeInsets safe = EdgeInsets.zero,
   VoidCallback? onOpenSheet,
   VoidCallback? onPlayPause,
+  AppThemeVariant variant = AppThemeVariant.dark,
+  bool highContrast = false,
 }) async {
   tester.view.physicalSize = Size(width, 800);
   tester.view.devicePixelRatio = 1;
@@ -29,10 +36,11 @@ Future<void> _pump(
 
   await tester.pumpWidget(
     ThemeScope(
-      variant: AppThemeVariant.dark,
+      variant: variant,
       setVariant: (_) {},
+      highContrast: highContrast,
       child: MaterialApp(
-        theme: buildTheme(AppThemeVariant.dark),
+        theme: buildTheme(variant, highContrast: highContrast),
         home: MediaQuery(
           data: MediaQueryData(padding: safe),
           child: Scaffold(
@@ -73,6 +81,27 @@ Future<void> _pump(
 
 void main() {
   setUp(_opened.clear);
+
+  testWidgets('hologram sets the playing time in monospace', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, width: 1200, variant: AppThemeVariant.hologram);
+
+    expect(
+      tester.widget<Text>(find.textContaining(' / ')).style?.fontFamily,
+      kMonoFamily,
+    );
+  });
+
+  for (final AppThemeVariant variant in AppThemeVariant.values) {
+    testWidgets('the player bar draws the ${variant.name} shapes', (
+      WidgetTester tester,
+    ) async {
+      await _pump(tester, width: 1200, onPlayPause: () {}, variant: variant);
+
+      expectShapesOf(tester, variant);
+    });
+  }
 
   testWidgets('the play button acts when wired and is disabled when not', (
     WidgetTester tester,
@@ -224,20 +253,217 @@ void main() {
     );
   });
 
-  testWidgets('touch targets reach the platform minimum', (
+  for (final AppThemeVariant variant in <AppThemeVariant>[
+    AppThemeVariant.dark,
+    AppThemeVariant.hologram,
+  ]) {
+    testWidgets('${variant.name} touch targets reach the platform minimum', (
+      WidgetTester tester,
+    ) async {
+      await _pump(tester, width: 1200, touch: true, variant: variant);
+
+      final Size play = tester.getSize(_button(Icons.play_arrow));
+      expect(play.width, greaterThanOrEqualTo(44));
+      expect(play.height, greaterThanOrEqualTo(44));
+    });
+  }
+
+  testWidgets('hologram plays from a hexagon on the soft line', (
     WidgetTester tester,
   ) async {
-    await _pump(tester, width: 1200, touch: true);
-
-    final Size play = tester.getSize(
-      find.ancestor(
-        of: find.byIcon(Icons.play_arrow),
-        matching: find.byType(IconButton),
-      ),
+    await _pump(
+      tester,
+      width: 1200,
+      onPlayPause: () {},
+      variant: AppThemeVariant.hologram,
     );
-    expect(play.width, greaterThanOrEqualTo(44));
-    expect(play.height, greaterThanOrEqualTo(44));
+    final Material plate = _plate(tester, Icons.play_arrow);
+
+    expect(tester.getSize(_button(Icons.play_arrow)), Marks.playButton);
+    expect(plate.shape, Shapes.hexagon(Marks.playButton));
+    expect(plate.color, Tokens.hologram.accent.withValues(alpha: 0.26));
   });
+
+  for (final bool highContrast in <bool>[false, true]) {
+    testWidgets('hologram${highContrast ? ' high contrast' : ''} draws the '
+        'transport icons so they read on their plates', (
+      WidgetTester tester,
+    ) async {
+      await _pump(
+        tester,
+        width: 1200,
+        onPlayPause: () {},
+        variant: AppThemeVariant.hologram,
+        highContrast: highContrast,
+      );
+      const Tokens t = Tokens.hologram;
+
+      expect(
+        _plate(tester, Icons.play_arrow).color,
+        highContrast ? t.accent : t.accent.withValues(alpha: 0.26),
+      );
+      for (final IconData icon in <IconData>[
+        Icons.play_arrow,
+        Icons.skip_previous,
+        Icons.skip_next,
+      ]) {
+        expect(
+          _ink(tester, icon),
+          highContrast ? t.accentContrast : Colors.white,
+        );
+      }
+      expect(
+        _plate(tester, Icons.skip_next).color,
+        highContrast ? t.accent : t.accent.withValues(alpha: 0.26),
+      );
+    });
+  }
+
+  testWidgets('a hologram play button that cannot act keeps its plate', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, width: 1200, variant: AppThemeVariant.hologram);
+
+    expect(
+      tester.widget<IconButton>(_button(Icons.play_arrow)).onPressed,
+      isNull,
+    );
+    expect(
+      _plate(tester, Icons.play_arrow).color,
+      Tokens.hologram.accent.withValues(alpha: 0.26),
+    );
+  });
+
+  testWidgets('a touch hexagon keeps the mock\'s size inside its tap area', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      width: 1200,
+      touch: true,
+      onPlayPause: () {},
+      variant: AppThemeVariant.hologram,
+    );
+
+    expect(
+      tester.getSize(
+        find.descendant(
+          of: _button(Icons.play_arrow),
+          matching: find.byType(Material),
+        ),
+      ),
+      Marks.playButton,
+    );
+  });
+
+  testWidgets('hologram puts previous and next on smaller hexagons', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      width: 1200,
+      onPlayPause: () {},
+      variant: AppThemeVariant.hologram,
+    );
+
+    for (final IconData icon in <IconData>[
+      Icons.skip_previous,
+      Icons.skip_next,
+    ]) {
+      final Material plate = _plate(tester, icon);
+      expect(tester.getSize(_button(icon)), Marks.skipButton);
+      expect(plate.shape, Shapes.hexagon(Marks.skipButton));
+      expect(plate.color, Tokens.hologram.accent.withValues(alpha: 0.26));
+    }
+    expect(Marks.skipButton, const Size(40, 35));
+  });
+
+  testWidgets('a touch skip hexagon keeps its size inside its tap area', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      width: 1200,
+      touch: true,
+      variant: AppThemeVariant.hologram,
+    );
+
+    for (final IconData icon in <IconData>[
+      Icons.skip_previous,
+      Icons.skip_next,
+    ]) {
+      expect(tester.getSize(_plateBox(icon)), Marks.skipButton);
+      expect(tester.getSize(_button(icon)).height, greaterThanOrEqualTo(44));
+    }
+  });
+
+  for (final bool touch in <bool>[false, true]) {
+    testWidgets('hologram${touch ? ' touch' : ''} keeps the plates apart', (
+      WidgetTester tester,
+    ) async {
+      await _pump(
+        tester,
+        width: 1200,
+        touch: touch,
+        onPlayPause: () {},
+        variant: AppThemeVariant.hologram,
+      );
+
+      expect(
+        tester.getTopLeft(_plateBox(Icons.play_arrow)).dx -
+            tester.getTopRight(_plateBox(Icons.skip_previous)).dx,
+        Space.s1,
+      );
+      expect(
+        tester.getTopLeft(_plateBox(Icons.skip_next)).dx -
+            tester.getTopRight(_plateBox(Icons.play_arrow)).dx,
+        Space.s1,
+      );
+    });
+  }
+
+  testWidgets('hologram leaves the other bar buttons as they were', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, width: 1200, onPlayPause: () {});
+    final Size before = tester.getSize(_button(Icons.fullscreen));
+
+    await _pump(
+      tester,
+      width: 1200,
+      onPlayPause: () {},
+      variant: AppThemeVariant.hologram,
+    );
+
+    expect(tester.getSize(_button(Icons.fullscreen)), before);
+    expect(_plate(tester, Icons.fullscreen).color, Colors.transparent);
+  });
+
+  for (final AppThemeVariant variant in AppThemeVariant.values.where(
+    (AppThemeVariant v) => v != AppThemeVariant.hologram,
+  )) {
+    testWidgets('${variant.name} keeps the plain play button', (
+      WidgetTester tester,
+    ) async {
+      await _pump(tester, width: 1200, onPlayPause: () {}, variant: variant);
+
+      expect(
+        tester.getSize(_button(Icons.play_arrow)),
+        tester.getSize(_button(Icons.skip_next)),
+      );
+      for (final IconData icon in <IconData>[
+        Icons.skip_previous,
+        Icons.play_arrow,
+        Icons.skip_next,
+      ]) {
+        expect(_plate(tester, icon).color, Colors.transparent);
+      }
+      expect(
+        tester.getTopLeft(_button(Icons.play_arrow)).dx,
+        tester.getTopRight(_button(Icons.skip_previous)).dx,
+      );
+    });
+  }
 
   // The bar owns its own safe-area inset so its scrim can reach the screen
   // edge. Insetting it from outside left an unshaded strip under the shadow.
@@ -260,3 +486,20 @@ void main() {
     expect(play.left, greaterThanOrEqualTo(bar.left + safe.left));
   });
 }
+
+Finder _button(IconData icon) =>
+    find.ancestor(of: find.byIcon(icon), matching: find.byType(IconButton));
+
+Finder _plateBox(IconData icon) =>
+    find.descendant(of: _button(icon), matching: find.byType(Material));
+
+Material _plate(WidgetTester tester, IconData icon) =>
+    tester.widget<Material>(_plateBox(icon));
+
+Color? _ink(WidgetTester tester, IconData icon) => tester
+    .widget<RichText>(
+      find.descendant(of: find.byIcon(icon), matching: find.byType(RichText)),
+    )
+    .text
+    .style
+    ?.color;

@@ -1,7 +1,8 @@
 import 'package:material_ui/material_ui.dart';
 
 import 'package:shadowmask/l10n/strings.dart';
-import 'package:shadowmask/theme/radii.dart';
+import 'package:shadowmask/theme/shapes.dart';
+import 'package:shadowmask/theme/shapes_context.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
@@ -26,9 +27,9 @@ class UpNextCard extends StatelessWidget {
     return Material(
       color: t.surface,
       clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(
-        borderRadius: const BorderRadius.all(Radii.md),
-        side: BorderSide(color: t.border),
+      shape: context.shapes.border(
+        Corners.card,
+        side: BorderSide(color: context.shapes.lineSoft(t.border)),
       ),
       child: Padding(
         padding: const EdgeInsets.all(Space.s4),

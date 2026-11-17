@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
-import 'package:shadowmask/theme/radii.dart';
+import 'package:shadowmask/theme/shapes.dart';
+import 'package:shadowmask/theme/shapes_context.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
@@ -33,6 +34,7 @@ class _LinkChipState extends State<LinkChip> {
   @override
   Widget build(BuildContext context) {
     final Tokens t = context.tokens;
+    final Shapes shapes = context.shapes;
     final bool tappable = widget.onTap != null;
     final bool lit = _hovered && tappable;
     return SelectionContainer.disabled(
@@ -40,12 +42,14 @@ class _LinkChipState extends State<LinkChip> {
         height: kChipHeight,
         child: Material(
           color: lit ? t.accent.withValues(alpha: 0.12) : t.surfaceAlt,
-          shape: RoundedRectangleBorder(
-            borderRadius: const BorderRadius.all(Radii.pill),
-            side: BorderSide(color: tappable ? t.accent : t.border),
+          shape: shapes.border(
+            Corners.chip,
+            side: BorderSide(
+              color: tappable ? t.accent : shapes.lineSoft(t.border),
+            ),
           ),
           child: InkWell(
-            borderRadius: const BorderRadius.all(Radii.pill),
+            customBorder: shapes.border(Corners.chip),
             onTap: widget.onTap,
             onHover: (bool hovered) => setState(() => _hovered = hovered),
             child: Padding(

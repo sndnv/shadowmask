@@ -2,6 +2,8 @@ sub init()
     m.track = m.top.FindNode("track")
     m.fill = m.top.FindNode("fill")
     m.preview = m.top.FindNode("preview")
+    m.ticks = m.top.FindNode("ticks")
+    m.tickKey = ""
     m.thumb = m.top.FindNode("thumb")
     m.scrub = m.top.FindNode("scrub")
 
@@ -45,7 +47,9 @@ sub render()
         m.preview.translation = [span.fillTo, top]
     end if
 
-    m.thumb.uri = GlyphUri("disc")
+    RenderTicks(theme, width, top + height + TimelineTickGap())
+
+    m.thumb.uri = DiscUri(theme)
     m.thumb.width = thumb
     m.thumb.height = thumb
     m.thumb.blendColor = theme.accent
@@ -53,7 +57,7 @@ sub render()
 
     m.scrub.visible = span.ghost
     if m.scrub.visible
-        m.scrub.uri = GlyphUri("disc")
+        m.scrub.uri = DiscUri(theme)
         m.scrub.width = thumb
         m.scrub.height = thumb
         m.scrub.blendColor = theme.text
@@ -66,6 +70,28 @@ sub render()
     if focused
         Speak(PhraseWith("speech.at", { position: FormatDuration(Int(m.top.positionMs)), duration: FormatDuration(Int(m.top.durationMs)) }))
     end if
+end sub
+
+sub RenderTicks(theme as object, width as integer, top as integer)
+    m.ticks.visible = IsCut(theme)
+    if not m.ticks.visible then return
+
+    key = theme.lineSoft + ":" + width.ToStr() + ":" + top.ToStr()
+    if key = m.tickKey then return
+    m.tickKey = key
+
+    xs = TimelineTickXs(width)
+    while m.ticks.GetChildCount() < xs.Count()
+        m.ticks.CreateChild("Rectangle")
+    end while
+
+    for index = 0 to xs.Count() - 1
+        tick = m.ticks.GetChild(index)
+        tick.width = 1
+        tick.height = TimelineTickHeight()
+        tick.color = theme.lineSoft
+        tick.translation = [xs[index], top]
+    end for
 end sub
 
 sub onTimelineFocusChanged()

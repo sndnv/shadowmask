@@ -3,7 +3,8 @@ import 'package:material_ui/material_ui.dart';
 import 'package:shadowmask/components/admin/dialog_shell.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/theme/app_theme.dart';
-import 'package:shadowmask/theme/radii.dart';
+import 'package:shadowmask/theme/shapes.dart';
+import 'package:shadowmask/theme/shapes_context.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
@@ -58,7 +59,7 @@ class FieldHelp extends StatelessWidget {
       message: Strings.whatIsThis,
       child: InkWell(
         onTap: () => _open(context),
-        borderRadius: const BorderRadius.all(Radii.pill),
+        customBorder: context.shapes.round(),
         child: Padding(
           padding: const EdgeInsets.all(Space.s1),
           child: Icon(Icons.help_outline, size: _kHelpIconSize, color: t.muted),
@@ -88,10 +89,10 @@ class _Example extends StatelessWidget {
           ).textTheme.bodySmall?.copyWith(color: t.muted),
         ),
         DecoratedBox(
-          decoration: BoxDecoration(
+          decoration: context.shapes.box(
+            Corners.tag,
             color: t.surfaceAlt,
-            border: Border.all(color: t.border),
-            borderRadius: const BorderRadius.all(Radii.sm),
+            side: BorderSide(color: context.shapes.lineSoft(t.border)),
           ),
           child: Padding(
             padding: const EdgeInsets.symmetric(

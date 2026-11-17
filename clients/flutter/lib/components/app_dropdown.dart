@@ -135,7 +135,7 @@ class _AppDropdownState<T> extends State<AppDropdown<T>> {
           onClose: () => setState(() => _open = false),
           alignmentOffset: kMenuOffset,
           crossAxisUnconstrained: menuWidth == null,
-          style: appMenuStyle(t, minWidth: menuWidth),
+          style: appMenuStyle(context, minWidth: menuWidth),
           menuChildren: <Widget>[
             for (final (T value, String label) in widget.items)
               _grouped(

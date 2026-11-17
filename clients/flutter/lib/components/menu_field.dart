@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
-import 'package:shadowmask/theme/radii.dart';
+import 'package:shadowmask/theme/shapes.dart';
+import 'package:shadowmask/theme/shapes_context.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
@@ -26,45 +27,49 @@ class MenuField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final Tokens t = context.tokens;
+    final Shapes shapes = context.shapes;
     return SelectionContainer.disabled(
       child: LayoutBuilder(
         builder: (BuildContext context, BoxConstraints constraints) {
           final bool fills = width != null || constraints.hasTightWidth;
-          final Widget box = Container(
+          return SizedBox(
             height: height,
             width: width,
-            padding: const EdgeInsets.symmetric(horizontal: Space.s2),
-            decoration: BoxDecoration(
+            child: Material(
               color: enabled ? t.surface : t.surfaceAlt,
-              borderRadius: const BorderRadius.all(Radii.sm),
-              border: Border.all(color: t.border),
-            ),
-            child: Row(
-              mainAxisSize: fills ? MainAxisSize.max : MainAxisSize.min,
-              children: <Widget>[
-                if (fills) Expanded(child: child) else Flexible(child: child),
-                const SizedBox(width: Space.s2),
-                AnimatedRotation(
-                  turns: open ? 0.5 : 0,
-                  duration: MediaQuery.disableAnimationsOf(context)
-                      ? Duration.zero
-                      : const Duration(milliseconds: 150),
-                  child: Icon(
-                    Icons.expand_more,
-                    color: enabled ? t.muted : t.border,
-                    size: 18,
+              shape: shapes.border(
+                Corners.button,
+                side: BorderSide(color: shapes.line(t.border)),
+              ),
+              child: InkWell(
+                onTap: enabled ? onTap : null,
+                customBorder: shapes.border(Corners.button),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: Space.s2),
+                  child: Row(
+                    mainAxisSize: fills ? MainAxisSize.max : MainAxisSize.min,
+                    children: <Widget>[
+                      if (fills)
+                        Expanded(child: child)
+                      else
+                        Flexible(child: child),
+                      const SizedBox(width: Space.s2),
+                      AnimatedRotation(
+                        turns: open ? 0.5 : 0,
+                        duration: MediaQuery.disableAnimationsOf(context)
+                            ? Duration.zero
+                            : const Duration(milliseconds: 150),
+                        child: Icon(
+                          Icons.expand_more,
+                          color: enabled ? t.muted : t.border,
+                          size: 18,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              ],
+              ),
             ),
-          );
-          if (!enabled) {
-            return box;
-          }
-          return InkWell(
-            onTap: onTap,
-            borderRadius: const BorderRadius.all(Radii.sm),
-            child: box,
           );
         },
       ),
