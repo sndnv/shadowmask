@@ -7,6 +7,7 @@ import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/api/server_admin_api.dart';
 import 'package:shadowmask/model/server/benchmark_report.dart';
 import 'package:shadowmask/model/server/capabilities_report.dart';
+import 'package:shadowmask/model/server/server_info.dart';
 import 'package:shadowmask/model/server/server_log_page.dart';
 import 'package:shadowmask/model/server/server_software.dart';
 import 'package:shadowmask/model/server/transcode_totals.dart';
@@ -53,6 +54,24 @@ void main() {
     expect(software.features.single.name, 'webhooks');
     expect(software.features.single.available, isTrue);
     expect(software.features.single.enabled, isFalse);
+  });
+
+  test('info GETs the server descriptor', () async {
+    late http.Request seen;
+    final ServerInfo info = await _server(
+      (http.Request req) => seen = req,
+      body: jsonEncode(<String, dynamic>{
+        'version': '0.0.15',
+        'started_at': '2026-11-17T09:53:40Z',
+        'uptime_ms': 60000,
+      }),
+    ).info();
+
+    expect(seen.method, 'GET');
+    expect(seen.url.path, '/api/v1/server/info');
+    expect(info.version, '0.0.15');
+    expect(info.startedAt, '2026-11-17T09:53:40Z');
+    expect(info.uptimeMs, 60000);
   });
 
   test('software without yt-dlp has none', () async {

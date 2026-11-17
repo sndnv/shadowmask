@@ -193,7 +193,7 @@ the bundled provider, and external providers are not implemented. Leave them at 
 | `SHADOWMASK_ENRICHMENT_TRANSLATION_PROVIDER`      | Translation provider                     | `none`                   |
 | `SHADOWMASK_ENRICHMENT_TRANSLATION_MODEL_PATH`    | Model dir, relative to the model cache   | unset                    |
 | `SHADOWMASK_ENRICHMENT_TRANSLATION_SOURCE_PREFIX` | Input language token, e.g. `<2{target}>` | unset                    |
-| `SHADOWMASK_ENRICHMENT_TRANSLATION_TARGET_PREFIX` | Output language token, see ENRICHMENT.md | unset                    |
+| `SHADOWMASK_ENRICHMENT_TRANSLATION_TARGET_PREFIX` | Output token; unset for MADLAD           | unset                    |
 | `SHADOWMASK_ENRICHMENT_UPSCALING_ENABLED`         | Upscaling on                             | `false`                  |
 | `SHADOWMASK_ENRICHMENT_UPSCALING_TARGET_HEIGHT`   | Upscale target height                    | `1080`                   |
 

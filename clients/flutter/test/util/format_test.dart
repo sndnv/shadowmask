@@ -45,6 +45,16 @@ void main() {
     expect(elapsedText(3725000), '1h 02m');
   });
 
+  test('uptimeText grows from minutes to hours to days', () {
+    expect(uptimeText(-5), '0m');
+    expect(uptimeText(59999), '0m');
+    expect(uptimeText(760000), '12m');
+    expect(uptimeText(3725000), '1h 02m');
+    expect(uptimeText(86399999), '23h 59m');
+    expect(uptimeText(86400000), '1d 00h');
+    expect(uptimeText(190800000), '2d 05h');
+  });
+
   test('compactCount shortens large counts and keeps small ones whole', () {
     expect(compactCount(10), '10');
     expect(compactCount(1234), '1.23K');

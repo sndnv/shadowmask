@@ -50,6 +50,17 @@ String elapsedText(int ms) {
   return minutes > 0 ? '${minutes}m ${pad2(seconds)}s' : '${seconds}s';
 }
 
+String uptimeText(int ms) {
+  final int total = (ms < 0 ? 0 : ms) ~/ 60000;
+  final int days = total ~/ 1440;
+  final int hours = (total % 1440) ~/ 60;
+  final int minutes = total % 60;
+  if (days > 0) {
+    return '${days}d ${pad2(hours)}h';
+  }
+  return hours > 0 ? '${hours}h ${pad2(minutes)}m' : '${minutes}m';
+}
+
 String secondsText(double ms) => '${(ms / 1000).toStringAsFixed(2)} s';
 
 String realtimeText(double factor) => '${factor.toStringAsFixed(2)}×';

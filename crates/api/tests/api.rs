@@ -1386,6 +1386,36 @@ async fn the_server_info_names_the_fonts_it_serves_and_null_without_them() {
 }
 
 #[tokio::test]
+async fn the_server_info_gives_admins_the_uptime_and_no_one_else() {
+    use api::ServerStarted;
+    use axum::Extension;
+    use jiff::Timestamp;
+
+    let ctx = Ctx::new();
+    let started = Timestamp::from_second(1_700_000_000).unwrap();
+    let served = ctx.app().layer(Extension(ServerStarted(started)));
+
+    let (status, info) =
+        call(served.clone(), Method::GET, "/api/v1/server/info", Some(ADMIN), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(info["started_at"], "2023-11-14T22:13:20Z");
+    let since = Timestamp::now().as_millisecond() - started.as_millisecond();
+    let uptime = info["uptime_ms"].as_i64().unwrap();
+    assert!(uptime > 0 && uptime <= since, "{info}");
+
+    let (status, info) = call(served, Method::GET, "/api/v1/server/info", Some(USER), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(info.get("started_at").is_none(), "{info}");
+    assert!(info.get("uptime_ms").is_none(), "{info}");
+
+    let (status, info) =
+        call(ctx.app(), Method::GET, "/api/v1/server/info", Some(ADMIN), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(info.get("started_at").is_none(), "{info}");
+    assert!(info.get("uptime_ms").is_none(), "{info}");
+}
+
+#[tokio::test]
 async fn only_a_scan_asked_to_reread_queues_a_reread() {
     use domain::library::ScanMode;
     use domain::repository::JobRepository;

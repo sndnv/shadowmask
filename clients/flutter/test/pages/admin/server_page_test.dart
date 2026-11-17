@@ -145,6 +145,7 @@ class _Server {
     },
     this.softwareStatus = 200,
     this.capabilitiesStatus = 200,
+    this.info = const <String, dynamic>{'version': '0.0.12'},
   }) : capabilities = capabilities ?? <Map<String, dynamic>>[_ready()],
        benchmarks = benchmarks ?? <Map<String, dynamic>>[_benchmark('idle')];
 
@@ -155,6 +156,7 @@ class _Server {
   final Map<String, dynamic> software;
   final int softwareStatus;
   final int capabilitiesStatus;
+  final Map<String, dynamic> info;
   final String role;
   final List<Map<String, dynamic>> capabilities;
   final List<Map<String, dynamic>> benchmarks;
@@ -187,6 +189,7 @@ class _Server {
         software,
         softwareStatus,
       ),
+      ('GET', '/api/v1/server/info') => _json(info),
       ('GET', '/api/v1/admin/server/capabilities') => _json(
         _next(capabilities),
         capabilitiesStatus,
@@ -366,6 +369,56 @@ void main() {
       );
     },
   );
+
+  testWidgets('the start and how long ago sit above the versions', (
+    WidgetTester tester,
+  ) async {
+    final _Server server = await _pump(
+      tester,
+      server: _Server(
+        info: <String, dynamic>{
+          'version': '0.0.12',
+          'started_at': '2026-11-17T09:53:40Z',
+          'uptime_ms': 190800000,
+        },
+      ),
+    );
+
+    final String started = dateTimeText('2026-11-17T09:53:40Z')!;
+    expect(find.text(started), findsOneWidget);
+    expect(find.text('(2d 05h ago)'), findsOneWidget);
+    expect(find.text('Uptime'), findsNothing);
+    expect(server.count('GET', '/api/v1/server/info'), 1);
+    final double row = tester.getTopLeft(find.text('Started')).dy;
+    expect(tester.getTopLeft(find.text(started)).dy, row);
+    expect(tester.getTopLeft(find.text('(2d 05h ago)')).dy, row);
+    expect(
+      tester.getTopLeft(find.text('(2d 05h ago)')).dx,
+      greaterThan(tester.getTopRight(find.text(started)).dx),
+    );
+    expect(row, lessThan(tester.getTopLeft(find.text('Versions')).dy));
+    expect(_colorOf(tester, '(2d 05h ago)'), Tokens.dark.muted);
+    expect(_colorOf(tester, started), isNot(Tokens.dark.muted));
+  });
+
+  testWidgets('no start is shown when the server sends none', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester);
+
+    expect(find.text('Started'), findsNothing);
+    expect(find.text('0.0.12'), findsOneWidget);
+  });
+
+  testWidgets('a descriptor that cannot be read still shows the system', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, server: _Server(info: <String, dynamic>{'version': 7}));
+
+    expect(find.text('Started'), findsNothing);
+    expect(find.text('0.0.12'), findsOneWidget);
+    expect(find.text('5.1.6-0+deb12u1'), findsOneWidget);
+  });
 
   testWidgets('the software leaves out yt-dlp when the server has none', (
     WidgetTester tester,

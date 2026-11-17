@@ -282,6 +282,10 @@ nav#nav .sm-who {
   z-index: 20;
 }
 
+.sm-muted {
+  color: var(--muted);
+}
+
 .sm-crumbs {
   max-width: var(--maxw);
   margin: 8px auto;

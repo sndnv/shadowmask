@@ -104,17 +104,24 @@
       }
 
       async function loadSystem() {
-        const [labels, software, capabilities] = await Promise.all([
+        const [labels, software, capabilities, info] = await Promise.all([
           import("./software.js"),
           sm.json("/api/v1/admin/server/software").catch(() => null),
           sm.json("/api/v1/admin/server/capabilities").catch(() => null),
+          sm.json("/api/v1/server/info").catch(() => null),
         ]);
         if (!software && !capabilities) throw new Error("nothing loaded");
-        return { labels, software, capabilities };
+        return { labels, software, capabilities, info };
       }
 
       function renderSystem(s) {
         const out = sm.el("div");
+        const uptime = s.labels.uptimeParts(s.info, sm.time);
+        if (uptime) {
+          out.appendChild(sm.el("h3", { text: "Started" }));
+          const ago = sm.el("span", { class: "sm-muted", text: "(" + uptime[1] + ")" });
+          out.appendChild(sm.el("p", null, [uptime[0], " ", ago]));
+        }
         const versions = s.labels.versionFacts(s.software, s.capabilities).filter(([, v]) => v);
         if (versions.length) {
           out.appendChild(sm.el("h3", { text: "Versions" }));

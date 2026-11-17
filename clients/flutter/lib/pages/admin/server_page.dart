@@ -39,6 +39,7 @@ import 'package:shadowmask/model/server/host_capabilities.dart';
 import 'package:shadowmask/model/server/library_prep.dart';
 import 'package:shadowmask/model/server/playback_prep_report.dart';
 import 'package:shadowmask/model/server/server_feature.dart';
+import 'package:shadowmask/model/server/server_info.dart';
 import 'package:shadowmask/model/server/server_log_page.dart';
 import 'package:shadowmask/model/server/server_software.dart';
 import 'package:shadowmask/model/server/transcode_totals.dart';
@@ -112,13 +113,18 @@ class _ServerBodyState extends State<_ServerBody> with Mutations<_ServerBody> {
     final List<Object?> loaded = await Future.wait(<Future<Object?>>[
       _orNull(widget.server.software),
       _orNull(widget.server.capabilities),
+      _orNull(widget.server.info),
     ]);
     final ServerSoftware? software = loaded[0] as ServerSoftware?;
     final CapabilitiesReport? capabilities = loaded[1] as CapabilitiesReport?;
     if (software == null && capabilities == null) {
       throw const _NothingLoaded();
     }
-    return (software: software, capabilities: capabilities);
+    return (
+      software: software,
+      capabilities: capabilities,
+      info: loaded[2] as ServerInfo?,
+    );
   }
 
   Future<void> _start(Version version) async {
@@ -399,6 +405,7 @@ class _PrepLine extends StatelessWidget {
 typedef _SystemReport = ({
   ServerSoftware? software,
   CapabilitiesReport? capabilities,
+  ServerInfo? info,
 });
 
 class _NothingLoaded implements Exception {
@@ -428,6 +435,9 @@ class _SystemView extends StatelessWidget {
     final CapabilitiesReport? capabilities = report.capabilities;
     final String? ffmpeg = capabilities?.ffmpeg?.version;
     final String? ytDlp = software?.ytDlp;
+    final int? uptimeMs = report.info?.uptimeMs;
+    final String? started = dateTimeText(report.info?.startedAt);
+    final TextStyle? body = Theme.of(context).textTheme.bodyMedium;
     final List<Widget> versions = <Widget>[
       if (software != null) _Version(Strings.factServer, software.version),
       if (ffmpeg != null) _Version(Strings.ffmpegHeading, ffmpeg),
@@ -436,6 +446,21 @@ class _SystemView extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
+        if (uptimeMs != null && started != null)
+          _SystemRow(
+            Strings.factStarted,
+            Wrap(
+              spacing: Space.s2,
+              runSpacing: Space.s1,
+              children: <Widget>[
+                Text(started, style: body),
+                Text(
+                  Strings.startedAgo(uptimeText(uptimeMs)),
+                  style: body?.copyWith(color: context.tokens.muted),
+                ),
+              ],
+            ),
+          ),
         if (versions.isNotEmpty)
           _SystemRow(
             Strings.factVersions,

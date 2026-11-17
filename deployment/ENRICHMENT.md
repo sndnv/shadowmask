@@ -132,6 +132,11 @@ first token. Set whichever your model expects:
 |--------------|---------------------------------------------------------------|
 | MADLAD       | `SHADOWMASK_ENRICHMENT_TRANSLATION_SOURCE_PREFIX=<2{target}>` |
 
+MADLAD takes only the source prefix; leave `SHADOWMASK_ENRICHMENT_TRANSLATION_TARGET_PREFIX` unset.
+A target prefix of `{target}` makes the decoder start with `en`, which MADLAD reads as the start of
+a word, and that piece is dropped from the result: the model writes "Enough driving skills" and the
+subtitle shows "ough driving skills".
+
 Models are published as transformers checkpoints, so a raw download is not enough. Convert with
 `ct2-transformers-converter` from the `ctranslate2` pip package. Two flags matter:
 
