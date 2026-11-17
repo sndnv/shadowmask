@@ -4,10 +4,12 @@ import 'package:material_ui/material_ui.dart';
 
 import 'package:shadowmask/components/admin/admin_column.dart';
 import 'package:shadowmask/components/admin/field_help.dart';
+import 'package:shadowmask/components/edged_box.dart';
 import 'package:shadowmask/components/hover_tap.dart';
 import 'package:shadowmask/components/status_text.dart';
 import 'package:shadowmask/theme/breakpoints.dart';
-import 'package:shadowmask/theme/radii.dart';
+import 'package:shadowmask/theme/shapes.dart';
+import 'package:shadowmask/theme/shapes_context.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
@@ -151,12 +153,12 @@ class _AdminTableState<T> extends State<AdminTable<T>> {
         final int? sortColumn = _sortTarget(visible);
         final List<T> rows = _sorted(sortColumn);
         final double width = narrow ? inner : math.max(inner, widget.minWidth);
-        return Container(
-          clipBehavior: Clip.antiAlias,
-          decoration: BoxDecoration(
-            color: t.surface,
-            borderRadius: const BorderRadius.all(Radii.md),
-            border: Border.all(color: t.border, width: kTableBorder),
+        return EdgedBox(
+          corner: Corners.panel,
+          color: context.shapes.panel(t.surface),
+          edge: BorderSide(
+            color: context.shapes.line(t.border),
+            width: kTableBorder,
           ),
           child: SingleChildScrollView(
             scrollDirection: Axis.horizontal,
@@ -191,11 +193,13 @@ class _AdminTableState<T> extends State<AdminTable<T>> {
     int? sortColumn, {
     required bool narrow,
   }) {
-    final TextStyle style = TextStyle(
-      color: t.muted,
-      fontSize: 11,
-      fontWeight: FontWeight.w600,
-      letterSpacing: 0.5,
+    final TextStyle style = context.shapes.mono(
+      TextStyle(
+        color: t.muted,
+        fontSize: 11,
+        fontWeight: FontWeight.w600,
+        letterSpacing: 0.5,
+      ),
     );
     return DecoratedBox(
       decoration: BoxDecoration(

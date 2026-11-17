@@ -7,10 +7,11 @@ import 'package:shadowmask/model/user_library/item_state.dart';
 
 typedef NextEpisode = ({Episode episode, int season, int progressPercent});
 
+int? nextEpisodeResume(NextEpisode? next) =>
+    next != null && next.progressPercent > 0 ? next.progressPercent : null;
+
 String nextEpisodeAction(NextEpisode? next) =>
-    next != null && next.progressPercent > 0
-    ? Strings.resumeAction
-    : Strings.play;
+    nextEpisodeResume(next) == null ? Strings.play : Strings.resumeAction;
 
 String nextEpisodeName(NextEpisode next, {required bool withSeason}) =>
     Strings.episodeLine(

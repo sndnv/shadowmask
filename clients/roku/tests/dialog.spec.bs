@@ -11,6 +11,27 @@ namespace tests
             return labels
         end function
 
+        function colour(value as string) as dynamic
+            probe = CreateObject("roSGNode", "Rectangle")
+            probe.color = value
+            return probe.color
+        end function
+
+        function versionDialog(theme as object, caps as boolean) as object
+            dialog = CreateObject("roSGNode", "ChoiceDialog")
+            dialog.theme = theme
+            dialog.request = { field: "version", title: "Choose a version", kind: "choice", options: ["1 · 2h 10m · UHD · mkv", "2 · 1h 58m · HD · mp4"], selected: 0, caps: caps }
+            return dialog
+        end function
+
+        function rowLabel(dialog as object, index as integer) as string
+            return dialog.FindNode("rows").GetChild(index).GetChild(7).text
+        end function
+
+        function rowTicker(dialog as object, index as integer) as string
+            return dialog.FindNode("rows").GetChild(index).GetChild(8).text
+        end function
+
         function iconFor(actions as object, id as string) as string
             for each action in actions
                 if action.id = id then return TextOrBlank(ValueAt(action, "icon", ""))
@@ -627,6 +648,105 @@ namespace tests
         @it("still advances when a page is shorter than a line")
         sub textScrollTinyViewport()
             m.assertEqual(ScrolledTextOffset(0, 1, 40, 4000, 36), 36)
+        end sub
+
+        @describe("title bar")
+
+        @it("heads a hologram dialog with an accent bar cut at the top left, its title in capitals")
+        sub hologramTitleBar()
+            theme = ThemeTokens("hologram")
+            dialog = m.versionDialog(theme, false)
+
+            bar = dialog.FindNode("titleBar")
+            title = dialog.FindNode("title")
+            m.assertEqual(Int(bar.boxWidth), DialogWidth())
+            m.assertTrue(Int(bar.boxHeight) > 0)
+            m.assertEqual(bar.rounded, "left")
+            m.assertEqual(bar.fillColor, theme.accent)
+            m.assertEqual(bar.lineColor, "")
+            m.assertEqual(title.text, "CHOOSE A VERSION")
+            m.assertEqual(title.color, m.colour(theme.accentContrast))
+            m.assertEqual(title.font.size, TypeScale().textXs)
+            m.assertEqual(Int(title.translation[0]), SpacingScale().s4)
+            m.assertTrue(Int(title.translation[1]) + Int(title.height) <= Int(bar.boxHeight))
+            m.assertTrue(Int(dialog.FindNode("viewport").clippingRect.y) >= Int(bar.boxHeight) + SpacingScale().s5)
+        end sub
+
+        @it("capitalises the version lines under hologram when the request asks, and leaves Cancel as written")
+        sub hologramCapsTheVersionLines()
+            dialog = m.versionDialog(ThemeTokens("hologram"), true)
+
+            m.assertEqual(m.rowTicker(dialog, 0), "1 · 2H 10M · UHD · MKV")
+            m.assertEqual(m.rowLabel(dialog, 1), "2 · 1H 58M · HD · MP4")
+            m.assertEqual(m.rowLabel(dialog, 2), Phrase("action.cancel"))
+        end sub
+
+        @it("keeps the option lines as written under hologram when the request does not ask")
+        sub hologramKeepsOtherLines()
+            dialog = m.versionDialog(ThemeTokens("hologram"), false)
+
+            m.assertEqual(m.rowLabel(dialog, 1), "2 · 1h 58m · HD · mp4")
+        end sub
+
+        @it("keeps every other theme's dialog title as written, with no bar, and its lines as written")
+        sub otherThemesKeepTheTitle()
+            theme = ThemeTokens("dark")
+            dialog = m.versionDialog(theme, true)
+
+            title = dialog.FindNode("title")
+            m.assertFalse(dialog.FindNode("titleBar").visible)
+            m.assertEqual(title.text, "Choose a version")
+            m.assertEqual(title.color, m.colour(theme.text))
+            m.assertEqual(title.font.size, TypeScale().textLg)
+            m.assertEqual(Int(title.translation[0]), SpacingScale().s5)
+            m.assertEqual(m.rowLabel(dialog, 1), "2 · 1h 58m · HD · mp4")
+        end sub
+
+        @it("measures the title again and drops the bar and capitals when an open dialog leaves hologram")
+        sub themeSwitchWhileOpen()
+            hologram = ThemeTokens("hologram")
+            dark = ThemeTokens("dark")
+            sizes = TypeScale()
+            space = SpacingScale()
+            text = "Choose which version of this film to play on the living room TV"
+            m.assertEqual(TextLineCount(UCase(text), DialogWidth() - space.s4 - space.s3, sizes.textXs), 1, "one line in the bar")
+            m.assertEqual(TextLineCount(text, DialogInnerWidth(), sizes.textLg), 2, "two lines on the plate")
+
+            dialog = CreateObject("roSGNode", "ChoiceDialog")
+            dialog.theme = hologram
+            dialog.request = { field: "version", title: text, kind: "choice", options: ["1 · 2h 10m · UHD · mkv"], selected: 0, caps: true }
+            title = dialog.FindNode("title")
+            m.assertEqual(title.maxLines, 1)
+
+            dialog.theme = dark
+            m.assertFalse(dialog.FindNode("titleBar").visible)
+            m.assertEqual(title.text, text)
+            m.assertEqual(title.maxLines, 2)
+            m.assertEqual(title.font.size, sizes.textLg)
+            m.assertEqual(m.rowTicker(dialog, 0), "1 · 2h 10m · UHD · mkv")
+
+            dialog.theme = hologram
+            m.assertTrue(dialog.FindNode("titleBar").visible)
+            m.assertEqual(title.text, UCase(text))
+            m.assertEqual(title.maxLines, 1)
+        end sub
+
+        @it("sets a hologram dialog's icon inside the bar in the bar's ink, the title after it")
+        sub hologramIconInTheBar()
+            theme = ThemeTokens("hologram")
+            space = SpacingScale()
+            dialog = CreateObject("roSGNode", "ChoiceDialog")
+            dialog.theme = theme
+            dialog.request = { field: "menu", title: "Playback", icon: "icon-versions", kind: "choice", options: ["One"], selected: 0 }
+
+            bar = dialog.FindNode("titleBar")
+            icon = dialog.FindNode("titleIcon")
+            m.assertTrue(icon.visible)
+            m.assertEqual(icon.blendColor, m.colour(theme.accentContrast))
+            m.assertEqual(Int(icon.translation[0]), space.s4)
+            m.assertTrue(Int(icon.translation[1]) >= 0)
+            m.assertTrue(Int(icon.translation[1]) + Int(icon.height) <= Int(bar.boxHeight))
+            m.assertEqual(Int(dialog.FindNode("title").translation[0]), space.s4 + ControlIconSize() + space.s3)
         end sub
 
     end class

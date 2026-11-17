@@ -8,15 +8,19 @@ import 'package:shadowmask/components/hex_texture.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
 import 'package:shadowmask/theme/theme_scope.dart';
+import 'package:shadowmask/theme/tokens.dart';
 
 void main() {
-  Future<void> pumpTexture(WidgetTester tester) async {
+  Future<void> pumpTexture(
+    WidgetTester tester, {
+    AppThemeVariant variant = AppThemeVariant.dark,
+  }) async {
     await tester.pumpWidget(
       ThemeScope(
-        variant: AppThemeVariant.dark,
+        variant: variant,
         setVariant: (_) {},
         child: MaterialApp(
-          theme: buildTheme(AppThemeVariant.dark),
+          theme: buildTheme(variant),
           home: const Scaffold(body: HexTexture()),
         ),
       ),
@@ -26,6 +30,34 @@ void main() {
 
   Finder inTexture(Type type) =>
       find.descendant(of: find.byType(HexTexture), matching: find.byType(type));
+
+  Future<void> expectHexagonInk(
+    WidgetTester tester,
+    Color ink,
+    double alpha,
+  ) async {
+    final RenderRepaintBoundary boundary = tester.renderObject(
+      inTexture(RepaintBoundary),
+    );
+    final ByteData? pixels = await tester.runAsync<ByteData?>(() async {
+      final ui.Image image = await boundary.toImage();
+      return image.toByteData();
+    });
+    final int at = (12 * boundary.size.width.toInt() + 7) * 4;
+    final List<double> expected = <double>[
+      ink.r * alpha * 255,
+      ink.g * alpha * 255,
+      ink.b * alpha * 255,
+      alpha * 255,
+    ];
+    for (int channel = 0; channel < 4; channel++) {
+      expect(
+        pixels!.getUint8(at + channel),
+        closeTo(expected[channel], 2),
+        reason: 'channel $channel',
+      );
+    }
+  }
 
   testWidgets('paints on its own layer and ignores pointer events', (
     WidgetTester tester,
@@ -74,5 +106,25 @@ void main() {
     expect(alpha(21, 36), greaterThan(0));
     expect(alpha(7, 0), 0);
     expect(alpha(14, 12), 0);
+  });
+
+  testWidgets('dark paints its hexagons in the text colour at 6%', (
+    WidgetTester tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await pumpTexture(tester);
+
+    await expectHexagonInk(tester, Tokens.dark.text, 0.06);
+  });
+
+  testWidgets('hologram paints its hexagons in the accent at 11%', (
+    WidgetTester tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await pumpTexture(tester, variant: AppThemeVariant.hologram);
+
+    await expectHexagonInk(tester, Tokens.hologram.accent, 0.11);
   });
 }

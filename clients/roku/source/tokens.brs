@@ -1,5 +1,5 @@
 function ThemeNames() as object
-    return ["dark", "light", "retro"]
+    return ["dark", "light", "retro", "hologram"]
 end function
 
 function DefaultThemeName() as string
@@ -25,7 +25,8 @@ function ThemeTokens(name as string) as object
             warnBg: "0x2A2410FF",
             dangerBg: "0x241310FF",
             artBg: "0x06090BFF",
-            isDark: true
+            isDark: true,
+            cut: false
         },
         light: {
             bg: "0xF5F7F8FF",
@@ -44,7 +45,8 @@ function ThemeTokens(name as string) as object
             warnBg: "0xFBF0DDFF",
             dangerBg: "0xFBE7E4FF",
             artBg: "0x0C1113FF",
-            isDark: false
+            isDark: false,
+            cut: false
         },
         retro: {
             bg: "0x221913FF",
@@ -63,14 +65,54 @@ function ThemeTokens(name as string) as object
             warnBg: "0x37311AFF",
             dangerBg: "0x341C14FF",
             artBg: "0x140E08FF",
-            isDark: true
+            isDark: true,
+            cut: false
+        },
+        hologram: {
+            bg: "0x05080DFF",
+            surface: "0x0A1621FF",
+            surfaceAlt: "0x10202FFF",
+            text: "0xE3F3FFFF",
+            muted: "0x82A6C0FF",
+            border: "0x1B3449FF",
+            accent: "0x45B8FFFF",
+            accentContrast: "0x03111CFF",
+            ok: "0x3FE0A5FF",
+            warn: "0xFFB547FF",
+            danger: "0xFF4D5EFF",
+            dangerContrast: "0x140409FF",
+            okBg: "0x0A2620FF",
+            warnBg: "0x2B2010FF",
+            dangerBg: "0x2C0E15FF",
+            artBg: "0x020407FF",
+            isDark: true,
+            cut: true
         }
     }
 
     if not themes.DoesExist(name)
-        return WithRowTints(themes[DefaultThemeName()])
+        return WithEdges(WithRowTints(themes[DefaultThemeName()]))
     end if
-    return WithRowTints(themes[name])
+    return WithEdges(WithRowTints(themes[name]))
+end function
+
+function LineAlpha() as string
+    return "9E"
+end function
+
+function SoftLineAlpha() as string
+    return "42"
+end function
+
+function WithEdges(tokens as object) as object
+    if tokens.cut
+        tokens.line = WithAlpha(tokens.accent, LineAlpha())
+        tokens.lineSoft = WithAlpha(tokens.accent, SoftLineAlpha())
+    else
+        tokens.line = tokens.border
+        tokens.lineSoft = tokens.border
+    end if
+    return tokens
 end function
 
 function RowTintAlpha() as string
@@ -105,7 +147,27 @@ function HardenedTokens(tokens as object) as object
     raised.rowOk = WithAlpha(tokens.ok, HardenedTintAlpha())
     raised.rowWarn = WithAlpha(tokens.warn, HardenedTintAlpha())
     raised.rowDanger = WithAlpha(tokens.danger, HardenedTintAlpha())
+
+    edge = raised.border
+    if tokens.cut then edge = tokens.accent
+    raised.line = edge
+    raised.lineSoft = edge
+    raised.hardened = true
     return raised
+end function
+
+function IsHardened(theme as dynamic) as boolean
+    return ValueAt(theme, "hardened", false) = true
+end function
+
+function ReadoutDotColor(theme as object) as string
+    if IsHardened(theme) then return theme.text
+    return theme.accent
+end function
+
+function CapsFor(theme as dynamic, text as dynamic) as string
+    if IsCut(theme) then return UCase(TextOrBlank(text))
+    return TextOrBlank(text)
 end function
 
 function ThemedTokens(name as string, contrast as boolean) as object
@@ -119,8 +181,9 @@ function TickerSpeed() as float
     return 40.0 * DensityScale() / AuthoredScale()
 end function
 
-function TextureOpacity() as float
-    return 0.06
+function TextureLook(name as string, theme as object) as object
+    if name = "hologram" then return { tint: theme.accent, opacity: 0.11 }
+    return { tint: theme.text, opacity: 0.06 }
 end function
 
 function BackdropOpacity() as float
@@ -364,6 +427,54 @@ function BorderColorFor(theme as object, focused as boolean) as string
     return theme.border
 end function
 
+function SoftBorderColorFor(theme as object, focused as boolean) as string
+    if focused then return theme.accent
+    return theme.lineSoft
+end function
+
+function CardLineColorFor(theme as object, lit as boolean) as string
+    if not lit then return theme.lineSoft
+    if IsCut(theme) then return theme.line
+    return theme.accent
+end function
+
+function BracketArm() as integer
+    return Px(28)
+end function
+
+function BracketStroke() as integer
+    return BorderThickness() * 2
+end function
+
+function BracketReach() as integer
+    return Px(12)
+end function
+
+function TabHeight() as integer
+    return Px(14) + TypeScale().textXs + Px(12)
+end function
+
+function TabSlantWidth() as integer
+    return Px(28)
+end function
+
+function TabPadLeft() as integer
+    return Px(21)
+end function
+
+function TabPadRight() as integer
+    return Px(52.5)
+end function
+
+function ThemedHeadingHeight(theme as dynamic, plain as integer) as integer
+    if IsCut(theme) then return TabHeight()
+    return plain
+end function
+
+function TitleBarPadY() as integer
+    return Px(17.5)
+end function
+
 function FocusRingInset() as integer
     return 3
 end function
@@ -386,6 +497,22 @@ end function
 
 function ProgressBarHeight() as integer
     return Px(8)
+end function
+
+function ProgressFillWidth(inner as integer, percent as integer) as float
+    return inner * ClampInt(percent, 0, 100) / 100.0
+end function
+
+function SegmentStripWidth() as integer
+    return 1920
+end function
+
+function SegmentStripHeight() as integer
+    return 8
+end function
+
+function SegmentTrackColor(theme as object) as string
+    return WithAlpha(theme.accent, SoftLineAlpha())
 end function
 
 function AccentTint(theme as object) as string
@@ -535,8 +662,23 @@ function ToastMaxLines() as integer
 end function
 
 function ToastPalette(kind as string, theme as object) as object
+    if IsCut(theme) then return CutToastPalette(kind, theme)
     if kind = "err" then return { ground: theme.danger, ink: theme.dangerContrast, glyph: "icon-close" }
     return { ground: theme.ok, ink: theme.accentContrast, glyph: "icon-check" }
+end function
+
+function CutToastPalette(kind as string, theme as object) as object
+    if kind = "err" then return { ground: theme.surface, ink: theme.text, glyph: "icon-close", tone: theme.danger, edge: ToastEdge(theme, theme.danger, "A6") }
+    return { ground: theme.surface, ink: theme.text, glyph: "icon-check", tone: theme.ok, edge: ToastEdge(theme, theme.ok, "99") }
+end function
+
+function ToastEdge(theme as object, tone as string, alpha as string) as string
+    if IsHardened(theme) then return tone
+    return WithAlpha(tone, alpha)
+end function
+
+function ToastNodeSize() as integer
+    return Px(23)
 end function
 
 function ToastHoldSeconds(kind as string) as float

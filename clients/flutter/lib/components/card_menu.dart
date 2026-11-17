@@ -249,6 +249,7 @@ Future<void> showCardMenu(
       queued: entryId != null && (onDequeue != null || playlists != null),
     ),
     constraints: const BoxConstraints.tightFor(width: kCardMenuWidth),
+    clipBehavior: Clip.antiAlias,
     popUpAnimationStyle: AnimationStyle.noAnimation,
   );
   if (chosen == null || !context.mounted) {

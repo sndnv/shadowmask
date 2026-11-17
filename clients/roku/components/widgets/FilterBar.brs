@@ -84,8 +84,7 @@ function ChipFill(theme as object, focused as boolean, outline as boolean) as st
 end function
 
 function ChipLine(theme as object, focused as boolean) as string
-    if focused then return theme.accent
-    return theme.border
+    return SoftBorderColorFor(theme, focused)
 end function
 
 function ChipText(theme as object, focused as boolean) as string

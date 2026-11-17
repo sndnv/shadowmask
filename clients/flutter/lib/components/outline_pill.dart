@@ -1,7 +1,8 @@
 import 'package:material_ui/material_ui.dart';
 
 import 'package:shadowmask/theme/app_theme.dart';
-import 'package:shadowmask/theme/radii.dart';
+import 'package:shadowmask/theme/shapes.dart';
+import 'package:shadowmask/theme/shapes_context.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
@@ -22,14 +23,15 @@ class OutlinePill extends StatelessWidget {
   Widget build(BuildContext context) {
     final Tokens t = context.tokens;
     final Color fg = active ? t.accent : t.muted;
+    final Shapes shapes = context.shapes;
     final Color borderColor = active
         ? Color.alphaBlend(t.accent.withValues(alpha: 0.45), t.border)
-        : t.border;
+        : shapes.lineSoft(t.border);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: Space.s2, vertical: 2),
-      decoration: BoxDecoration(
-        borderRadius: const BorderRadius.all(Radii.pill),
-        border: Border.all(color: borderColor),
+      decoration: shapes.box(
+        Corners.chip,
+        side: BorderSide(color: borderColor),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -38,11 +40,13 @@ class OutlinePill extends StatelessWidget {
           const SizedBox(width: 5),
           Text(
             text,
-            style: monoStyle.copyWith(
-              color: fg,
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+            style: shapes.mono(
+              monoStyle.copyWith(
+                color: fg,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+              ),
             ),
           ),
         ],

@@ -5,8 +5,11 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shadowmask/components/admin/field_help.dart';
 import 'package:shadowmask/components/app_dropdown.dart';
+import 'package:shadowmask/components/linked_nodes.dart';
 import 'package:shadowmask/components/player/player_sheet.dart';
 import 'package:shadowmask/components/player/settings_panel.dart';
+import 'package:shadowmask/components/tab_heading.dart';
+import 'package:shadowmask/components/title_bar.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/model/catalog/version.dart';
 import 'package:shadowmask/model/catalog/version_detail.dart';
@@ -14,12 +17,15 @@ import 'package:shadowmask/model/session/subtitle_selection.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
 import 'package:shadowmask/theme/space.dart';
+import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/util/bundled_fonts.dart';
 import 'package:shadowmask/util/bundled_licenses.dart';
 import 'package:shadowmask/view/playback_controls.dart';
 import 'package:shadowmask/view/sound_settings.dart';
 import 'package:shadowmask/view/subtitle_choice.dart';
 import 'package:shadowmask/view/subtitle_size.dart';
+
+import '../../support/shape_guard.dart';
 
 VersionDetail _version() => VersionDetail.fromJson(<String, dynamic>{
   'id': 'v1',
@@ -44,10 +50,12 @@ Future<void> _pump(
   required bool burn,
   bool dense = false,
   ValueChanged<SubtitleSize>? onSubtitleSize,
+  AppThemeVariant variant = AppThemeVariant.dark,
+  VoidCallback? onClose,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
-      theme: buildTheme(AppThemeVariant.dark),
+      theme: buildTheme(variant),
       home: Scaffold(
         body: SizedBox(
           width: 420,
@@ -65,7 +73,7 @@ Future<void> _pump(
             onControls: (_) {},
             onSpeed: (_) {},
             onDiagnostics: (_) {},
-            onClose: () {},
+            onClose: onClose ?? () {},
             dense: dense,
             subtitleSize: SubtitleSize.medium,
             onSubtitleSize: onSubtitleSize,
@@ -86,10 +94,11 @@ Future<void> _pumpSheet(
   SubtitleChoice subtitle = const SubtitleChoice.on(
     SubtitleSelection.embedded(0),
   ),
+  AppThemeVariant variant = AppThemeVariant.dark,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
-      theme: buildTheme(AppThemeVariant.dark),
+      theme: buildTheme(variant),
       home: Scaffold(
         body: SizedBox(
           width: 320,
@@ -115,6 +124,861 @@ Future<void> _pumpSheet(
 }
 
 void main() {
+  for (final AppThemeVariant variant in AppThemeVariant.values) {
+    testWidgets('the settings panel draws the ${variant.name} shapes', (
+      WidgetTester tester,
+    ) async {
+      await _pump(
+        tester,
+        delivery: 'hls_vtt',
+        burn: false,
+        onSubtitleSize: (_) {},
+        variant: variant,
+      );
+
+      expect(find.byType(PlayerSettingsPanel), findsOneWidget);
+      expectShapesOf(tester, variant);
+    });
+  }
+
+  testWidgets('hologram heads the settings panel with the dialog title bar', (
+    WidgetTester tester,
+  ) async {
+    int closed = 0;
+    await _pump(
+      tester,
+      delivery: 'hls_vtt',
+      burn: false,
+      variant: AppThemeVariant.hologram,
+      onClose: () => closed++,
+    );
+    final Finder bar = find.descendant(
+      of: find.byType(PlayerSettingsPanel),
+      matching: find.byType(TitleBar),
+    );
+    final Rect panel = tester.getRect(find.byType(PlayerSettingsPanel));
+
+    expect(bar, findsOneWidget);
+    expect(find.byType(TabHeading), findsNothing);
+    expect(
+      find.text(PlayerPanel.subtitles.title.toUpperCase()),
+      findsOneWidget,
+    );
+    expect(tester.getRect(bar).topLeft, panel.topLeft);
+    expect(tester.getSize(bar).width, panel.width);
+    expect(
+      tester
+          .widget<PanelIcon>(
+            find.descendant(of: bar, matching: find.byType(PanelIcon)),
+          )
+          .color,
+      Tokens.hologram.accentContrast,
+    );
+
+    await tester.tap(
+      find.descendant(of: bar, matching: find.byTooltip(Strings.close)),
+    );
+    expect(closed, 1);
+  });
+
+  testWidgets('a dense hologram panel keeps its title bar compact', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      delivery: 'hls_vtt',
+      burn: false,
+      variant: AppThemeVariant.hologram,
+    );
+    final double regular = tester.getSize(find.byType(TitleBar)).height;
+
+    await _pump(
+      tester,
+      delivery: 'hls_vtt',
+      burn: false,
+      dense: true,
+      variant: AppThemeVariant.hologram,
+    );
+    final double dense = tester.getSize(find.byType(TitleBar)).height;
+
+    expect(dense, regular - 2 * (10 - Space.s1));
+  });
+
+  for (final bool dense in <bool>[false, true]) {
+    testWidgets('a${dense ? ' dense' : ''} hologram title bar starts where '
+        'the rows start', (WidgetTester tester) async {
+      await _pump(
+        tester,
+        delivery: 'hls_vtt',
+        burn: false,
+        dense: dense,
+        variant: AppThemeVariant.hologram,
+      );
+
+      expect(
+        tester.getTopLeft(find.byType(PanelIcon)).dx -
+            tester.getTopLeft(find.byType(PlayerSettingsPanel)).dx,
+        dense ? Space.s2 : Space.s4,
+      );
+    });
+  }
+
+  testWidgets('the other themes keep the panel header', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, delivery: 'hls_vtt', burn: false);
+
+    expect(find.byType(TitleBar), findsNothing);
+    expect(
+      find.descendant(
+        of: find.byType(TabHeading),
+        matching: find.text(PlayerPanel.subtitles.title),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  for (final AppThemeVariant variant in AppThemeVariant.values) {
+    final bool linked = variant == AppThemeVariant.hologram;
+    testWidgets('the ${variant.name} panel '
+        '${linked ? 'links its choices' : 'keeps its dropdowns'}', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        _panel(panel: PlayerPanel.audio, variant: variant),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(LinkedNodes), linked ? findsOneWidget : findsNothing);
+      expect(
+        find.byType(AppDropdown<int?>),
+        linked ? findsNothing : findsOneWidget,
+      );
+    });
+  }
+
+  testWidgets('hologram links every setting of the panel, switches included', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      _panel(
+        panel: PlayerPanel.audio,
+        variant: AppThemeVariant.hologram,
+        sound: (downmix: true, normalize: false, dialogue: true, night: true),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(_column(tester, left: true), <String>[
+      Strings.playerAudio,
+      Strings.playerStereoDownmix,
+      Strings.playerDialogue,
+      Strings.playerNightMode,
+    ]);
+    expect(_column(tester, left: false), <String>[Strings.playerNoAudio]);
+    expect(
+      (_links(tester).from, _links(tester).count, _links(tester).lit),
+      (0, 1, 0),
+    );
+    expect(find.byType(Switch), findsNothing);
+    expect(find.byType(Divider), findsNothing);
+  });
+
+  testWidgets('a hologram switch opens On and Off and sends only a change', (
+    WidgetTester tester,
+  ) async {
+    final List<PlaybackControls> sent = <PlaybackControls>[];
+    await tester.pumpWidget(
+      _panel(
+        panel: PlayerPanel.audio,
+        variant: AppThemeVariant.hologram,
+        onControls: sent.add,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(_node(Strings.playerStereoDownmix));
+    await tester.pumpAndSettle();
+    expect(_column(tester, left: false), <String>[
+      Strings.playerOn,
+      Strings.playerOff,
+    ]);
+    expect(_links(tester).lit, 1);
+
+    await tester.tap(_rightNode(tester, Strings.playerOff));
+    await tester.pumpAndSettle();
+    expect(sent, isEmpty);
+
+    await tester.tap(_rightNode(tester, Strings.playerOn));
+    await tester.pumpAndSettle();
+    expect(sent.single.downmix, isTrue);
+    expect(_links(tester).lit, 0);
+  });
+
+  testWidgets('hologram picture in picture flips only when the pick differs', (
+    WidgetTester tester,
+  ) async {
+    int flips = 0;
+    await tester.pumpWidget(
+      _settingsHologram(
+        pictureInPicture: true,
+        onPictureInPicture: () => flips++,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(_node(Strings.playerPictureInPicture));
+    await tester.pumpAndSettle();
+    await tester.tap(_rightNode(tester, Strings.playerOn));
+    await tester.pumpAndSettle();
+    expect(flips, 0);
+
+    await tester.tap(_rightNode(tester, Strings.playerOff));
+    await tester.pumpAndSettle();
+    expect(flips, 1);
+  });
+
+  testWidgets('a hologram action runs on its node, by tap or Enter, without '
+      'opening it', (WidgetTester tester) async {
+    int shortcuts = 0;
+    int logs = 0;
+    await tester.pumpWidget(
+      _settingsHologram(
+        onShortcuts: () => shortcuts++,
+        onShowLog: () => logs++,
+      ),
+    );
+    await tester.pumpAndSettle();
+    final int from = _links(tester).from;
+
+    await tester.tap(_node(Strings.shortcutsHeading));
+    await tester.pumpAndSettle();
+    await tester.tap(_node(Strings.playerLog));
+    await tester.pumpAndSettle();
+    expect((shortcuts, logs), (1, 1));
+
+    Focus.of(tester.element(find.text(Strings.playerLog))).requestFocus();
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+
+    expect((shortcuts, logs), (1, 2));
+    expect(_links(tester).from, from);
+    expect(
+      tester.widget<NodeItem>(_node(Strings.playerLog)).role,
+      NodeRole.plain,
+    );
+    expect(
+      tester.widget<NodeItem>(_node(Strings.shortcutsHeading)).icon,
+      Icons.open_in_new,
+    );
+  });
+
+  testWidgets('the hologram stream node lists its read-outs, which cannot be '
+      'picked', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      _settingsHologram(mode: 'transcode', container: 'mpegts'),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.widget<NodeItem>(_node(Strings.playerStream)).value,
+      'transcode',
+    );
+    await tester.tap(_node(Strings.playerStream));
+    await tester.pumpAndSettle();
+
+    expect(_column(tester, left: false), <String>[
+      Strings.playerModeLabel,
+      Strings.playerContainerLabel,
+    ]);
+    expect(
+      tester
+          .widget<NodeItem>(_rightNode(tester, Strings.playerContainerLabel))
+          .value,
+      'mpegts',
+    );
+    expect(
+      tester
+          .widget<NodeItem>(_rightNode(tester, Strings.playerModeLabel))
+          .onTap,
+      isNull,
+    );
+    expect(_links(tester).lit, -1);
+    expect(
+      tester.widget<NodeItem>(_rightNode(tester, Strings.playerModeLabel)).role,
+      NodeRole.plain,
+    );
+  });
+
+  testWidgets('hologram sections become captions among the nodes', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      _settingsHologram(
+        bufferSeconds: 30,
+        onBufferSeconds: (_) {},
+        waitForBuffer: false,
+        onWaitForBuffer: (_) {},
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(NodeCaption), findsNWidgets(2));
+    expect(find.byType(Divider), findsNothing);
+    final double buffering = tester
+        .getTopLeft(find.byType(NodeCaption).first)
+        .dy;
+    expect(
+      buffering,
+      lessThan(tester.getTopLeft(_node(Strings.playerBufferTarget)).dy),
+    );
+    expect(
+      buffering,
+      greaterThan(tester.getTopLeft(_node(Strings.playerPictureInPicture)).dy),
+    );
+  });
+
+  testWidgets('a hologram node far down keeps its choices beside it', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      _settingsHologram(
+        bufferSeconds: 30,
+        onBufferSeconds: (_) {},
+        waitForBuffer: false,
+        onWaitForBuffer: (_) {},
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(_node(Strings.playerDiagnostics));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getCenter(_rightNode(tester, Strings.playerOn)).dy,
+      tester.getCenter(_node(Strings.playerDiagnostics)).dy,
+    );
+  });
+
+  testWidgets('the hologram subtitle offset steps earlier, back and later', (
+    WidgetTester tester,
+  ) async {
+    final List<PlaybackControls> sent = <PlaybackControls>[];
+    await tester.pumpWidget(
+      _panel(
+        panel: PlayerPanel.subtitles,
+        variant: AppThemeVariant.hologram,
+        onControls: sent.add,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(TextField), findsNothing);
+    await tester.tap(_node(Strings.playerOffset));
+    await tester.pumpAndSettle();
+    expect(_column(tester, left: false), <String>[
+      Strings.playerOffsetEarlier,
+      Strings.playerOffsetReset,
+      Strings.playerOffsetLater,
+    ]);
+
+    expect(_idle(tester, Strings.playerOffsetReset), isTrue);
+    expect(
+      tester
+          .widget<NodeItem>(_rightNode(tester, Strings.playerOffsetLater))
+          .role,
+      NodeRole.plain,
+    );
+    await tester.tap(_rightNode(tester, Strings.playerOffsetReset));
+    await tester.pumpAndSettle();
+    expect(sent, isEmpty);
+
+    await tester.tap(_rightNode(tester, Strings.playerOffsetLater));
+    await tester.pumpAndSettle();
+    expect(_idle(tester, Strings.playerOffsetReset), isFalse);
+    await tester.tap(_rightNode(tester, Strings.playerOffsetLater));
+    await tester.pumpAndSettle();
+    await tester.tap(_rightNode(tester, Strings.playerOffsetEarlier));
+    await tester.pumpAndSettle();
+    expect(sent.map((PlaybackControls c) => c.offsetMs), <int>[
+      kOffsetStepMs,
+      2 * kOffsetStepMs,
+      kOffsetStepMs,
+    ]);
+    expect(
+      tester.widget<NodeItem>(_node(Strings.playerOffset)).value,
+      Strings.playerOffsetValue(kOffsetStepMs),
+    );
+
+    await tester.tap(_rightNode(tester, Strings.playerOffsetReset));
+    await tester.pumpAndSettle();
+    expect(sent.last.offsetMs, 0);
+  });
+
+  testWidgets('a hologram offset step that would change nothing is dimmed and '
+      'idle', (WidgetTester tester) async {
+    final List<PlaybackControls> sent = <PlaybackControls>[];
+    await tester.pumpWidget(
+      _panel(
+        panel: PlayerPanel.subtitles,
+        variant: AppThemeVariant.hologram,
+        controls: const PlaybackControls(
+          subtitle: SubtitleChoice.on(SubtitleSelection.embedded(0)),
+          offsetMs: kOffsetBoundMs,
+        ),
+        onControls: sent.add,
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(_node(Strings.playerOffset));
+    await tester.pumpAndSettle();
+
+    expect(_idle(tester, Strings.playerOffsetLater), isTrue);
+    expect(_idle(tester, Strings.playerOffsetEarlier), isFalse);
+    expect(_idle(tester, Strings.playerOffsetReset), isFalse);
+    expect(
+      tester
+          .widget<Opacity>(
+            find
+                .descendant(
+                  of: _rightNode(tester, Strings.playerOffsetLater),
+                  matching: find.byType(Opacity),
+                )
+                .first,
+          )
+          .opacity,
+      0.5,
+    );
+    await tester.tap(_rightNode(tester, Strings.playerOffsetLater));
+    await tester.pumpAndSettle();
+
+    expect(sent, isEmpty);
+  });
+
+  testWidgets('a hologram offset step keeps focus when it goes idle, and a '
+      'second Enter sends nothing', (WidgetTester tester) async {
+    final List<PlaybackControls> sent = <PlaybackControls>[];
+    await tester.pumpWidget(
+      _panel(
+        panel: PlayerPanel.subtitles,
+        variant: AppThemeVariant.hologram,
+        controls: const PlaybackControls(
+          subtitle: SubtitleChoice.on(SubtitleSelection.embedded(0)),
+          offsetMs: kOffsetBoundMs - kOffsetStepMs,
+        ),
+        onControls: sent.add,
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(_node(Strings.playerOffset));
+    await tester.pumpAndSettle();
+
+    for (final String step in <String>[
+      Strings.playerOffsetLater,
+      Strings.playerOffsetReset,
+    ]) {
+      Focus.of(
+        tester.element(
+          find.descendant(
+            of: _rightNode(tester, step),
+            matching: find.text(step),
+          ),
+        ),
+      ).requestFocus();
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+      expect(_focused(), step);
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+    }
+
+    expect(sent.map((PlaybackControls c) => c.offsetMs), <int>[
+      kOffsetBoundMs,
+      0,
+    ]);
+  });
+
+  testWidgets('while a change is in flight hologram stream switches and the '
+      'offset are blocked', (WidgetTester tester) async {
+    final List<PlaybackControls> sent = <PlaybackControls>[];
+    Widget audio({required bool busy}) => _panel(
+      panel: PlayerPanel.audio,
+      variant: AppThemeVariant.hologram,
+      busy: busy,
+      onControls: sent.add,
+    );
+    await tester.pumpWidget(audio(busy: false));
+    await tester.pumpAndSettle();
+    await tester.tap(_node(Strings.playerStereoDownmix));
+    await tester.pumpAndSettle();
+
+    await tester.pumpWidget(audio(busy: true));
+    await tester.pumpAndSettle();
+    await tester.tap(_rightNode(tester, Strings.playerOn), warnIfMissed: false);
+    await tester.pumpAndSettle();
+    expect(sent, isEmpty);
+
+    Widget subtitles({required bool busy}) => _panel(
+      panel: PlayerPanel.subtitles,
+      variant: AppThemeVariant.hologram,
+      busy: busy,
+      onControls: sent.add,
+    );
+    await tester.pumpWidget(subtitles(busy: false));
+    await tester.pumpAndSettle();
+    await tester.tap(_node(Strings.playerOffset));
+    await tester.pumpAndSettle();
+
+    await tester.pumpWidget(subtitles(busy: true));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      _rightNode(tester, Strings.playerOffsetLater),
+      warnIfMissed: false,
+    );
+    await tester.pumpAndSettle();
+    expect(sent, isEmpty);
+  });
+
+  testWidgets('a hologram action to add subtitles runs on its node', (
+    WidgetTester tester,
+  ) async {
+    int opened = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildTheme(AppThemeVariant.hologram),
+        home: Scaffold(
+          body: SizedBox(
+            width: 420,
+            child: PlayerSettingsPanel(
+              panel: PlayerPanel.subtitles,
+              controls: const PlaybackControls(),
+              version: _version(),
+              speed: 1,
+              diagnostics: false,
+              onAddSubtitles: () => opened++,
+              onControls: (_) {},
+              onSpeed: (_) {},
+              onDiagnostics: (_) {},
+              onClose: () {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(_node(Strings.moreSubtitles));
+    await tester.pumpAndSettle();
+
+    expect(opened, 1);
+    expect(find.byType(Divider), findsNothing);
+  });
+
+  testWidgets('a hologram node opens its choices and a pick is sent', (
+    WidgetTester tester,
+  ) async {
+    final List<PlaybackControls> sent = <PlaybackControls>[];
+    await tester.pumpWidget(
+      _panel(
+        panel: PlayerPanel.audio,
+        variant: AppThemeVariant.hologram,
+        onControls: sent.add,
+        sound: (downmix: false, normalize: false, dialogue: true, night: true),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(_node(Strings.playerDialogue));
+    await tester.pumpAndSettle();
+    expect(_column(tester, left: false), <String>[
+      for (final DialogueLift lift in DialogueLift.values) lift.label,
+    ]);
+    expect(_links(tester).from, 1);
+    expect(_links(tester).lit, DialogueLift.values.indexOf(DialogueLift.none));
+    expect(
+      tester.widget<LinkedNodes>(find.byType(LinkedNodes)).rightLabel,
+      Strings.playerDialogue,
+    );
+
+    await tester.tap(_node(DialogueLift.db9.label));
+    await tester.pumpAndSettle();
+    expect(sent.last.dialogue, DialogueLift.db9);
+    expect(_links(tester).lit, DialogueLift.values.indexOf(DialogueLift.db9));
+    expect(
+      tester.widget<NodeItem>(_node(Strings.playerDialogue)).value,
+      DialogueLift.db9.label,
+    );
+  });
+
+  testWidgets('a hologram speed pick reports back and its node stays open', (
+    WidgetTester tester,
+  ) async {
+    final List<double> speeds = <double>[];
+    await tester.pumpWidget(
+      _panel(
+        panel: PlayerPanel.video,
+        variant: AppThemeVariant.hologram,
+        onSpeed: speeds.add,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(_node(Strings.playerSpeed));
+    await tester.pumpAndSettle();
+    await tester.tap(_node('1.5x'));
+    await tester.pumpAndSettle();
+
+    expect(speeds, <double>[1.5]);
+    expect(_links(tester).from, 1);
+    expect(_links(tester).lit, 4);
+  });
+
+  testWidgets('a hologram node that goes away hands the map to the first', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      _panel(
+        panel: PlayerPanel.audio,
+        variant: AppThemeVariant.hologram,
+        sound: (downmix: false, normalize: false, dialogue: true, night: true),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(_node(Strings.playerNightMode));
+    await tester.pumpAndSettle();
+    expect(_links(tester).from, 2);
+
+    await tester.pumpWidget(
+      _panel(
+        panel: PlayerPanel.audio,
+        variant: AppThemeVariant.hologram,
+        sound: (downmix: false, normalize: false, dialogue: true, night: false),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(_links(tester).from, 0);
+    expect(_column(tester, left: false), <String>[Strings.playerNoAudio]);
+  });
+
+  testWidgets('while a change is in flight a hologram stream node is blocked '
+      'and the speed is not', (WidgetTester tester) async {
+    final List<PlaybackControls> sent = <PlaybackControls>[];
+    final List<double> speeds = <double>[];
+    await tester.pumpWidget(
+      _panel(
+        panel: PlayerPanel.video,
+        variant: AppThemeVariant.hologram,
+        busy: true,
+        onControls: sent.add,
+        onSpeed: speeds.add,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(_node(Strings.qualityRung(720)), warnIfMissed: false);
+    await tester.pumpAndSettle();
+    expect(sent, isEmpty);
+
+    await tester.tap(_node(Strings.playerSpeed));
+    await tester.pumpAndSettle();
+    await tester.tap(_node(Strings.playerQuality), warnIfMissed: false);
+    await tester.pumpAndSettle();
+    expect(_links(tester).from, 1);
+
+    await tester.tap(_node('1.5x'));
+    await tester.pumpAndSettle();
+    expect(speeds, <double>[1.5]);
+  });
+
+  testWidgets('enter on a blocked hologram choice sends nothing', (
+    WidgetTester tester,
+  ) async {
+    final List<PlaybackControls> sent = <PlaybackControls>[];
+    await tester.pumpWidget(
+      _panel(
+        panel: PlayerPanel.video,
+        variant: AppThemeVariant.hologram,
+        onControls: sent.add,
+      ),
+    );
+    await tester.pumpAndSettle();
+    Focus.of(
+      tester.element(find.text(Strings.qualityRung(720))),
+    ).requestFocus();
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+    expect(sent.map((PlaybackControls c) => c.height), <int?>[720]);
+
+    await tester.pumpWidget(
+      _panel(
+        panel: PlayerPanel.video,
+        variant: AppThemeVariant.hologram,
+        busy: true,
+        onControls: sent.add,
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(_focused(), Strings.qualityRung(720));
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+
+    expect(sent, hasLength(1));
+  });
+
+  testWidgets('each hologram panel keeps its own open node', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      _panel(panel: PlayerPanel.video, variant: AppThemeVariant.hologram),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(_node(Strings.playerSpeed));
+    await tester.pumpAndSettle();
+
+    await tester.pumpWidget(
+      _panel(panel: PlayerPanel.audio, variant: AppThemeVariant.hologram),
+    );
+    await tester.pumpAndSettle();
+    expect(_links(tester).from, 0);
+
+    await tester.pumpWidget(
+      _panel(panel: PlayerPanel.video, variant: AppThemeVariant.hologram),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<LinkedNodes>(find.byType(LinkedNodes)).rightLabel,
+      Strings.playerSpeed,
+    );
+  });
+
+  testWidgets('a version node that arrives late leaves the open node where '
+      'it was', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      _panel(panel: PlayerPanel.video, variant: AppThemeVariant.hologram),
+    );
+    await tester.pumpAndSettle();
+    expect(_links(tester).from, 0);
+
+    await tester.pumpWidget(
+      _panel(
+        panel: PlayerPanel.video,
+        variant: AppThemeVariant.hologram,
+        versions: _threeVersions,
+        onVersion: (_) {},
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(_column(tester, left: true).first, Strings.playerVersion);
+    expect(_links(tester).from, 1);
+    expect(
+      tester.widget<LinkedNodes>(find.byType(LinkedNodes)).rightLabel,
+      Strings.playerQuality,
+    );
+  });
+
+  testWidgets('help on a hologram node explains it without opening it', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      _panel(
+        panel: PlayerPanel.audio,
+        variant: AppThemeVariant.hologram,
+        sound: (downmix: false, normalize: false, dialogue: true, night: false),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.descendant(
+        of: _node(Strings.playerDialogue),
+        matching: find.byType(FieldHelp),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text(Strings.playerDialogueHelp), findsOneWidget);
+    expect(_links(tester).from, 0);
+  });
+
+  testWidgets('arrow keys move between hologram nodes and never seek', (
+    WidgetTester tester,
+  ) async {
+    final List<LogicalKeyboardKey> seeks = <LogicalKeyboardKey>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildTheme(AppThemeVariant.hologram),
+        home: Scaffold(
+          body: Focus(
+            onKeyEvent: (FocusNode node, KeyEvent event) {
+              if (event is KeyUpEvent) {
+                return KeyEventResult.ignored;
+              }
+              seeks.add(event.logicalKey);
+              return KeyEventResult.handled;
+            },
+            child: SizedBox(
+              width: 420,
+              child: PlayerSettingsPanel(
+                panel: PlayerPanel.audio,
+                controls: const PlaybackControls(),
+                version: _version(),
+                speed: 1,
+                diagnostics: false,
+                sound: (
+                  downmix: false,
+                  normalize: false,
+                  dialogue: true,
+                  night: false,
+                ),
+                onControls: (_) {},
+                onSpeed: (_) {},
+                onDiagnostics: (_) {},
+                onClose: () {},
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    Focus.of(tester.element(find.text(Strings.playerAudio))).requestFocus();
+    await tester.pump();
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pump();
+    expect(_focused(), Strings.playerDialogue);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+    await tester.pump();
+    expect(_focused(), Strings.playerAudio);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pump();
+    expect(_focused(), Strings.playerNoAudio);
+
+    expect(seeks, isEmpty);
+  });
+
+  testWidgets('the hologram sheet keeps its drill-down rows', (
+    WidgetTester tester,
+  ) async {
+    await _pumpSheet(
+      tester,
+      panel: PlayerPanel.subtitles,
+      opened: <PlayerChoice>[],
+      applied: <PlaybackControls>[],
+      variant: AppThemeVariant.hologram,
+    );
+
+    expect(find.byType(LinkedNodes), findsNothing);
+    expect(find.byIcon(Icons.chevron_right), findsWidgets);
+  });
+
   testWidgets('in the sheet a dropdown is a row that opens its choices', (
     WidgetTester tester,
   ) async {
@@ -1070,25 +1934,81 @@ void main() {
     tester.view.physicalSize = const Size(1200, 2400);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    final List<(double, bool, bool)> layouts = <(double, bool, bool)>[
-      (kSheetMinWidth, true, false),
-      (340, false, false),
-      (340, false, true),
-    ];
-    for (final (double width, bool sheet, bool dense) in layouts) {
+    final List<(double, bool, bool, AppThemeVariant)> layouts =
+        <(double, bool, bool, AppThemeVariant)>[
+          (kSheetMinWidth, true, false, AppThemeVariant.dark),
+          (340, false, false, AppThemeVariant.dark),
+          (340, false, true, AppThemeVariant.dark),
+          (480, false, false, AppThemeVariant.hologram),
+          (480, false, true, AppThemeVariant.hologram),
+        ];
+    for (final (double width, bool sheet, bool dense, AppThemeVariant variant)
+        in layouts) {
+      final bool linked = variant == AppThemeVariant.hologram;
       for (final PlayerPanel panel in PlayerPanel.values) {
         await tester.pumpWidget(
-          _everyRow(panel: panel, width: width, sheet: sheet, dense: dense),
+          _everyRow(
+            panel: panel,
+            width: width,
+            sheet: sheet,
+            dense: dense,
+            variant: variant,
+            sound: linked
+                ? (downmix: true, normalize: true, dialogue: true, night: true)
+                : kNoSoundRows,
+          ),
         );
         await tester.pumpAndSettle();
+        if (linked) {
+          expect(
+            tester
+                .widgetList<NodeItem>(find.byType(NodeItem))
+                .map((NodeItem n) => n.label),
+            containsAll(switch (panel) {
+              PlayerPanel.audio => <String>[
+                Strings.playerStereoDownmix,
+                Strings.playerPreventDistortion,
+                Strings.playerDialogue,
+                Strings.playerNightMode,
+              ],
+              PlayerPanel.settings => <String>[
+                Strings.playerNetworkTimeout,
+                Strings.playerPictureInPicture,
+                Strings.playerBufferLimit,
+              ],
+              _ => <String>[],
+            }),
+          );
+        }
 
+        final Set<RenderParagraph> summaries = tester
+            .renderObjectList<RenderParagraph>(
+              find.descendant(
+                of: find.descendant(
+                  of: find.byType(NodeItem),
+                  matching: find.byWidgetPredicate(
+                    (Widget w) => w is Text && w.textAlign == TextAlign.right,
+                  ),
+                ),
+                matching: find.byType(RichText),
+              ),
+            )
+            .toSet();
+        bool mayCut(RenderParagraph p) =>
+            summaries.contains(p) &&
+            !<String>{
+              Strings.playerOn,
+              Strings.playerOff,
+            }.contains(p.text.toPlainText());
         final Iterable<RenderParagraph> cut = tester
             .renderObjectList<RenderParagraph>(find.byType(RichText))
-            .where((RenderParagraph p) => p.didExceedMaxLines);
+            .where((RenderParagraph p) => p.didExceedMaxLines && !mayCut(p));
         expect(
           cut.map((RenderParagraph p) => p.text.toPlainText()),
           isEmpty,
-          reason: '${panel.name} at $width, sheet $sheet, dense $dense',
+          reason:
+              '${panel.name} at $width, sheet $sheet, dense $dense, '
+              '${variant.name}',
         );
       }
     }
@@ -1100,8 +2020,10 @@ Widget _everyRow({
   required double width,
   required bool sheet,
   required bool dense,
+  AppThemeVariant variant = AppThemeVariant.dark,
+  SoundRows sound = kNoSoundRows,
 }) => MaterialApp(
-  theme: buildTheme(AppThemeVariant.dark),
+  theme: buildTheme(variant),
   home: Scaffold(
     body: Align(
       alignment: Alignment.topLeft,
@@ -1138,6 +2060,7 @@ Widget _everyRow({
           onAddSubtitles: () {},
           openChoice: sheet ? (_) {} : null,
           dense: dense,
+          sound: sound,
           onControls: (_) {},
           onSpeed: (_) {},
           onDiagnostics: (_) {},
@@ -1166,8 +2089,9 @@ Widget _panel({
     dialogue: false,
     night: false,
   ),
+  AppThemeVariant variant = AppThemeVariant.dark,
 }) => MaterialApp(
-  theme: buildTheme(AppThemeVariant.dark),
+  theme: buildTheme(variant),
   home: Scaffold(
     body: SizedBox(
       width: 420,
@@ -1269,3 +2193,91 @@ Widget _settings({
     ),
   ),
 );
+
+Finder _node(String label) =>
+    find.ancestor(of: find.text(label), matching: find.byType(NodeItem)).first;
+
+bool _idle(WidgetTester tester, String label) =>
+    !tester.widget<NodeItem>(_rightNode(tester, label)).enabled;
+
+Finder _rightNode(WidgetTester tester, String label) {
+  final double split = tester.getCenter(find.byType(LinkedNodes)).dx;
+  return find.byElementPredicate(
+    (Element e) =>
+        e.widget is NodeItem &&
+        (e.widget as NodeItem).label == label &&
+        _centreX(e) > split,
+  );
+}
+
+Widget _settingsHologram({
+  bool pictureInPicture = false,
+  VoidCallback? onPictureInPicture,
+  VoidCallback? onShortcuts,
+  VoidCallback? onShowLog,
+  String? mode,
+  String? container,
+  int? bufferSeconds,
+  ValueChanged<int>? onBufferSeconds,
+  bool? waitForBuffer,
+  ValueChanged<bool>? onWaitForBuffer,
+}) => MaterialApp(
+  theme: buildTheme(AppThemeVariant.hologram),
+  home: Scaffold(
+    body: SizedBox(
+      width: 420,
+      child: PlayerSettingsPanel(
+        panel: PlayerPanel.settings,
+        controls: const PlaybackControls(),
+        version: _version(),
+        speed: 1,
+        diagnostics: false,
+        pictureInPicture: pictureInPicture,
+        onPictureInPicture: onPictureInPicture ?? () {},
+        onShortcuts: onShortcuts,
+        onShowLog: onShowLog,
+        mode: mode,
+        container: container,
+        bufferSeconds: bufferSeconds,
+        onBufferSeconds: onBufferSeconds,
+        waitForBuffer: waitForBuffer,
+        onWaitForBuffer: onWaitForBuffer,
+        onControls: (_) {},
+        onSpeed: (_) {},
+        onDiagnostics: (_) {},
+        onClose: () {},
+      ),
+    ),
+  ),
+);
+
+List<String> _column(WidgetTester tester, {required bool left}) {
+  final double split = tester.getCenter(find.byType(LinkedNodes)).dx;
+  return <String>[
+    for (final Element node in find.byType(NodeItem).evaluate())
+      if (_centreX(node) < split == left) (node.widget as NodeItem).label,
+  ];
+}
+
+double _centreX(Element element) {
+  final RenderBox box = element.renderObject! as RenderBox;
+  return box.localToGlobal(box.size.center(Offset.zero)).dx;
+}
+
+LinkPainter _links(WidgetTester tester) =>
+    tester
+            .widget<CustomPaint>(
+              find.byWidgetPredicate(
+                (Widget w) => w is CustomPaint && w.painter is LinkPainter,
+              ),
+            )
+            .painter!
+        as LinkPainter;
+
+String? _focused() {
+  final BuildContext? at = FocusManager.instance.primaryFocus?.context;
+  if (at == null || at.findAncestorWidgetOfExactType<FieldHelp>() != null) {
+    return null;
+  }
+  return at.findAncestorWidgetOfExactType<NodeItem>()?.label;
+}

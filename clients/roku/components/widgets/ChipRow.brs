@@ -54,10 +54,10 @@ sub render()
         fill = theme.surfaceAlt
         stroke = ChipBorderColor(theme, ValueAt(chip, "border", ""))
 
-        DrawChipCap(slot.capLeft, ChipCapUri("left"), fill, capWidth, height, 0)
-        DrawChipCap(slot.capLeftLine, ChipCapLineUri("left"), stroke, capWidth, height, 0)
-        DrawChipCap(slot.capRight, ChipCapUri("right"), fill, capWidth, height, width - capWidth)
-        DrawChipCap(slot.capRightLine, ChipCapLineUri("right"), stroke, capWidth, height, width - capWidth)
+        DrawChipCap(slot.capLeft, ChipCapUri("left", theme), fill, capWidth, height, 0)
+        DrawChipCap(slot.capLeftLine, ChipCapLineUri("left", theme), stroke, capWidth, height, 0)
+        DrawChipCap(slot.capRight, ChipCapUri("right", theme), fill, capWidth, height, width - capWidth)
+        DrawChipCap(slot.capRightLine, ChipCapLineUri("right", theme), stroke, capWidth, height, width - capWidth)
 
         slot.middle.width = inner
         slot.middle.height = height
@@ -115,7 +115,7 @@ end function
 
 function ChipBorderColor(theme as object, border as dynamic) as string
     if TextOrBlank(border) = "accent" then return theme.accent
-    return theme.border
+    return theme.lineSoft
 end function
 
 function ChipTextColor(theme as object, tone as dynamic) as string

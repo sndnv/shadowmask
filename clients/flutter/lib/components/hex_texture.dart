@@ -15,7 +15,7 @@ class HexTexture extends StatelessWidget {
         child: CustomPaint(
           size: Size.infinite,
           painter: _HexPainter(
-            context.tokens.text.withValues(alpha: 0.06),
+            context.tokens.texture,
             MediaQuery.devicePixelRatioOf(context),
           ),
         ),

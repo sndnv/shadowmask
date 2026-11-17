@@ -8,6 +8,7 @@ import 'package:http/testing.dart';
 import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/components/backdrop_scope.dart';
 import 'package:shadowmask/components/catalog_card_tile.dart';
+import 'package:shadowmask/components/fact_readout.dart';
 import 'package:shadowmask/components/play_on_button.dart';
 import 'package:shadowmask/components/poster_play.dart';
 import 'package:shadowmask/components/progress_bar.dart';
@@ -19,12 +20,14 @@ import 'package:shadowmask/nav/route_observer.dart';
 import 'package:shadowmask/pages/viewer/title_page.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
+import 'package:shadowmask/theme/shapes.dart';
 import 'package:shadowmask/theme/theme_scope.dart';
 import 'package:shadowmask/util/page_director.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../support/backdrops.dart';
 import '../../support/play_on.dart';
+import '../../support/shape_guard.dart';
 
 Map<String, dynamic> _version(String id, String label) => <String, dynamic>{
   'id': id,
@@ -109,6 +112,7 @@ ApiClient _api({
   Set<String> watched = const <String>{},
   Set<String>? watchlist,
   bool Function()? stateFails,
+  int? year,
 }) {
   final Set<String> saved = watchlist ?? <String>{};
   bool cleared = false;
@@ -230,6 +234,7 @@ ApiClient _api({
             'artwork': <String, dynamic>{},
             'genres': <String>[],
             'credits': credits,
+            'year': ?year,
           }),
           200,
         );
@@ -265,20 +270,19 @@ Future<void> _pump(
   WidgetTester tester,
   ApiClient api, {
   Size window = const Size(1600, 1400),
+  AppThemeVariant variant = AppThemeVariant.dark,
 }) async {
   tester.view.physicalSize = window;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(
     ThemeScope(
-      variant: AppThemeVariant.dark,
+      variant: variant,
       setVariant: (_) {},
       child: MaterialApp(
         // Pointer platform: the poster is only a button where there is a
         // cursor to reveal it, so the poster tests below are desktop and web.
-        theme: buildTheme(
-          AppThemeVariant.dark,
-        ).copyWith(platform: TargetPlatform.macOS),
+        theme: buildTheme(variant).copyWith(platform: TargetPlatform.macOS),
         navigatorObservers: <NavigatorObserver>[appRouteObserver],
         onGenerateRoute: (RouteSettings settings) => MaterialPageRoute<void>(
           builder: (_) => settings.name == null || settings.name == '/'
@@ -305,6 +309,51 @@ void main() {
       expect(find.text(Strings.couldNotLoadTitle), findsOneWidget);
     },
   );
+
+  for (final AppThemeVariant variant in AppThemeVariant.values) {
+    testWidgets('a title page draws the ${variant.name} shapes', (
+      WidgetTester tester,
+    ) async {
+      await _pump(
+        tester,
+        _api(
+          versions: <Map<String, dynamic>>[
+            _version('v1', 'fhd'),
+            _version('v2', 'sd'),
+          ],
+          resuming: <Map<String, dynamic>>[_inProgress('v1')],
+        ),
+        variant: variant,
+      );
+
+      expectShapesOf(tester, variant);
+    });
+  }
+
+  for (final AppThemeVariant variant in AppThemeVariant.values) {
+    testWidgets('the ${variant.name} title page shows year and quality', (
+      WidgetTester tester,
+    ) async {
+      await _pump(
+        tester,
+        _api(
+          versions: <Map<String, dynamic>>[_version('v1', 'fhd')],
+          year: 2016,
+        ),
+        variant: variant,
+      );
+      final bool hologram = variant == AppThemeVariant.hologram;
+
+      expect(
+        tester
+            .widgetList<FactReadout>(find.byType(FactReadout))
+            .map((FactReadout r) => r.fact.value),
+        hologram ? <String>['2016', 'FHD'] : isEmpty,
+      );
+      expect(find.text('2016'), findsOneWidget);
+      expect(find.text('FHD'), findsOneWidget);
+    });
+  }
 
   testWidgets('a device that can play puts Play on beside Play and in the '
       'versions dialog', (WidgetTester tester) async {
@@ -346,6 +395,36 @@ void main() {
 
     expect(find.byType(VersionMenuItem), findsNothing);
     expect(find.text('went to /watch?version=v2'), findsOneWidget);
+  });
+
+  testWidgets('hologram lists versions in capitals and reads them as written', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      _api(
+        versions: <Map<String, dynamic>>[
+          _version('v1', 'fhd'),
+          _version('v2', 'sd'),
+        ],
+      ),
+      variant: AppThemeVariant.hologram,
+    );
+
+    await tester.tap(find.byTooltip(Strings.chooseVersion));
+    await tester.pumpAndSettle();
+
+    final Text item = tester.widget<Text>(
+      find.descendant(
+        of: find.byType(VersionMenuItem).first,
+        matching: find.byType(Text),
+      ),
+    );
+    final String shown = item.textSpan!.toPlainText();
+    expect(shown, shown.toUpperCase());
+    expect(item.semanticsLabel!.toUpperCase(), shown);
+    expect(item.semanticsLabel, isNot(shown));
+    expect(item.textSpan!.style!.fontFamily, kMonoFamily);
   });
 
   testWidgets('picking a version from the version button plays it', (

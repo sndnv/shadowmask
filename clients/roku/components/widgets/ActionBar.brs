@@ -145,6 +145,7 @@ function SlotSpec(buttons as object, index as integer, theme as object) as objec
         ring: FocusRingColor(theme, tone),
         disc: DiscColor(theme, tone),
         discLine: DiscBorderColor(theme, tone),
+        discUri: DiscUri(theme),
         iconColor: IconColor(theme, tone),
         labelColor: LabelColor(theme, tone)
     }
@@ -194,7 +195,7 @@ sub PlaceSlot(slot as object, spec as object, tallest as integer, offset as inte
 
     slot.discRing.visible = not IsBlank(spec.discLine)
     if slot.discRing.visible
-        slot.discRing.uri = GlyphUri("disc")
+        slot.discRing.uri = spec.discUri
         slot.discRing.width = spec.height
         slot.discRing.height = spec.height
         slot.discRing.blendColor = spec.discLine
@@ -203,7 +204,7 @@ sub PlaceSlot(slot as object, spec as object, tallest as integer, offset as inte
 
     slot.disc.visible = not IsBlank(spec.disc)
     if slot.disc.visible
-        slot.disc.uri = GlyphUri("disc")
+        slot.disc.uri = spec.discUri
         slot.disc.width = spec.height - edge * 2
         slot.disc.height = spec.height - edge * 2
         slot.disc.blendColor = spec.disc
@@ -308,7 +309,7 @@ function ButtonBorder(theme as object, tone as object) as string
     if tone.disabled then return theme.border
     if tone.primary or tone.joined then return ""
     if tone.focused then return theme.accent
-    return theme.border
+    return theme.line
 end function
 
 function FocusRingColor(theme as object, tone as object) as string

@@ -1,0 +1,186 @@
+namespace tests
+
+    @suite("headings")
+    class HeadingTests extends rooibos.BaseTestSuite
+
+        function colour(value as string) as dynamic
+            probe = CreateObject("roSGNode", "Rectangle")
+            probe.color = value
+            return probe.color
+        end function
+
+        function heading(theme as object, text as string, count = -1 as integer) as object
+            node = CreateObject("roSGNode", "TabHeading")
+            node.size = TypeScale().textXl
+            node.headingWidth = 800
+            node.count = count
+            node.text = text
+            node.theme = theme
+            return node
+        end function
+
+        @describe("TabHeading")
+
+        @it("draws a hologram heading as an accent tab with a slanted end, in capitals, over a line across the width")
+        sub hologramDrawsATab()
+            theme = ThemeTokens("hologram")
+            node = m.heading(theme, "Seasons")
+            size = TypeScale().textXs
+
+            label = node.FindNode("label")
+            body = node.FindNode("body")
+            slant = node.FindNode("slant")
+            rule = node.FindNode("rule")
+            m.assertFalse(node.FindNode("plain").visible)
+            m.assertTrue(node.FindNode("tab").visible)
+
+            m.assertEqual(label.text, "SEASONS")
+            m.assertEqual(label.color, m.colour(theme.accentContrast))
+            m.assertEqual(label.font.size, size)
+            m.assertEqual(Int(label.translation[0]), TabPadLeft())
+
+            m.assertEqual(body.color, m.colour(theme.accent))
+            m.assertEqual(Int(body.height), TabHeight())
+            m.assertEqual(Int(body.width) + TabSlantWidth(), TabPadLeft() + TextWidth("SEASONS", size, true) + TabPadRight())
+
+            m.assertEqual(slant.uri, GlyphUri("tab-slant"))
+            m.assertEqual(slant.blendColor, m.colour(theme.accent))
+            m.assertEqual([Int(slant.translation[0]), Int(slant.translation[1]), Int(slant.width), Int(slant.height)], [Int(body.width), 0, TabSlantWidth(), TabHeight()])
+
+            m.assertEqual(rule.color, m.colour(theme.line))
+            m.assertEqual([Int(rule.translation[0]), Int(rule.translation[1]), Int(rule.width), Int(rule.height)], [0, TabHeight() - BorderThickness(), 800, BorderThickness()])
+            m.assertEqual(node.FindNode("tab").GetChild(0).id, "rule")
+
+            m.assertFalse(node.FindNode("count").visible)
+        end sub
+
+        @it("sets a hologram heading's count beside the tab in the accent, out of the tab's text")
+        sub hologramCountSitsBeside()
+            theme = ThemeTokens("hologram")
+            node = m.heading(theme, "Seasons", 3)
+
+            count = node.FindNode("count")
+            m.assertEqual(node.FindNode("label").text, "SEASONS")
+            m.assertTrue(count.visible)
+            m.assertEqual(count.text, "3")
+            m.assertEqual(count.color, m.colour(theme.accent))
+            m.assertEqual(count.font.size, TypeScale().textXs)
+            m.assertEqual(Int(count.translation[0]), Int(node.FindNode("body").width) + TabSlantWidth() + SpacingScale().s3)
+        end sub
+
+        @it("cuts a long hologram heading short inside the width, keeping room for its count")
+        sub hologramFitsTheWidth()
+            text = "Every film in the long running series, collected"
+            node = m.heading(ThemeTokens("hologram"), text, 12)
+            node.headingWidth = 300
+
+            size = TypeScale().textXs
+            room = 300 - TabPadLeft() - TabPadRight() - SpacingScale().s3 - TextWidth("12", size)
+            label = node.FindNode("label")
+            count = node.FindNode("count")
+            drawn = Int(node.FindNode("body").width) + TabSlantWidth()
+            m.assertTrue(TextWidth(UCase(text), size, true) > room, "the text is wider than the room")
+            m.assertEqual(Int(label.width), room)
+            m.assertEqual(drawn, TabPadLeft() + room + TabPadRight())
+            m.assertEqual(drawn + SpacingScale().s3, Int(count.translation[0]))
+            m.assertTrue(Int(count.translation[0]) + TextWidth("12", size) <= 300)
+            m.assertEqual(label.maxLines, 1)
+            m.assertEqual(label.ellipsisText, "…")
+        end sub
+
+        @it("draws no tab for a blank hologram heading, as the plain line shows nothing")
+        sub hologramBlankDrawsNothing()
+            node = m.heading(ThemeTokens("hologram"), "")
+
+            m.assertFalse(node.FindNode("tab").visible)
+            m.assertFalse(node.FindNode("plain").visible)
+        end sub
+
+        @it("keeps every other theme's heading as one bold line in the text colour, the count in its text")
+        sub otherThemesKeepTheLine()
+            for each name in ThemeNames()
+                if name <> "hologram"
+                    theme = ThemeTokens(name)
+                    node = m.heading(theme, "Seasons", 3)
+                    plain = node.FindNode("plain")
+
+                    m.assertTrue(plain.visible, name)
+                    m.assertFalse(node.FindNode("tab").visible, name)
+                    m.assertEqual(plain.text, CountLabel("Seasons", 3), name)
+                    m.assertEqual(plain.color, m.colour(theme.text), name)
+                    m.assertEqual(plain.font.size, TypeScale().textXl, name)
+                    m.assertEqual(Int(plain.width), 800, name)
+                    m.assertEqual(plain.maxLines, 1, name)
+                end if
+            end for
+
+            m.assertEqual(m.heading(ThemeTokens("dark"), "Seasons").FindNode("plain").text, "Seasons")
+        end sub
+
+        @it("goes back to the plain line when the theme leaves hologram")
+        sub switchesBackToTheLine()
+            node = m.heading(ThemeTokens("hologram"), "Seasons", 2)
+            node.theme = ThemeTokens("dark")
+
+            m.assertTrue(node.FindNode("plain").visible)
+            m.assertFalse(node.FindNode("tab").visible)
+            m.assertEqual(node.FindNode("plain").text, CountLabel("Seasons", 2))
+        end sub
+
+        @describe("heading sizes")
+
+        @it("gives a hologram heading the tab's height, its rule inside it, and every other theme the height it asks for")
+        sub headingHeights()
+            for each name in ThemeNames()
+                expected = 40
+                if name = "hologram" then expected = 33
+                m.assertEqual(ThemedHeadingHeight(ThemeTokens(name), 40), expected, name)
+            end for
+        end sub
+
+        @it("heads a cast rail with the tab under hologram and keeps every other theme's rail height")
+        sub castRailHeights()
+            space = SpacingScale()
+            cards = CardMetrics(CastCardWidth(), PosterAspect(), 1).height
+            for each name in ThemeNames()
+                rail = CreateObject("roSGNode", "CastRail")
+                rail.railWidth = 800
+                rail.cardWidth = CastCardWidth()
+                rail.heading = "Cast"
+                rail.cards = [{ title: "Lead", subtitle: "Actor" }]
+                rail.theme = ThemeTokens(name)
+
+                heading = Int(TypeScale().textXl * 1.4)
+                if name = "hologram" then heading = 33
+                m.assertEqual(Int(rail.railHeight), heading + space.s2 + cards, name)
+            end for
+        end sub
+
+        @it("sizes the tab as Flutter's, scaled for Roku")
+        sub tabSizesFollowFlutter()
+            m.assertEqual(TabHeight(), 33)
+            m.assertEqual(TabSlantWidth(), 20)
+            m.assertEqual(TabPadLeft(), 15)
+            m.assertEqual(TabPadRight(), 38)
+        end sub
+
+        @it("drops a count of none, as CountedHeading leaves it out of the text")
+        sub headingCountDropsNone()
+            m.assertEqual(HeadingCount(4), 4)
+            m.assertEqual(HeadingCount(0), -1)
+        end sub
+
+        @describe("CapsFor")
+
+        @it("capitalises a label under hologram only")
+        sub capsUnderHologramOnly()
+            for each name in ThemeNames()
+                expected = "Choose a version"
+                if name = "hologram" then expected = "CHOOSE A VERSION"
+                m.assertEqual(CapsFor(ThemeTokens(name), "Choose a version"), expected, name)
+            end for
+        end sub
+
+    end class
+
+end namespace

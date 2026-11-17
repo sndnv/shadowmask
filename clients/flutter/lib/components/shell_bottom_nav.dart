@@ -9,7 +9,8 @@ import 'package:shadowmask/nav/nav_destination.dart';
 import 'package:shadowmask/nav/nav_destinations.dart';
 import 'package:shadowmask/nav/nav_section.dart';
 import 'package:shadowmask/nav/open_section.dart';
-import 'package:shadowmask/theme/radii.dart';
+import 'package:shadowmask/theme/shapes.dart';
+import 'package:shadowmask/theme/shapes_context.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
@@ -99,9 +100,11 @@ class ShellBottomNav extends StatelessWidget {
     );
     final int more = split.tabs.length;
 
+    final Shapes shapes = context.shapes;
+    final Color selected = shapes.cut ? t.text : t.accentContrast;
     return DecoratedBox(
       decoration: BoxDecoration(
-        border: Border(top: BorderSide(color: t.border)),
+        border: Border(top: BorderSide(color: shapes.lineSoft(t.border))),
       ),
       child: NavigationBarTheme(
         data: NavigationBarThemeData(
@@ -117,10 +120,10 @@ class ShellBottomNav extends StatelessWidget {
           height: kBottomNavHeight,
           backgroundColor: t.surface,
           surfaceTintColor: Colors.transparent,
-          indicatorColor: t.accent,
-          indicatorShape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.all(Radii.sm),
-          ),
+          indicatorColor: shapes.cut ? Colors.transparent : t.accent,
+          indicatorShape: shapes.cut
+              ? Border(bottom: BorderSide(color: t.accent, width: 2))
+              : shapes.border(Corners.button),
           overlayColor: WidgetStatePropertyAll<Color>(t.rowHover),
           labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
           selectedIndex: active >= 0 ? active : more,
@@ -131,12 +134,12 @@ class ShellBottomNav extends StatelessWidget {
             for (final NavDestination d in split.tabs)
               NavigationDestination(
                 icon: Icon(d.icon, color: t.muted),
-                selectedIcon: Icon(d.selectedIcon, color: t.accentContrast),
+                selectedIcon: Icon(d.selectedIcon, color: selected),
                 label: d.label,
               ),
             NavigationDestination(
               icon: Icon(Icons.more_horiz, color: t.muted),
-              selectedIcon: Icon(Icons.more_horiz, color: t.accentContrast),
+              selectedIcon: Icon(Icons.more_horiz, color: selected),
               label: Strings.navigationMore,
             ),
           ],
@@ -169,26 +172,44 @@ class _AccountCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final Tokens t = context.tokens;
+    final Shapes shapes = context.shapes;
+    final String initial = username.characters.take(1).toUpperCase().toString();
     return Padding(
       padding: const EdgeInsets.fromLTRB(Space.s4, Space.s3, Space.s4, 0),
       child: Material(
         color: t.surfaceAlt,
         clipBehavior: Clip.antiAlias,
-        shape: RoundedRectangleBorder(
-          borderRadius: const BorderRadius.all(Radii.md),
-          side: BorderSide(color: selected ? t.accent : t.border),
+        shape: shapes.border(
+          Corners.card,
+          side: BorderSide(
+            color: selected ? t.accent : shapes.lineSoft(t.border),
+          ),
         ),
         child: ListTile(
           onTap: onOpen,
           selected: selected,
-          leading: CircleAvatar(
-            backgroundColor: t.accent,
-            foregroundColor: t.accentContrast,
-            child: Text(
-              username.characters.take(1).toUpperCase().toString(),
-              style: const TextStyle(fontWeight: FontWeight.w700),
-            ),
-          ),
+          leading: shapes.cut
+              ? Container(
+                  width: 40,
+                  height: 40,
+                  alignment: Alignment.center,
+                  decoration: shapes.roundBox(color: t.accent),
+                  child: Text(
+                    initial,
+                    style: Theme.of(context).textTheme.titleMedium!.copyWith(
+                      color: t.accentContrast,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                )
+              : CircleAvatar(
+                  backgroundColor: t.accent,
+                  foregroundColor: t.accentContrast,
+                  child: Text(
+                    initial,
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ),
           title: Text(
             username,
             maxLines: 1,

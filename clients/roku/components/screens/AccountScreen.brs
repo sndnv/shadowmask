@@ -287,7 +287,7 @@ sub PaintPanel(plate as object, theme as object, at as integer, width as integer
     plate.boxWidth = width
     plate.boxHeight = height
     plate.fillColor = theme.surface
-    plate.lineColor = theme.border
+    plate.lineColor = theme.line
     plate.translation = [at, 0]
 end sub
 
@@ -349,13 +349,13 @@ end function
 function DrawBlockHeading(node as object, theme as object, text as string, width as integer, at as integer, top as integer) as integer
     sizes = TypeScale()
 
+    node.size = sizes.textLg
+    node.headingWidth = width
     node.text = text
-    node.color = theme.text
-    node.font = SizedBoldFont(sizes.textLg)
-    node.width = width
-    node.maxLines = 1
+    node.theme = theme
     node.translation = [at, top]
 
+    if IsCut(theme) then return TabHeight() + SpacingScale().s3
     return TextLinePitch(sizes.textLg)
 end function
 

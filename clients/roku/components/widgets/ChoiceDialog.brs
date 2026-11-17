@@ -3,6 +3,7 @@ sub init()
     m.panel = m.top.FindNode("panel")
     m.scrim.muteAudioGuide = true
     m.plate = m.top.FindNode("plate")
+    m.titleBar = m.top.FindNode("titleBar")
     m.titleIcon = m.top.FindNode("titleIcon")
     m.title = m.top.FindNode("title")
     m.textView = m.top.FindNode("textView")
@@ -28,6 +29,12 @@ sub init()
     m.textLines = 1
     m.titleLines = 1
     m.inRow = false
+    m.caps = false
+end sub
+
+sub onTheme()
+    MeasureRequest()
+    render()
 end sub
 
 sub MeasureRequest()
@@ -38,9 +45,22 @@ sub MeasureRequest()
     m.textLines = 0
     if not IsBlank(body) then m.textLines = TextLineCount(body, inner, sizes.textBase)
 
-    title = TextOrBlank(ValueAt(m.top.request, "title", ""))
-    m.titleLines = ClampInt(TextLineCount(title, inner - TitleGlyphLead(), sizes.textLg), 1, DialogMessageLines())
+    m.titleLines = ClampInt(TextLineCount(TitleText(), TitleWidth() - TitleGlyphLead(), TitleSize()), 1, DialogMessageLines())
 end sub
+
+function TitleText() as string
+    return CapsFor(m.top.theme, ValueAt(m.top.request, "title", ""))
+end function
+
+function TitleSize() as integer
+    if IsCut(m.top.theme) then return TypeScale().textXs
+    return TypeScale().textLg
+end function
+
+function TitleWidth() as integer
+    if IsCut(m.top.theme) then return DialogWidth() - SpacingScale().s4 - SpacingScale().s3
+    return DialogInnerWidth()
+end function
 
 function TitleGlyph() as string
     if IsBlank(TextOrBlank(ValueAt(m.top.request, "title", ""))) then return ""
@@ -74,6 +94,7 @@ sub onRequest()
 
     m.field = TextOrBlank(ValueAt(request, "field", ""))
     m.inRow = DialogInRow(request)
+    m.caps = ValueAt(request, "caps", false) = true
     m.count = options.Count()
     m.model = DialogRows(options, kind, selected)
     m.index = FocusableRowIndex(m.model, DialogFocusIndex(request, selected, options.Count()))
@@ -102,8 +123,7 @@ sub render()
     m.scrim.height = CanvasHeight()
     m.scrim.color = ScrimColor(theme)
 
-    cursor = pad
-    cursor = PlaceDialogTitle(theme, sizes.textLg, inner, pad, cursor)
+    cursor = PlaceTitle(theme, width, inner, pad)
 
     size = sizes.textBase
     body = TextOrBlank(ValueAt(m.top.request, "message", ""))
@@ -157,7 +177,7 @@ sub render()
     m.plate.boxWidth = width
     m.plate.boxHeight = height
     m.plate.fillColor = theme.surface
-    m.plate.lineColor = theme.border
+    m.plate.lineColor = theme.line
 
     m.panel.translation = [Int((CanvasWidth() - width) / 2), Int((CanvasHeight() - height) / 2)]
 
@@ -217,7 +237,30 @@ function PlaceDialogMessage(theme as object, body as string, size as integer, wi
     return top + shown + SpacingScale().s3
 end function
 
-function PlaceDialogTitle(theme as object, size as integer, width as integer, left as integer, top as integer) as integer
+function PlaceTitle(theme as object, width as integer, inner as integer, pad as integer) as integer
+    if not IsCut(theme) or IsBlank(TitleText())
+        m.titleBar.boxWidth = 0
+        return PlaceDialogTitle(TitleSize(), theme.text, inner, pad, pad)
+    end if
+
+    space = SpacingScale()
+    size = TitleSize()
+    padY = TitleBarPadY()
+    block = TextBlockHeight(size, m.titleLines)
+    content = block
+    if not IsBlank(TitleGlyph()) and ControlIconSize() > content then content = ControlIconSize()
+    height = content + padY * 2
+
+    m.titleBar.fillColor = theme.accent
+    m.titleBar.lineColor = ""
+    m.titleBar.boxWidth = width
+    m.titleBar.boxHeight = height
+
+    PlaceDialogTitle(size, theme.accentContrast, TitleWidth(), space.s4, padY + Int((content - block) / 2))
+    return height + pad
+end function
+
+function PlaceDialogTitle(size as integer, color as string, width as integer, left as integer, top as integer) as integer
     glyph = TitleGlyph()
     lead = TitleGlyphLead()
     icon = ControlIconSize()
@@ -227,11 +270,11 @@ function PlaceDialogTitle(theme as object, size as integer, width as integer, le
         m.titleIcon.uri = glyph
         m.titleIcon.width = icon
         m.titleIcon.height = icon
-        m.titleIcon.blendColor = theme.text
+        m.titleIcon.blendColor = color
         m.titleIcon.translation = [left, top + Int((FontLineHeight(size) - icon) / 2)]
     end if
 
-    return PlaceHeading(m.title, ValueAt(m.top.request, "title", ""), size, true, theme.text, width - lead, left + lead, top, m.titleLines)
+    return PlaceHeading(m.title, TitleText(), size, true, color, width - lead, left + lead, top, m.titleLines)
 end function
 
 function PlaceHeading(node as object, text as dynamic, size as integer, bold as boolean, color as string, width as integer, left as integer, top as integer, lines as integer) as integer
@@ -341,6 +384,7 @@ sub PaintRow(slot as object, row as object, theme as object, width as integer, r
     size = TypeScale().textBase
     detail = TextOrBlank(ValueAt(row, "detail", ""))
     label = TextOrBlank(ValueAt(row, "label", ""))
+    if m.caps and ValueAt(row, "cancel", false) <> true then label = CapsFor(theme, label)
     span = edge - left
     column = ValueAt(row, "column", false) = true
     room = DialogDetailWidth(span - space.s4, TextWidth(detail, size) + space.s1, TextWidth(label, size))

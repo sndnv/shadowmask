@@ -24,7 +24,7 @@
     <script type="text/brightscript" uri="pkg:/source/subtitles.brs" />
 
     <interface>
-        <field id="theme" type="assocarray" onChange="render" />
+        <field id="theme" type="assocarray" onChange="onTheme" />
         <field id="request" type="assocarray" alwaysNotify="true" onChange="onRequest" />
         <field id="result" type="assocarray" alwaysNotify="true" />
     </interface>
@@ -33,6 +33,7 @@
         <Rectangle id="scrim" />
         <Group id="panel">
             <RoundedBox id="plate" />
+            <RoundedBox id="titleBar" rounded="left" visible="false" />
             <Poster id="titleIcon" visible="false" muteAudioGuide="true" />
             <Label id="title" />
             <Group id="textView">

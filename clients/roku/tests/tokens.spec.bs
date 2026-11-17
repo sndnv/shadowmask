@@ -3,6 +3,12 @@ namespace tests
     @suite("tokens")
     class TokenTests extends rooibos.BaseTestSuite
 
+        function colour(value as string) as dynamic
+            probe = CreateObject("roSGNode", "Rectangle")
+            probe.color = value
+            return probe.color
+        end function
+
         @describe("theme tables")
 
         @it("carries every colour token in every theme")
@@ -11,7 +17,7 @@ namespace tests
                 "bg", "surface", "surfaceAlt", "text", "muted", "border",
                 "accent", "accentContrast", "ok", "warn", "danger", "dangerContrast",
                 "okBg", "warnBg", "dangerBg", "artBg",
-                "rowOk", "rowWarn", "rowDanger"
+                "rowOk", "rowWarn", "rowDanger", "line", "lineSoft"
             ]
 
             for each name in ThemeNames()
@@ -46,6 +52,132 @@ namespace tests
             m.assertFalse(ThemeTokens("light").isDark)
             m.assertTrue(ThemeTokens("dark").isDark)
             m.assertTrue(ThemeTokens("retro").isDark)
+            m.assertTrue(ThemeTokens("hologram").isDark)
+        end sub
+
+        @it("offers hologram as the fourth theme, blue line work on a navy ground")
+        sub hologramIsTheFourthTheme()
+            m.assertEqual(ThemeNames()[3], "hologram")
+            tokens = ThemeTokens("hologram")
+            m.assertEqual(tokens.bg, "0x05080DFF")
+            m.assertEqual(tokens.surface, "0x0A1621FF")
+            m.assertEqual(tokens.surfaceAlt, "0x10202FFF")
+            m.assertEqual(tokens.text, "0xE3F3FFFF")
+            m.assertEqual(tokens.muted, "0x82A6C0FF")
+            m.assertEqual(tokens.border, "0x1B3449FF")
+            m.assertEqual(tokens.accent, "0x45B8FFFF")
+            m.assertEqual(tokens.accentContrast, "0x03111CFF")
+            m.assertEqual(tokens.ok, "0x3FE0A5FF")
+            m.assertEqual(tokens.warn, "0xFFB547FF")
+            m.assertEqual(tokens.danger, "0xFF4D5EFF")
+            m.assertEqual(tokens.dangerContrast, "0x140409FF")
+            m.assertEqual(tokens.okBg, "0x0A2620FF")
+            m.assertEqual(tokens.warnBg, "0x2B2010FF")
+            m.assertEqual(tokens.dangerBg, "0x2C0E15FF")
+            m.assertEqual(tokens.artBg, "0x020407FF")
+        end sub
+
+        @describe("edges")
+
+        @it("cuts the corners under hologram only")
+        sub onlyHologramIsCut()
+            for each name in ThemeNames()
+                m.assertEqual(ThemeTokens(name).cut, name = "hologram", name)
+            end for
+        end sub
+
+        @it("draws hologram's lines in the accent at 62% and 26%")
+        sub hologramLinesAreAccent()
+            tokens = ThemeTokens("hologram")
+            m.assertEqual(tokens.line, "0x45B8FF9E")
+            m.assertEqual(tokens.lineSoft, "0x45B8FF42")
+        end sub
+
+        @it("keeps every other theme's lines on its border")
+        sub otherLinesAreBorder()
+            for each name in ["dark", "light", "retro"]
+                tokens = ThemeTokens(name)
+                m.assertEqual(tokens.line, tokens.border, name)
+                m.assertEqual(tokens.lineSoft, tokens.border, name)
+            end for
+        end sub
+
+        @it("rests a text field on the border, as Flutter's fields take no line, and a card on the soft line")
+        sub restingBorderColours()
+            for each name in ThemeNames()
+                theme = ThemeTokens(name)
+                m.assertEqual(BorderColorFor(theme, true), theme.accent, name)
+                m.assertEqual(BorderColorFor(theme, false), theme.border, name)
+                m.assertEqual(SoftBorderColorFor(theme, true), theme.accent, name)
+                m.assertEqual(SoftBorderColorFor(theme, false), theme.lineSoft, name)
+            end for
+        end sub
+
+        @it("lights a card's frame in hologram's line and every other theme's accent, as Flutter does")
+        sub cardFramesAsFlutter()
+            for each name in ThemeNames()
+                theme = ThemeTokens(name)
+                lit = theme.accent
+                if name = "hologram" then lit = theme.line
+
+                m.assertEqual(CardLineColorFor(theme, true), lit, name)
+                m.assertEqual(CardLineColorFor(theme, false), theme.lineSoft, name)
+            end for
+        end sub
+
+        @it("edges hologram's theme cards and nav panel in the soft line, as Flutter does")
+        sub hologramCardsTakeTheSoftLine()
+            theme = ThemeTokens("hologram")
+            cards = CreateObject("roSGNode", "ThemeCards")
+            cards.selected = "dark"
+            cards.theme = theme
+
+            slots = cards.FindNode("slots")
+            m.assertEqual(slots.GetChild(0).GetChild(1).lineColor, theme.accent)
+            m.assertEqual(slots.GetChild(3).GetChild(1).lineColor, theme.lineSoft)
+
+            rail = CreateObject("roSGNode", "NavRail")
+            rail.theme = theme
+            m.assertEqual(rail.FindNode("panel").lineColor, theme.lineSoft)
+        end sub
+
+        @it("rings no theme card while the row has no focus, on the first paint or after a switch")
+        sub themeCardsRingNoneWithoutFocus()
+            cards = CreateObject("roSGNode", "ThemeCards")
+            cards.theme = ThemeTokens("dark")
+
+            slots = cards.FindNode("slots")
+            for index = 0 to slots.GetChildCount() - 1
+                m.assertFalse(slots.GetChild(index).GetChild(0).visible, "first paint, card " + index.ToStr())
+            end for
+
+            cards.theme = ThemeTokens("hologram")
+            for index = 0 to slots.GetChildCount() - 1
+                m.assertFalse(slots.GetChild(index).GetChild(0).visible, "after a switch, card " + index.ToStr())
+            end for
+        end sub
+
+        @it("rests a hologram text field on the border, enabled or not")
+        sub hologramFieldsRestOnTheBorder()
+            theme = ThemeTokens("hologram")
+            field = CreateObject("roSGNode", "TextField")
+            field.theme = theme
+            m.assertEqual(field.FindNode("box").lineColor, theme.border)
+
+            field.disabled = true
+            m.assertEqual(field.FindNode("box").lineColor, theme.border)
+        end sub
+
+        @it("rests a hologram button on the line and a disabled one on the border")
+        sub hologramButtonsRestOnTheLine()
+            theme = ThemeTokens("hologram")
+            bar = CreateObject("roSGNode", "ActionBar")
+            bar.theme = theme
+            bar.buttons = [{ id: "on", label: "On" }, { id: "off", label: "Off", disabled: true }]
+
+            slots = bar.FindNode("slots")
+            m.assertEqual(slots.GetChild(0).GetChild(1).lineColor, theme.line)
+            m.assertEqual(slots.GetChild(1).GetChild(1).lineColor, theme.border)
         end sub
 
         @describe("row tints")
@@ -109,6 +241,60 @@ namespace tests
             theme = ThemeTokens("retro")
             m.assertEqual(ToastPalette("ok", theme), { ground: theme.ok, ink: theme.accentContrast, glyph: "icon-check" })
             m.assertEqual(ToastPalette("err", theme), { ground: theme.danger, ink: theme.dangerContrast, glyph: "icon-close" })
+        end sub
+
+        @it("grounds a hologram toast on the surface, edged and marked in its kind's colour, as Flutter does")
+        sub hologramToastPalette()
+            theme = ThemeTokens("hologram")
+            m.assertEqual(ToastPalette("ok", theme), { ground: theme.surface, ink: theme.text, glyph: "icon-check", tone: theme.ok, edge: "0x3FE0A599" })
+            m.assertEqual(ToastPalette("err", theme), { ground: theme.surface, ink: theme.text, glyph: "icon-close", tone: theme.danger, edge: "0xFF4D5EA6" })
+
+            hard = ThemedTokens("hologram", true)
+            m.assertEqual(ToastPalette("ok", hard).edge, hard.ok)
+            m.assertEqual(ToastPalette("err", hard).edge, hard.danger)
+        end sub
+
+        @it("draws a hologram toast as a cut plate with a hexagon node before the glyph")
+        sub hologramToastIsAPlate()
+            theme = ThemeTokens("hologram")
+            toast = CreateObject("roSGNode", "Toast")
+            toast.theme = theme
+            toast.message = "Queued."
+
+            space = SpacingScale()
+            surface = toast.FindNode("surface")
+            plate = toast.FindNode("plate")
+            node = toast.FindNode("node")
+            glyph = toast.FindNode("glyph")
+            m.assertEqual(surface.color, m.colour("0x00000000"))
+            m.assertTrue(plate.visible)
+            m.assertEqual(Int(plate.boxWidth), Int(surface.width))
+            m.assertEqual(Int(plate.boxHeight), Int(surface.height))
+            m.assertEqual(plate.fillColor, theme.surface)
+            m.assertEqual(plate.lineColor, "0x3FE0A599")
+            m.assertTrue(node.visible)
+            m.assertEqual(node.uri, DiscUri(theme))
+            m.assertEqual(node.blendColor, m.colour(theme.ok))
+            m.assertEqual(Int(node.width), ToastNodeSize())
+            m.assertEqual(Int(node.translation[0]), space.s4)
+            m.assertEqual(Int(glyph.translation[0]), space.s4 + ToastNodeSize() + space.s2)
+            m.assertEqual(glyph.blendColor, m.colour(theme.ok))
+            m.assertEqual(toast.FindNode("message").color, m.colour(theme.text))
+        end sub
+
+        @it("keeps every other theme's toast on a solid ground with no node")
+        sub otherToastsKeepTheirGround()
+            theme = ThemeTokens("dark")
+            toast = CreateObject("roSGNode", "Toast")
+            toast.theme = theme
+            toast.message = "Queued."
+
+            glyph = toast.FindNode("glyph")
+            m.assertEqual(toast.FindNode("surface").color, m.colour(theme.ok))
+            m.assertFalse(toast.FindNode("plate").visible)
+            m.assertFalse(toast.FindNode("node").visible)
+            m.assertEqual(glyph.blendColor, m.colour(theme.accentContrast))
+            m.assertEqual(Int(glyph.translation[0]), SpacingScale().s4)
         end sub
 
         @it("marks the toast with its kind's glyph")
@@ -495,6 +681,71 @@ namespace tests
 
             m.assertNotEqual(hard.rowOk, plain.rowOk)
             m.assertEqual(Left(hard.rowOk, 8), Left(plain.ok, 8))
+        end sub
+
+        @it("draws hologram's lines in the solid accent")
+        sub hardensHologramLines()
+            hard = ThemedTokens("hologram", true)
+
+            m.assertEqual(hard.line, hard.accent)
+            m.assertEqual(hard.lineSoft, hard.accent)
+        end sub
+
+        @it("moves every other theme's lines onto the raised border")
+        sub hardenedLinesFollowTheBorder()
+            for each name in ["dark", "light", "retro"]
+                hard = ThemedTokens(name, true)
+
+                m.assertEqual(hard.line, hard.border, name)
+                m.assertEqual(hard.lineSoft, hard.border, name)
+            end for
+        end sub
+
+        @it("flags hardened tokens, so a mark that changes in high contrast can tell")
+        sub hardenedTokensAreFlagged()
+            for each name in ThemeNames()
+                m.assertFalse(IsHardened(ThemeTokens(name)), name)
+                m.assertTrue(IsHardened(ThemedTokens(name, true)), name)
+            end for
+            m.assertFalse(IsHardened(invalid))
+        end sub
+
+        @it("dots a read-out in the accent, and in the text colour once high contrast makes its line the solid accent")
+        sub readoutDotStandsApart()
+            theme = ThemeTokens("hologram")
+            hard = ThemedTokens("hologram", true)
+            m.assertEqual(ReadoutDotColor(theme), theme.accent)
+            m.assertEqual(ReadoutDotColor(hard), hard.text)
+        end sub
+
+        @describe("texture")
+
+        @it("lays the texture in the text colour at 6% under every theme but hologram")
+        sub textureIsTextElsewhere()
+            for each name in ["dark", "light", "retro"]
+                theme = ThemeTokens(name)
+                look = TextureLook(name, theme)
+                m.assertEqual(look.tint, theme.text, name + " texture is not tinted in the text colour")
+                m.assertEqual(look.opacity, 0.06, name + " texture is not at 6%")
+            end for
+        end sub
+
+        @it("lays the hologram texture in the accent at 11%")
+        sub hologramTextureIsAccent()
+            theme = ThemeTokens("hologram")
+            look = TextureLook("hologram", theme)
+            m.assertEqual(look.tint, theme.accent)
+            m.assertEqual(look.opacity, 0.11)
+        end sub
+
+        @it("keeps the texture when high contrast hardens the theme")
+        sub textureSurvivesHighContrast()
+            for each name in ThemeNames()
+                plain = TextureLook(name, ThemeTokens(name))
+                hard = TextureLook(name, ThemedTokens(name, true))
+                m.assertEqual(hard.tint, plain.tint, name + " texture tint changes under high contrast")
+                m.assertEqual(hard.opacity, plain.opacity, name + " texture opacity changes under high contrast")
+            end for
         end sub
 
         @describe("backdrop fades")

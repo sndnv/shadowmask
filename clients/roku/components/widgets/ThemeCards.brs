@@ -60,15 +60,15 @@ sub PaintCard(parts as object, name as string, theme as object, index as integer
     parts.box.boxWidth = width
     parts.box.boxHeight = height
     parts.box.fillColor = theme.surfaceAlt
-    parts.box.lineColor = theme.border
+    parts.box.lineColor = theme.lineSoft
     if chosen then parts.box.lineColor = theme.accent
 
-    parts.ring.visible = focused
     parts.ring.boxWidth = width + SpacingScale().s2
     parts.ring.boxHeight = height + SpacingScale().s2
     parts.ring.fillColor = "0x00000000"
     parts.ring.lineColor = theme.accent
     parts.ring.translation = [- Int(SpacingScale().s2 / 2), - Int(SpacingScale().s2 / 2)]
+    parts.ring.visible = focused
 
     inner = width - CardPadding() * 2
 
@@ -87,13 +87,13 @@ sub PaintCard(parts as object, name as string, theme as object, index as integer
         left = CardPadding() + gap + at2 * (size + gap)
         swatch = parts.swatches[at2]
 
-        swatch.ring.uri = GlyphUri("disc")
+        swatch.ring.uri = DiscUri(theme)
         swatch.ring.width = size
         swatch.ring.height = size
         swatch.ring.blendColor = preview.border
         swatch.ring.translation = [left, top]
 
-        swatch.disc.uri = GlyphUri("disc")
+        swatch.disc.uri = DiscUri(theme)
         swatch.disc.width = size - edge * 2
         swatch.disc.height = size - edge * 2
         swatch.disc.blendColor = swatches[at2]

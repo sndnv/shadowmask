@@ -268,6 +268,18 @@ void main() {
     expect(await const ThemeStore().load(), AppThemeVariant.light);
   });
 
+  testWidgets('the hologram theme is written to the store and read back', (
+    WidgetTester tester,
+  ) async {
+    await _pumpConfigured(tester);
+
+    _theme(tester).setVariant(AppThemeVariant.hologram);
+    await tester.pumpAndSettle();
+
+    expect(_theme(tester).variant, AppThemeVariant.hologram);
+    expect(await const ThemeStore().load(), AppThemeVariant.hologram);
+  });
+
   testWidgets('choosing the theme already in use writes nothing', (
     WidgetTester tester,
   ) async {

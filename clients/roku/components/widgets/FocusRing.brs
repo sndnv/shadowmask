@@ -6,6 +6,7 @@ sub init()
         m.top.FindNode("left"),
         m.top.FindNode("right")
     ]
+    m.brackets = m.top.FindNode("brackets")
 end sub
 
 sub render()
@@ -35,6 +36,23 @@ sub render()
         edge.height = layout[index].height
         edge.translation = layout[index].translation
         edge.color = color
+    end for
+
+    RenderBrackets(Int(width), Int(height))
+end sub
+
+sub RenderBrackets(width as integer, height as integer)
+    m.brackets.visible = m.top.brackets
+    if not m.brackets.visible then return
+
+    rects = BracketRects(width, height)
+    for index = 0 to rects.Count() - 1
+        rect = rects[index]
+        arm = m.brackets.GetChild(index)
+        arm.translation = [rect[0], rect[1]]
+        arm.width = rect[2]
+        arm.height = rect[3]
+        arm.color = m.top.bracketColor
     end for
 end sub
 

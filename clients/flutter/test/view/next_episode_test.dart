@@ -71,6 +71,26 @@ void main() {
     );
   });
 
+  test('the resume point is the progress of an episode that has some', () {
+    expect(nextEpisodeResume(null), isNull);
+    expect(
+      nextEpisodeResume((
+        episode: _episode('e1', 1),
+        season: 1,
+        progressPercent: 0,
+      )),
+      isNull,
+    );
+    expect(
+      nextEpisodeResume((
+        episode: _episode('e3', 3),
+        season: 2,
+        progressPercent: 40,
+      )),
+      40,
+    );
+  });
+
   test('the caption names the episode, after its season where asked', () {
     final NextEpisode titled = (
       episode: const Episode(

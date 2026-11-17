@@ -1,8 +1,10 @@
 import 'package:material_ui/material_ui.dart';
 
 import 'package:shadowmask/components/page_actions.dart';
+import 'package:shadowmask/components/tab_heading.dart';
 import 'package:shadowmask/theme/breakpoints.dart';
-import 'package:shadowmask/theme/radii.dart';
+import 'package:shadowmask/theme/shapes.dart';
+import 'package:shadowmask/theme/shapes_context.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
@@ -45,33 +47,41 @@ class SectionBlock extends StatelessWidget {
 
   bool get _hasActions => actions.isNotEmpty || actionItems.isNotEmpty;
 
-  Widget _header(BuildContext context, double width, bool narrow) => Wrap(
-    alignment: WrapAlignment.spaceBetween,
-    crossAxisAlignment: WrapCrossAlignment.center,
-    runAlignment: WrapAlignment.center,
-    spacing: Space.s3,
-    runSpacing: Space.s2,
-    children: <Widget>[
-      ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: width),
-        child: Text(
-          title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: Theme.of(context).textTheme.headlineMedium,
+  Widget _header(BuildContext context, double width, bool narrow) => TabRule(
+    child: Wrap(
+      alignment: WrapAlignment.spaceBetween,
+      crossAxisAlignment: context.shapes.cut
+          ? WrapCrossAlignment.end
+          : WrapCrossAlignment.center,
+      runAlignment: context.shapes.cut
+          ? WrapAlignment.end
+          : WrapAlignment.center,
+      spacing: Space.s3,
+      runSpacing: Space.s2,
+      children: <Widget>[
+        ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: width),
+          child: TabHeading(
+            title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
         ),
-      ),
-      if (_hasActions)
-        Wrap(
-          spacing: Space.s2,
-          runSpacing: Space.s2,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: <Widget>[
-            ...actions,
-            ...pageActionButtons(context, actionItems, iconOnly: narrow),
-          ],
-        ),
-    ],
+        if (_hasActions)
+          Padding(
+            padding: EdgeInsets.only(bottom: tabRuleGap(context)),
+            child: Wrap(
+              spacing: Space.s2,
+              runSpacing: Space.s2,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: <Widget>[
+                ...actions,
+                ...pageActionButtons(context, actionItems, iconOnly: narrow),
+              ],
+            ),
+          ),
+      ],
+    ),
   );
 
   @override
@@ -102,10 +112,10 @@ class SectionBlock extends StatelessWidget {
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(Space.s4),
-            decoration: BoxDecoration(
-              color: t.surface,
-              borderRadius: const BorderRadius.all(Radii.md),
-              border: Border.all(color: t.border),
+            decoration: context.shapes.box(
+              Corners.panel,
+              color: context.shapes.panel(t.surface),
+              side: BorderSide(color: context.shapes.line(t.border)),
             ),
             child: child,
           )

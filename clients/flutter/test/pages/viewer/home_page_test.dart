@@ -19,6 +19,8 @@ import 'package:shadowmask/theme/theme_scope.dart';
 import 'package:shadowmask/view/catalog_card.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../support/shape_guard.dart';
+
 Map<String, dynamic> _episode(String id) => <String, dynamic>{
   'type': 'episode',
   'id': id,
@@ -112,6 +114,7 @@ Future<void> _pump(
   bool secondVersion = false,
   bool upNext = false,
   bool queued = false,
+  AppThemeVariant variant = AppThemeVariant.dark,
 }) async {
   tester.view.physicalSize = const Size(1400, 1600);
   tester.view.devicePixelRatio = 1;
@@ -220,10 +223,10 @@ Future<void> _pump(
 
   await tester.pumpWidget(
     ThemeScope(
-      variant: AppThemeVariant.dark,
+      variant: variant,
       setVariant: (_) {},
       child: MaterialApp(
-        theme: buildTheme(AppThemeVariant.dark),
+        theme: buildTheme(variant),
         navigatorObservers: <NavigatorObserver>[appRouteObserver],
         onGenerateRoute: (RouteSettings s) {
           if (s.name != null && s.name != '/') {
@@ -247,6 +250,22 @@ void main() {
     _hubCalls = 0;
     _pushedRoute = null;
   });
+
+  for (final AppThemeVariant variant in AppThemeVariant.values) {
+    testWidgets('home draws the ${variant.name} shapes', (
+      WidgetTester tester,
+    ) async {
+      await _pump(
+        tester,
+        watchlist: true,
+        resuming: true,
+        upNext: true,
+        variant: variant,
+      );
+
+      expectShapesOf(tester, variant);
+    });
+  }
 
   testWidgets('the queue\'s next title leads Up next and plays in queue mode', (
     WidgetTester tester,

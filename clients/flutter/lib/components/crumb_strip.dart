@@ -6,6 +6,7 @@ import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/nav/open_section.dart';
 import 'package:shadowmask/theme/app_menu.dart';
 import 'package:shadowmask/theme/breakpoints.dart';
+import 'package:shadowmask/theme/shapes_context.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
 
@@ -85,9 +86,11 @@ class CrumbStrip extends StatelessWidget {
       c.label,
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
-      style: TextStyle(
-        color: isLink ? t.accent : t.muted,
-        fontWeight: isLink ? FontWeight.w600 : FontWeight.w400,
+      style: context.shapes.mono(
+        TextStyle(
+          color: isLink ? t.accent : t.muted,
+          fontWeight: isLink ? FontWeight.w600 : FontWeight.w400,
+        ),
       ),
     );
     if (isLink) {
@@ -125,7 +128,7 @@ class _HiddenCrumbsState extends State<_HiddenCrumbs> {
     return MenuAnchor(
       controller: _controller,
       alignmentOffset: kMenuOffset,
-      style: appMenuStyle(t),
+      style: appMenuStyle(context),
       menuChildren: <Widget>[
         for (final Crumb c in widget.hidden)
           MenuOption(

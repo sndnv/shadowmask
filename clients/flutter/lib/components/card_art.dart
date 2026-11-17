@@ -2,7 +2,8 @@ import 'package:material_ui/material_ui.dart';
 
 import 'package:shadowmask/components/remote_image.dart';
 import 'package:shadowmask/model/common/artwork.dart';
-import 'package:shadowmask/theme/radii.dart';
+import 'package:shadowmask/theme/shapes.dart';
+import 'package:shadowmask/theme/shapes_context.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
 import 'package:shadowmask/view/card_aspect.dart';
@@ -16,7 +17,7 @@ class CardArt extends StatelessWidget {
     required this.aspect,
     required this.imageBase,
     this.mosaic = false,
-    this.borderRadius = const BorderRadius.all(Radii.md),
+    this.corner = Corners.card,
     this.width,
   });
 
@@ -24,7 +25,7 @@ class CardArt extends StatelessWidget {
   final CardAspect aspect;
   final String imageBase;
   final bool mosaic;
-  final BorderRadius borderRadius;
+  final Corner corner;
   final double? width;
 
   double get _ratio => aspect == CardAspect.landscape ? 16 / 9 : 2 / 3;
@@ -39,8 +40,8 @@ class CardArt extends StatelessWidget {
     final bool shown = TickerMode.valuesOf(context).enabled;
     return AspectRatio(
       aspectRatio: _ratio,
-      child: ClipRRect(
-        borderRadius: borderRadius,
+      child: context.shapes.clip(
+        corner,
         child: ColoredBox(
           color: t.artBg,
           child: shown ? _content(t, pixels) : _loading(t),

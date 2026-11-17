@@ -27,6 +27,7 @@ abstract final class Strings {
   static const String themeDark = 'Dark';
   static const String themeLight = 'Light';
   static const String themeRetro = 'Retro';
+  static const String themeHologram = 'Hologram';
   static const String highContrast = 'High contrast';
   static const String highContrastHelp =
       'Strengthens borders and brings secondary text up to full strength. '
@@ -540,6 +541,9 @@ abstract final class Strings {
       'chosen: it follows from the format of the original and whether it is '
       'being rebuilt.';
   static const String playerContainerNone = 'none';
+  static const String playerStream = 'Stream';
+  static const String playerOn = 'On';
+  static const String playerOff = 'Off';
   static const String playerUnmute = 'Sound is off, turn it on';
   static const String playerLoading = 'Loading';
   static const String playerBuffering = 'Buffering';

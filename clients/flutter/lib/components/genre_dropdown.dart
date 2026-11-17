@@ -57,7 +57,7 @@ class _GenreDropdownState extends State<GenreDropdown> {
       onOpen: () => setState(() => _menuOpen = true),
       onClose: () => setState(() => _menuOpen = false),
       alignmentOffset: kMenuOffset,
-      style: appMenuStyle(t),
+      style: appMenuStyle(context),
       menuChildren: <Widget>[
         ConstrainedBox(
           constraints: const BoxConstraints(maxHeight: 320, minWidth: 220),

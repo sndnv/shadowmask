@@ -272,6 +272,34 @@ void main() {
     expect(_note('Up next: S02E01 · Part 1'), findsOneWidget);
   });
 
+  testWidgets('the poster resumes from the episode in progress', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      _api(watchedSeasons: <String>{'se1'}, inProgress: 'se2e1'),
+    );
+
+    final PosterPlay poster = tester.widget<PosterPlay>(
+      find.byType(PosterPlay),
+    );
+    expect(poster.resumePercent, 40);
+    expect(poster.progressPercent, isNull);
+    expect(poster.label, Strings.resume(40));
+  });
+
+  testWidgets('the poster plays when nothing is in progress', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, _api());
+
+    final PosterPlay poster = tester.widget<PosterPlay>(
+      find.byType(PosterPlay),
+    );
+    expect(poster.resumePercent, isNull);
+    expect(poster.label, Strings.play);
+  });
+
   testWidgets('a phone plays the series from its button', (
     WidgetTester tester,
   ) async {

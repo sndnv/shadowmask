@@ -21,6 +21,8 @@ import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/view/catalog_card.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../support/shape_guard.dart';
+
 const TitleRef _ref = TitleRef(type: TitleKind.movie, id: 'm1');
 
 ItemState _state(TitleKind kind) => ItemState(
@@ -242,6 +244,22 @@ void main() {
     expect(at.right, 700);
     expect(at.bottom, 600);
   });
+
+  for (final AppThemeVariant variant in AppThemeVariant.values) {
+    testWidgets('an open card menu draws the ${variant.name} shapes', (
+      WidgetTester tester,
+    ) async {
+      await _open(
+        tester,
+        _card(stateKnown: true),
+        <String>[],
+        variant: variant,
+      );
+
+      expect(find.byType(PopupMenuItem<CardAction>), findsWidgets);
+      expectShapesOf(tester, variant);
+    });
+  }
 
   testWidgets('a card the page already tagged opens without a round trip', (
     WidgetTester tester,
@@ -747,6 +765,7 @@ Future<void> _open(
   VoidCallback? onDismiss,
   PlaylistApi? playlists,
   void Function(CardAction action)? onChanged,
+  AppThemeVariant variant = AppThemeVariant.dark,
 }) async {
   final CatalogApi catalog = CatalogApi(
     ApiClient(
@@ -759,7 +778,7 @@ Future<void> _open(
   );
   await tester.pumpWidget(
     MaterialApp(
-      theme: buildTheme(AppThemeVariant.dark),
+      theme: buildTheme(variant),
       builder: (BuildContext context, Widget? child) =>
           ToastHost(child: child!),
       home: Scaffold(

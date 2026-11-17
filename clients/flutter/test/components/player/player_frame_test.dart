@@ -8,6 +8,8 @@ import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
 import 'package:shadowmask/view/player_shortcuts.dart';
 
+import '../../support/shape_guard.dart';
+
 MouseCursor _videoCursor(WidgetTester tester) => tester
     .widgetList<MouseRegion>(find.byType(MouseRegion))
     .firstWhere((MouseRegion r) => r.onHover != null)
@@ -54,13 +56,14 @@ Future<void> _pump(
   bool playing = true,
   bool keepVisible = false,
   Widget overlay = const SizedBox(key: Key('overlay'), height: 40),
+  AppThemeVariant variant = AppThemeVariant.dark,
 }) async {
   tester.view.physicalSize = box;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(
     MaterialApp(
-      theme: buildTheme(AppThemeVariant.dark),
+      theme: buildTheme(variant),
       home: Scaffold(
         body: MediaQuery(
           data: MediaQueryData(size: box, padding: safeArea),
@@ -137,6 +140,30 @@ double _badgeOpacity(WidgetTester tester, IconData icon) => tester
     .opacity;
 
 void main() {
+  for (final AppThemeVariant variant in AppThemeVariant.values) {
+    testWidgets('the player frame draws the ${variant.name} shapes', (
+      WidgetTester tester,
+    ) async {
+      await _pump(
+        tester,
+        fullscreen: false,
+        view: const SizedBox.expand(),
+        playing: false,
+        variant: variant,
+      );
+      expectShapesOf(tester, variant);
+
+      await _pump(
+        tester,
+        fullscreen: false,
+        view: const SizedBox.expand(),
+        waiting: Strings.playerKeepWaiting,
+        variant: variant,
+      );
+      expectShapesOf(tester, variant);
+    });
+  }
+
   testWidgets('a windowed frame is no taller than the picture it holds', (
     WidgetTester tester,
   ) async {
@@ -323,6 +350,24 @@ void main() {
 
     expect(_videoCursor(tester), MouseCursor.defer);
   });
+
+  for (final AppThemeVariant variant in AppThemeVariant.values) {
+    final Size most = variant == AppThemeVariant.hologram
+        ? const Size(480, 480)
+        : const Size(340, 360);
+    testWidgets('a ${variant.name} settings panel is at most '
+        '${most.width} by ${most.height}', (WidgetTester tester) async {
+      await _pump(
+        tester,
+        fullscreen: true,
+        view: const _View(),
+        variant: variant,
+        settings: const SizedBox(key: Key('panel'), width: 900, height: 700),
+      );
+
+      expect(tester.getSize(find.byKey(const Key('panel'))), most);
+    });
+  }
 
   testWidgets('a settings panel stays inside the stage on a phone', (
     WidgetTester tester,

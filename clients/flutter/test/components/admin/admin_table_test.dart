@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -10,14 +12,19 @@ import 'package:shadowmask/theme/app_theme_variant.dart';
 import 'package:shadowmask/theme/theme_scope.dart';
 
 import '../../support/finders.dart';
+import '../../support/raster.dart';
 
-Future<void> _pump(WidgetTester tester, Widget child) async {
+Future<void> _pump(
+  WidgetTester tester,
+  Widget child, {
+  AppThemeVariant variant = AppThemeVariant.dark,
+}) async {
   await tester.pumpWidget(
     ThemeScope(
-      variant: AppThemeVariant.dark,
+      variant: variant,
       setVariant: (_) {},
       child: MaterialApp(
-        theme: buildTheme(AppThemeVariant.dark),
+        theme: buildTheme(variant),
         home: Scaffold(body: SizedBox(width: 1000, child: child)),
       ),
     ),
@@ -492,6 +499,62 @@ void main() {
     expect(deleted, 1);
 
     semantics.dispose();
+  });
+
+  testWidgets('a hologram table draws its edge over the header at the cut', (
+    WidgetTester tester,
+  ) async {
+    const Key frame = ValueKey<String>('frame');
+    await _pump(
+      tester,
+      RepaintBoundary(
+        key: frame,
+        child: AdminTable<String>(
+          columns: _columns(),
+          rows: const <String>['apple'],
+          emptyText: 'None',
+        ),
+      ),
+      variant: AppThemeVariant.hologram,
+    );
+    const Tokens t = Tokens.hologram;
+    final double step = 0.5 / math.sqrt2;
+
+    final List<Color> pixels = await pixelsAt(
+      tester,
+      find.byKey(frame),
+      <Offset>[Offset(7 + step, 7 + step)],
+    );
+
+    expect(
+      pixels.single,
+      isPixel(Color.alphaBlend(t.accent.withValues(alpha: 0.62), t.surfaceAlt)),
+    );
+  });
+
+  testWidgets('a rounded table keeps its border under the content', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      AdminTable<String>(
+        columns: _columns(),
+        rows: const <String>['apple'],
+        emptyText: 'None',
+      ),
+    );
+
+    final Container frame = tester.widget<Container>(
+      find
+          .descendant(
+            of: find.byType(AdminTable<String>),
+            matching: find.byType(Container),
+          )
+          .first,
+    );
+
+    expect(frame.foregroundDecoration, isNull);
+    expect((frame.decoration! as BoxDecoration).border, isNotNull);
   });
 
   _priorityColumnTests();

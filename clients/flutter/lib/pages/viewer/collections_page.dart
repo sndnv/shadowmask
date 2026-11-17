@@ -230,10 +230,8 @@ class _CollectionDetailBodyState extends State<_CollectionDetailBody> {
             ],
             const SizedBox(height: Space.s5),
             SectionHeading(
-              title: Strings.countedHeading(
-                Strings.moviesHeading,
-                data.$2.length,
-              ),
+              title: Strings.moviesHeading,
+              count: data.$2.isEmpty ? null : data.$2.length,
               trailing: data.$2.isEmpty
                   ? null
                   : RandomButton(

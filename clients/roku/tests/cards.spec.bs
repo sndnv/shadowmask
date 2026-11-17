@@ -3,6 +3,12 @@ namespace tests
     @suite("cards")
     class CardTests extends rooibos.BaseTestSuite
 
+        function colour(value as string) as dynamic
+            probe = CreateObject("roSGNode", "Rectangle")
+            probe.color = value
+            return probe.color
+        end function
+
         function posterArt(id as string) as object
             return { posters: [{ base: "/images/" + id, widths: [180, 480] }] }
         end function
@@ -564,6 +570,100 @@ namespace tests
         sub cutsAPeekAtTheEdge()
             margin = SpacingScale().s4 \ 2
             m.assertEqual(FocusClipRect(1724, 845, true), [- margin, 0, 1724 + margin, 845])
+        end sub
+
+        @describe("brackets")
+
+        @it("grows a focused card in every theme but hologram, where brackets mark the focus")
+        sub onlyRoundedCardsGrow()
+            for each name in ThemeNames()
+                theme = ThemeTokens(name)
+                m.assertEqual(CardGrows(theme, true), name <> "hologram", name)
+                m.assertFalse(CardGrows(theme, false), name)
+                m.assertEqual(CardBrackets(theme, true), name = "hologram", name)
+                m.assertFalse(CardBrackets(theme, false), name)
+            end for
+        end sub
+
+        @it("keeps the brackets in the room a grown card takes, so they never reach the next card")
+        sub bracketsStayInTheRoom()
+            m.assertTrue(BracketReach() < SpacingScale().s4 \ 2)
+            m.assertTrue(BracketReach() <= FocusRoom(RailCardWidth(), 400, SpacingScale().s4).x)
+            m.assertEqual(BracketStroke(), BorderThickness() * 2)
+        end sub
+
+        @it("puts each bracket's two arms on its corner, outside the card by the reach")
+        sub bracketsSitOnTheCorners()
+            reach = BracketReach()
+            arm = BracketArm()
+            stroke = BracketStroke()
+            rects = BracketRects(100, 50)
+
+            m.assertEqual(rects.Count(), 8)
+            m.assertEqual(rects[0], [- reach, - reach, arm, stroke])
+            m.assertEqual(rects[1], [- reach, - reach, stroke, arm])
+            m.assertEqual(rects[2], [100 + reach - arm, - reach, arm, stroke])
+            m.assertEqual(rects[3], [100 + reach - stroke, - reach, stroke, arm])
+            m.assertEqual(rects[4], [- reach, 50 + reach - stroke, arm, stroke])
+            m.assertEqual(rects[5], [- reach, 50 + reach - arm, stroke, arm])
+            m.assertEqual(rects[6], [100 + reach - arm, 50 + reach - stroke, arm, stroke])
+            m.assertEqual(rects[7], [100 + reach - stroke, 50 + reach - arm, stroke, arm])
+        end sub
+
+        @it("draws the brackets on a focus ring only when asked, in the colour given")
+        sub focusRingDrawsBrackets()
+            theme = ThemeTokens("hologram")
+            ring = CreateObject("roSGNode", "FocusRing")
+            ring.theme = theme
+            ring.ringWidth = 100
+            ring.ringHeight = 50
+
+            group = ring.FindNode("brackets")
+            m.assertFalse(group.visible)
+
+            ring.bracketColor = theme.accent
+            ring.brackets = true
+
+            rects = BracketRects(100, 50)
+            m.assertTrue(group.visible)
+            m.assertEqual(group.GetChildCount(), rects.Count())
+            for index = 0 to rects.Count() - 1
+                arm = group.GetChild(index)
+                m.assertEqual([Int(arm.translation[0]), Int(arm.translation[1]), Int(arm.width), Int(arm.height)], rects[index], "arm " + index.ToStr())
+                m.assertEqual(arm.color, m.colour(theme.accent), "arm " + index.ToStr())
+            end for
+
+            ring.brackets = false
+            m.assertFalse(group.visible)
+        end sub
+
+        @it("opens the cast rail's clip by the bracket reach under hologram only")
+        sub castClipMakesRoomForBrackets()
+            reach = BracketReach()
+            m.assertEqual(CastClipRect(800, 300, ThemeTokens("hologram")), [- reach, - reach, 800 + reach * 2, 300 + reach * 2])
+            m.assertEqual(CastClipRect(800, 300, ThemeTokens("dark")), [0, 0, 800, 300])
+        end sub
+
+        @describe("segment strip")
+
+        @it("fills the progress to the exact percent, so a segment can be part lit")
+        sub progressFillsToThePercent()
+            m.assertEqual(ProgressFillWidth(200, 37), 74.0)
+            m.assertEqual(ProgressFillWidth(201, 50), 100.5)
+            m.assertEqual(ProgressFillWidth(200, 150), 200.0)
+            m.assertEqual(ProgressFillWidth(200, -5), 0.0)
+        end sub
+
+        @it("keeps the track at 26% of the accent, even in high contrast where the soft line turns solid")
+        sub segmentTrackStaysSoft()
+            m.assertEqual(SegmentTrackColor(ThemeTokens("hologram")), "0x45B8FF42")
+            m.assertEqual(SegmentTrackColor(ThemedTokens("hologram", true)), "0x45B8FF42")
+        end sub
+
+        @it("bakes the strip wider than the screen, so no card stretches it")
+        sub segmentStripCoversAnyCard()
+            m.assertTrue(SegmentStripWidth() >= CanvasWidth())
+            m.assertEqual(SegmentStripHeight(), 8)
         end sub
 
         @describe("ColumnsThatFit")

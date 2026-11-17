@@ -52,7 +52,7 @@ void main() {
     expectSettingRow(tester, Strings.highContrast, Strings.highContrastHelp);
   });
 
-  testWidgets('shows all three themes as choices', (WidgetTester tester) async {
+  testWidgets('shows all four themes as choices', (WidgetTester tester) async {
     await tester.pumpWidget(
       _host(variant: AppThemeVariant.dark, onSet: (_) {}),
     );
@@ -60,6 +60,24 @@ void main() {
     expect(find.text(Strings.themeDark), findsOneWidget);
     expect(find.text(Strings.themeLight), findsOneWidget);
     expect(find.text(Strings.themeRetro), findsOneWidget);
+    expect(find.text(Strings.themeHologram), findsOneWidget);
+  });
+
+  testWidgets('tapping hologram sets that variant', (
+    WidgetTester tester,
+  ) async {
+    AppThemeVariant? picked;
+    await tester.pumpWidget(
+      _host(
+        variant: AppThemeVariant.dark,
+        onSet: (AppThemeVariant v) => picked = v,
+      ),
+    );
+
+    await tester.tap(find.text(Strings.themeHologram));
+    await tester.pump();
+
+    expect(picked, AppThemeVariant.hologram);
   });
 
   testWidgets('tapping a theme sets that variant', (WidgetTester tester) async {

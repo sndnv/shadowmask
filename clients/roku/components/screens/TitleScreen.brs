@@ -143,13 +143,15 @@ end function
 
 function HeroContent() as object
     target = m.top.target
+    facts = HeroFacts()
 
     return {
         aspect: PosterAspect(),
         imageUri: HeroImageUri(),
         placeholderUri: CardPlaceholderUri(target),
         heading: TitleText(),
-        facts: FactsText(HeroFacts()),
+        facts: FactsText(facts),
+        factList: facts,
         crewButtons: CrewBar(),
         genreChips: GenreChipList(ValueAt(m.detail, "genres", invalid)),
         ratingChips: RatingChipList(ValueAt(m.detail, "ratings", invalid)),
@@ -216,8 +218,8 @@ sub LayoutSeasons(theme as object, width as integer)
     end if
 
     space = SpacingScale()
-    headingHeight = SectionHeadingHeight()
-    DrawSectionHeading(m.seasonsHeading, theme, CountedHeading(Phrase("heading.seasons"), RegularSeasonCount(m.seasonCards)), width)
+    headingHeight = SectionHeadingHeight(theme)
+    DrawSectionTab(m.seasonsHeading, theme, Phrase("heading.seasons"), HeadingCount(RegularSeasonCount(m.seasonCards)), width)
 
     if m.seasonCards.Count() = 0
         m.seasons.visible = false
@@ -715,7 +717,7 @@ sub AskForVersion()
         labels.Push(row.label)
     end for
 
-    m.top.choiceRequest = { field: "version", title: Phrase("detail.chooseVersion"), kind: "choice", options: labels, selected: 0 }
+    m.top.choiceRequest = { field: "version", title: Phrase("detail.chooseVersion"), kind: "choice", options: labels, selected: 0, caps: true }
 end sub
 
 sub onChoice()

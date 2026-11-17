@@ -1,7 +1,8 @@
 import 'package:material_ui/material_ui.dart';
 
 import 'package:shadowmask/theme/app_theme.dart';
-import 'package:shadowmask/theme/radii.dart';
+import 'package:shadowmask/theme/shapes.dart';
+import 'package:shadowmask/theme/shapes_context.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
 
@@ -15,10 +16,7 @@ class CountPill extends StatelessWidget {
     final Tokens t = context.tokens;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1),
-      decoration: BoxDecoration(
-        color: t.accent,
-        borderRadius: const BorderRadius.all(Radii.pill),
-      ),
+      decoration: context.shapes.box(Corners.badge, color: t.accent),
       child: Text(
         '$count',
         style: monoStyle.copyWith(

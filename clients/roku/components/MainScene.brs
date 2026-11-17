@@ -55,7 +55,6 @@ sub init()
     m.texture.uri = "pkg:/images/hex-texture.png"
     m.texture.width = CanvasWidth()
     m.texture.height = CanvasHeight()
-    m.texture.opacity = TextureOpacity()
 
     m.rail.ObserveField("selected", "onNavSelected")
     m.rail.ObserveField("dismissed", "onNavDismissed")
@@ -171,7 +170,9 @@ sub ApplyTheme()
     m.theme = ThemedTokens(m.themeName, m.highContrast)
     m.global.theme = m.theme
     m.background.color = m.theme.bg
-    m.texture.blendColor = m.theme.text
+    look = TextureLook(m.themeName, m.theme)
+    m.texture.blendColor = look.tint
+    m.texture.opacity = look.opacity
 
     space = SpacingScale()
     m.rail.theme = m.theme
@@ -553,13 +554,13 @@ sub RenderNavHint()
 
     edge = BorderThickness()
 
-    m.navHintRing.uri = GlyphUri("ring")
+    m.navHintRing.uri = RingUri(m.theme)
     m.navHintRing.width = disc
     m.navHintRing.height = disc
-    m.navHintRing.blendColor = m.theme.border
+    m.navHintRing.blendColor = m.theme.line
     m.navHintRing.translation = [0, 0]
 
-    m.navHintDisc.uri = GlyphUri("disc")
+    m.navHintDisc.uri = DiscUri(m.theme)
     m.navHintDisc.width = disc - edge * 2
     m.navHintDisc.height = disc - edge * 2
     m.navHintDisc.blendColor = m.theme.surfaceAlt

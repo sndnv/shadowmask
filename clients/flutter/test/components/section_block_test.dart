@@ -2,22 +2,29 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shadowmask/components/page_actions.dart';
 import 'package:shadowmask/components/section_block.dart';
+import 'package:shadowmask/components/tab_heading.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
+import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/theme_scope.dart';
 
-Future<void> _pump(WidgetTester tester, Size size) async {
+Future<void> _pump(
+  WidgetTester tester,
+  Size size, {
+  AppThemeVariant variant = AppThemeVariant.dark,
+  MaterialTapTargetSize tapTarget = MaterialTapTargetSize.padded,
+}) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
 
   await tester.pumpWidget(
     ThemeScope(
-      variant: AppThemeVariant.dark,
+      variant: variant,
       setVariant: (_) {},
       child: MaterialApp(
-        theme: buildTheme(AppThemeVariant.dark),
+        theme: buildTheme(variant).copyWith(materialTapTargetSize: tapTarget),
         home: Scaffold(
           body: SectionBlock(
             title: 'Versions',
@@ -64,7 +71,117 @@ Future<void> _pumpItems(
   );
 }
 
+Finder _actions() =>
+    find.ancestor(of: find.text('Rescan'), matching: find.byType(Wrap)).first;
+
 void main() {
+  testWidgets('hologram heads a block with a tab over a rule', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      const Size(1200, 800),
+      variant: AppThemeVariant.hologram,
+    );
+
+    expect(
+      find.descendant(
+        of: find.byType(TabRule),
+        matching: find.byType(TabHeading),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('VERSIONS'), findsOneWidget);
+    expect(find.text('Rescan'), findsOneWidget);
+    expect(
+      tester.getBottomLeft(find.byType(TabHeading)).dy,
+      tester.getBottomLeft(find.byType(TabRule)).dy,
+    );
+  });
+
+  for (final MaterialTapTargetSize tapTarget in MaterialTapTargetSize.values) {
+    testWidgets('hologram lifts the buttons off the rule (${tapTarget.name})', (
+      WidgetTester tester,
+    ) async {
+      await _pump(
+        tester,
+        const Size(1200, 800),
+        variant: AppThemeVariant.hologram,
+        tapTarget: tapTarget,
+      );
+      final Finder button = find
+          .descendant(
+            of: find.widgetWithText(OutlinedButton, 'Rescan'),
+            matching: find.byType(Material),
+          )
+          .first;
+
+      expect(
+        tester.getBottomLeft(button).dy,
+        tester.getBottomLeft(find.byType(TabRule)).dy - Space.s1,
+      );
+    });
+  }
+
+  testWidgets('a touch header spends no more height than its tap area', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      const Size(1200, 800),
+      variant: AppThemeVariant.hologram,
+    );
+
+    expect(
+      tester.getSize(find.byType(TabRule)).height,
+      tester.getSize(_actions()).height,
+    );
+  });
+
+  testWidgets('the other themes centre the actions on the title', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      const Size(1200, 800),
+      tapTarget: MaterialTapTargetSize.shrinkWrap,
+    );
+
+    expect(
+      tester.getCenter(_actions()).dy,
+      tester.getCenter(find.byType(TabHeading)).dy,
+    );
+  });
+
+  testWidgets('hologram keeps the tab on its rule in a taller header', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      ThemeScope(
+        variant: AppThemeVariant.hologram,
+        setVariant: (_) {},
+        child: MaterialApp(
+          theme: buildTheme(AppThemeVariant.hologram),
+          home: const Scaffold(
+            body: SectionHeaderHeight(
+              minHeight: 48,
+              child: SectionBlock(title: 'Profile', child: Text('body')),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(tester.getSize(find.byType(TabRule)).height, 48);
+    expect(
+      tester.getBottomLeft(find.byType(TabHeading)).dy,
+      tester.getBottomLeft(find.byType(TabRule)).dy,
+    );
+  });
+
   testWidgets('a wide block keeps the title and actions on one line', (
     WidgetTester tester,
   ) async {

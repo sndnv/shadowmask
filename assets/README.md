@@ -107,6 +107,24 @@ because each platform masks differently.
 - `glyphs/chip-cap-{left,right}-line.svg` - the outline halves of a chip, a 3px stroked arc with no
   fill, sitting over the solid caps below. The straight top and bottom of the stroke are `Rectangle`
   nodes in the client, so only the curved ends need artwork.
+- `glyphs/cut-{fill,line,focus}.9.svg` - the Hologram theme's control shape, the nine-patches
+  above with the top-left and bottom-right corners cut instead of rounded. Same sizes, interiors
+  and markers, so the fixed corners stay 10 (13 for the focus ring). The cut is 8: at 10 the 3px
+  outline's diagonal would reach into the stretched middle and thicken the stretched edges. The
+  focus band's inner edge is the button's outline, as with the rounded ring.
+- `glyphs/chip-cut-{left,right}{,-line}.svg` - the Hologram theme's chip ends: the left cap cut at
+  the top left, the right cap at the bottom right, 13 of the 48px height (8 at the chip's drawn
+  height). Fill and 3px outline, like the rounded caps.
+- `glyphs/hex-{disc,ring}.svg` and `glyphs/watched-hex-{disc,ring}.svg` - the Hologram theme's
+  circles: a flat-topped regular hexagon filling the square's width, like Flutter's `round()`
+  hexagon. The disc, the 3px ring and the watched marker pair, drawn the same way as the round
+  ones (the check knocked out of the disc).
+- `glyphs/segment-strip.svg` - the Hologram theme's segmented progress bar: white segments 8px
+  wide with 3px gaps, 8px tall, across 1920px. The client draws it unscaled, tinted, and clipped to
+  the card's width for the track and to the percent for the fill.
+- `glyphs/tab-slant.svg` - the Hologram theme's tab header slant: a white right triangle, 20x33,
+  from the top-left corner to the bottom-right. The client draws it at that size, tinted, after the
+  tab's body.
 - `glyphs/icon-versions.svg` - the version button beside Play on a movie or episode, three lines
   and a play mark like Flutter's `Icons.playlist_play`. Authored here for the same licence reason as
   the rest.

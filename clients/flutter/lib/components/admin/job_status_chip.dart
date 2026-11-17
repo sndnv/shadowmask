@@ -1,8 +1,10 @@
 import 'package:material_ui/material_ui.dart';
 
+import 'package:shadowmask/components/status_node.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/model/job/job.dart';
-import 'package:shadowmask/theme/radii.dart';
+import 'package:shadowmask/theme/shapes.dart';
+import 'package:shadowmask/theme/shapes_context.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
@@ -32,22 +34,27 @@ class JobStatusChip extends StatelessWidget {
       JobStatus.failed => (t.danger, t.dangerBg, Strings.statusFailed),
       JobStatus.cancelled => (t.muted, t.surfaceAlt, Strings.statusCancelled),
     };
+    final Shapes shapes = context.shapes;
+    final TextStyle? style = Theme.of(context).textTheme.labelSmall?.copyWith(
+      color: shapes.cut ? t.text : fg,
+      fontWeight: FontWeight.w600,
+    );
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: Space.s2,
+      padding: EdgeInsets.symmetric(
+        horizontal: shapes.cut ? 0 : Space.s2,
         vertical: Space.s1,
       ),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: const BorderRadius.all(Radii.sm),
-      ),
-      child: Text(
-        label,
-        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-          color: fg,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
+      decoration: shapes.cut ? null : shapes.box(Corners.tag, color: bg),
+      child: shapes.cut
+          ? Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                StatusNode(color: fg),
+                const SizedBox(width: Space.s2),
+                Text(label, style: style),
+              ],
+            )
+          : Text(label, style: style),
     );
   }
 }

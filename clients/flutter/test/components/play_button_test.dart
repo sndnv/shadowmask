@@ -9,6 +9,7 @@ import 'package:shadowmask/api/catalog_api.dart';
 import 'package:shadowmask/api/playback_api.dart';
 import 'package:shadowmask/components/play_button.dart';
 import 'package:shadowmask/components/play_on_button.dart';
+import 'package:shadowmask/components/resume_ring.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/model/auth/play_on_device.dart';
 import 'package:shadowmask/model/catalog/version.dart';
@@ -17,6 +18,8 @@ import 'package:shadowmask/model/common/title_ref.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/radii.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
+import 'package:shadowmask/theme/shapes.dart';
+import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/view/play_target.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -73,6 +76,7 @@ Future<_Pushes> _pump(
   List<String>? cleared,
   PlayOnServer? server,
   bool Function()? feedDown,
+  AppThemeVariant variant = AppThemeVariant.dark,
 }) async {
   final ApiClient api = ApiClient(
     baseUrl: 'http://test',
@@ -106,7 +110,7 @@ Future<_Pushes> _pump(
   final _Pushes pushes = _Pushes();
   await tester.pumpWidget(
     MaterialApp(
-      theme: buildTheme(AppThemeVariant.dark),
+      theme: buildTheme(variant),
       navigatorObservers: <NavigatorObserver>[pushes],
       onGenerateRoute: (RouteSettings s) => MaterialPageRoute<void>(
         settings: s,
@@ -291,6 +295,80 @@ void main() {
     expect(find.text(Strings.play), findsOneWidget);
     expect(_dismiss(), findsNothing);
   });
+
+  testWidgets('hologram resumes from the pair cut as one shape', (
+    WidgetTester tester,
+  ) async {
+    final _Pushes pushes = await _pump(
+      tester,
+      <Version>[_version('v1')],
+      inProgress: <String>['v1'],
+      dismissible: true,
+      variant: AppThemeVariant.hologram,
+    );
+    final Shapes shapes = Shapes.cut(Tokens.hologram, highContrast: false);
+
+    expect(
+      tester
+          .widget<FilledButton>(_resume())
+          .style!
+          .shape!
+          .resolve(<WidgetState>{}),
+      shapes.border(Corners.button, part: CornerPart.leading),
+    );
+    expect(
+      tester
+          .widget<FilledButton>(_dismiss())
+          .style!
+          .shape!
+          .resolve(<WidgetState>{}),
+      shapes.border(Corners.button, part: CornerPart.trailing),
+    );
+
+    await tester.tap(_resume());
+    await tester.pumpAndSettle();
+
+    expect(pushes.names.last, '/watch?version=v1');
+  });
+
+  testWidgets('the hologram dismiss clears the resume point and brings Play '
+      'back', (WidgetTester tester) async {
+    final List<String> cleared = <String>[];
+    await _pump(
+      tester,
+      <Version>[_version('v1')],
+      inProgress: <String>['v1'],
+      dismissible: true,
+      cleared: cleared,
+      variant: AppThemeVariant.hologram,
+    );
+
+    await tester.tap(_dismiss());
+    await tester.pumpAndSettle();
+
+    expect(cleared, <String>['v1']);
+    expect(_resume(), findsNothing);
+    expect(_dismiss(), findsNothing);
+    expect(find.widgetWithText(FilledButton, Strings.play), findsOneWidget);
+  });
+
+  for (final AppThemeVariant variant in AppThemeVariant.values) {
+    testWidgets('${variant.name} keeps the resume and dismiss pair', (
+      WidgetTester tester,
+    ) async {
+      await _pump(
+        tester,
+        <Version>[_version('v1')],
+        inProgress: <String>['v1'],
+        dismissible: true,
+        variant: variant,
+      );
+
+      expect(find.byType(ResumeRing), findsNothing);
+      expect(_resume(), findsOneWidget);
+      expect(_dismiss(), findsOneWidget);
+    });
+  }
 
   testWidgets('without a playback client there is no dismiss half', (
     WidgetTester tester,

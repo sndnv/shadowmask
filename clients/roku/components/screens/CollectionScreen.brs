@@ -55,14 +55,13 @@ sub render()
 
     m.moviesHeading.visible = m.loaded
     if m.moviesHeading.visible
-        m.moviesHeading.text = CountedHeading(Phrase("heading.movies"), m.cards.Count())
-        m.moviesHeading.color = theme.text
-        m.moviesHeading.font = SizedBoldFont(sizes.textXl)
-        m.moviesHeading.width = ContentWidth()
-        m.moviesHeading.maxLines = 1
-        m.moviesHeading.ellipsisText = "…"
+        m.moviesHeading.size = sizes.textXl
+        m.moviesHeading.headingWidth = ContentWidth()
+        m.moviesHeading.count = HeadingCount(m.cards.Count())
+        m.moviesHeading.text = Phrase("heading.movies")
+        m.moviesHeading.theme = theme
         m.moviesHeading.translation = [left, gridTop]
-        gridTop = gridTop + Int(sizes.textXl * 1.35) + space.s3
+        gridTop = gridTop + ThemedHeadingHeight(theme, Int(sizes.textXl * 1.35)) + space.s3
     end if
 
     m.grid.theme = theme

@@ -4,7 +4,8 @@ import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/model/catalog/version_detail.dart';
 import 'package:shadowmask/model/job/job.dart';
 import 'package:shadowmask/model/job/version_job.dart';
-import 'package:shadowmask/theme/radii.dart';
+import 'package:shadowmask/theme/shapes.dart';
+import 'package:shadowmask/theme/shapes_context.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
@@ -23,17 +24,18 @@ class VersionJobLines extends StatelessWidget {
       return const SizedBox.shrink();
     }
     final Tokens t = context.tokens;
+    final Shapes shapes = context.shapes;
     final bool still = MediaQuery.disableAnimationsOf(context);
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        for (final VersionJob job in shown) _line(t, job, still),
+        for (final VersionJob job in shown) _line(t, shapes, job, still),
       ],
     );
   }
 
-  Widget _line(Tokens t, VersionJob job, bool still) {
+  Widget _line(Tokens t, Shapes shapes, VersionJob job, bool still) {
     final String status = versionJobStatus(job, detail);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: Space.s1),
@@ -66,8 +68,8 @@ class VersionJobLines extends StatelessWidget {
                 if (job.status == JobStatus.running && !still)
                   Padding(
                     padding: const EdgeInsets.only(top: Space.s1),
-                    child: ClipRRect(
-                      borderRadius: const BorderRadius.all(Radii.pill),
+                    child: shapes.clip(
+                      Corners.bar,
                       child: LinearProgressIndicator(
                         minHeight: 3,
                         color: t.accent,

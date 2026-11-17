@@ -2,7 +2,8 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 
-import 'package:shadowmask/theme/radii.dart';
+import 'package:shadowmask/theme/shapes.dart';
+import 'package:shadowmask/theme/shapes_context.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
@@ -134,14 +135,14 @@ class _Tab<T> extends StatelessWidget {
   final FocusNode focusNode;
   final VoidCallback onTap;
 
-  static const BorderRadius _radius = BorderRadius.only(
-    topLeft: Radii.md,
-    topRight: Radii.md,
-  );
-
   @override
   Widget build(BuildContext context) {
     final Tokens t = context.tokens;
+    final Shapes shapes = context.shapes;
+    final OutlinedBorder shape = shapes.border(
+      Corners.tab,
+      part: CornerPart.top,
+    );
     final Widget label = Padding(
       padding: const EdgeInsets.symmetric(
         horizontal: 13,
@@ -160,7 +161,7 @@ class _Tab<T> extends StatelessWidget {
       onTap: onTap,
       focusNode: focusNode,
       canRequestFocus: active,
-      borderRadius: _radius,
+      customBorder: shape,
       child: label,
     );
     final Widget tab = Semantics(
@@ -170,17 +171,14 @@ class _Tab<T> extends StatelessWidget {
           ? Transform.translate(
               offset: const Offset(0, 1),
               child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: t.border,
-                  borderRadius: _radius,
+                decoration: shapes.box(
+                  Corners.tab,
+                  color: shapes.line(t.border),
+                  part: CornerPart.top,
                 ),
                 child: Padding(
                   padding: const EdgeInsets.only(top: 1, left: 1, right: 1),
-                  child: Material(
-                    color: t.surface,
-                    borderRadius: _radius,
-                    child: tap,
-                  ),
+                  child: Material(color: t.surface, shape: shape, child: tap),
                 ),
               ),
             )

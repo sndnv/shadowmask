@@ -9,21 +9,24 @@ import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
 import 'package:shadowmask/theme/theme_scope.dart';
 
+import '../../support/shape_guard.dart';
+
 Widget _host({
   String platform = 'android',
   ClientDecoding? decoding,
   bool scoped = true,
   CapabilityOverrides overrides = const CapabilityOverrides(),
   ValueChanged<CapabilityOverrides>? onChanged,
+  AppThemeVariant variant = AppThemeVariant.dark,
 }) {
   final Widget app = MaterialApp(
-    theme: buildTheme(AppThemeVariant.dark),
+    theme: buildTheme(variant),
     home: const Scaffold(
       body: SingleChildScrollView(child: PlaybackSupportBlock()),
     ),
   );
   return ThemeScope(
-    variant: AppThemeVariant.dark,
+    variant: variant,
     setVariant: (_) {},
     child: scoped
         ? CapabilityScope(
@@ -38,6 +41,25 @@ Widget _host({
 }
 
 void main() {
+  for (final AppThemeVariant variant in AppThemeVariant.values) {
+    testWidgets('a changed section draws the ${variant.name} shapes', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        _host(
+          decoding: _measured(),
+          overrides: const CapabilityOverrides(maxFrameRate: 30),
+          onChanged: (_) {},
+          variant: variant,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text(Strings.playbackSupportChanged), findsOneWidget);
+      expectShapesOf(tester, variant);
+    });
+  }
+
   testWidgets('a device that measured nothing shows only its device type', (
     WidgetTester tester,
   ) async {

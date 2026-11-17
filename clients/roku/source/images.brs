@@ -50,24 +50,49 @@ function ChevronSize() as integer
     return Px(44)
 end function
 
-function RoundedFillUri() as string
-    return "pkg:/images/button-fill.9.png"
+function IsCut(theme as dynamic) as boolean
+    return ValueAt(theme, "cut", false) = true
 end function
 
-function RoundedLineUri() as string
-    return "pkg:/images/button-line.9.png"
+function ShapeUri(theme as dynamic, cut as string, rounded as string) as string
+    if IsCut(theme) then return GlyphUri(cut)
+    return GlyphUri(rounded)
 end function
 
-function FocusRingUri() as string
-    return "pkg:/images/focus-ring.9.png"
+function BoxFillUri(theme as dynamic) as string
+    return ShapeUri(theme, "cut-fill.9", "button-fill.9")
 end function
 
-function ChipCapUri(side as string) as string
-    return GlyphUri("chip-cap-" + side)
+function BoxLineUri(theme as dynamic) as string
+    return ShapeUri(theme, "cut-line.9", "button-line.9")
 end function
 
-function ChipCapLineUri(side as string) as string
-    return GlyphUri("chip-cap-" + side + "-line")
+function FocusRingUri(theme as dynamic) as string
+    return ShapeUri(theme, "cut-focus.9", "focus-ring.9")
+end function
+
+function ChipCapUri(side as string, theme as dynamic) as string
+    return ShapeUri(theme, "chip-cut-" + side, "chip-cap-" + side)
+end function
+
+function ChipCapLineUri(side as string, theme as dynamic) as string
+    return ShapeUri(theme, "chip-cut-" + side + "-line", "chip-cap-" + side + "-line")
+end function
+
+function DiscUri(theme as dynamic) as string
+    return ShapeUri(theme, "hex-disc", "disc")
+end function
+
+function RingUri(theme as dynamic) as string
+    return ShapeUri(theme, "hex-ring", "ring")
+end function
+
+function WatchedDiscUri(theme as dynamic) as string
+    return ShapeUri(theme, "watched-hex-disc", "watched-disc")
+end function
+
+function WatchedRingUri(theme as dynamic) as string
+    return ShapeUri(theme, "watched-hex-ring", "watched-ring")
 end function
 
 function ControlIconUri(name as string) as string

@@ -3,7 +3,8 @@ import 'package:material_ui/material_ui.dart';
 
 import 'package:shadowmask/theme/app_button.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
-import 'package:shadowmask/theme/radii.dart';
+import 'package:shadowmask/theme/shapes.dart';
+import 'package:shadowmask/theme/shapes_ext.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_ext.dart';
@@ -64,9 +65,9 @@ ThemeData buildTheme(AppThemeVariant variant, {bool highContrast = false}) {
     surfaceTint: Colors.transparent,
   );
 
-  const RoundedRectangleBorder buttonShape = RoundedRectangleBorder(
-    borderRadius: BorderRadius.all(Radii.sm),
-  );
+  final Shapes shapes = Shapes.of(variant, t, highContrast: highContrast);
+  final OutlinedBorder buttonShape = shapes.border(Corners.button);
+  final BorderRadius fieldRadius = shapes.radii(Corners.field);
   const EdgeInsets buttonPadding = EdgeInsets.symmetric(
     horizontal: kButtonPaddingX,
     vertical: kButtonPaddingY,
@@ -86,7 +87,7 @@ ThemeData buildTheme(AppThemeVariant variant, {bool highContrast = false}) {
     textTheme: _textTheme(t),
     fontFamily: _familySans,
     fontFamilyFallback: _sansFallback,
-    extensions: <ThemeExtension<dynamic>>[TokensExt(t)],
+    extensions: <ThemeExtension<dynamic>>[TokensExt(t), ShapesExt(shapes)],
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
       fillColor: t.surface,
@@ -95,15 +96,13 @@ ThemeData buildTheme(AppThemeVariant variant, {bool highContrast = false}) {
         horizontal: Space.s2,
         vertical: _kFieldPadding,
       ),
-      border: const OutlineInputBorder(
-        borderRadius: BorderRadius.all(Radii.sm),
-      ),
+      border: OutlineInputBorder(borderRadius: fieldRadius),
       enabledBorder: OutlineInputBorder(
-        borderRadius: const BorderRadius.all(Radii.sm),
+        borderRadius: fieldRadius,
         borderSide: BorderSide(color: t.fieldBorder),
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: const BorderRadius.all(Radii.sm),
+        borderRadius: fieldRadius,
         borderSide: BorderSide(color: t.accent, width: 2),
       ),
     ),
@@ -127,38 +126,51 @@ ThemeData buildTheme(AppThemeVariant variant, {bool highContrast = false}) {
       style: OutlinedButton.styleFrom(
         foregroundColor: t.text,
         backgroundColor: t.surface,
-        side: BorderSide(color: t.border),
+        side: BorderSide(color: shapes.line(t.border)),
         shape: buttonShape,
         padding: buttonPadding,
         textStyle: buttonText,
       ),
     ),
+    iconButtonTheme: shapes.cut
+        ? IconButtonThemeData(
+            style: ButtonStyle(
+              shape: WidgetStatePropertyAll<OutlinedBorder>(shapes.round()),
+            ),
+          )
+        : null,
+    chipTheme: shapes.cut
+        ? ChipThemeData(shape: shapes.border(Corners.chip))
+        : null,
+    bottomSheetTheme: shapes.cut
+        ? BottomSheetThemeData(
+            shape: shapes.border(Corners.panel, part: CornerPart.top),
+          )
+        : null,
     dialogTheme: DialogThemeData(
       backgroundColor: t.surface,
       surfaceTintColor: Colors.transparent,
       elevation: 8,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.all(Radii.md),
-      ),
+      shape: shapes.border(Corners.panel),
     ),
     popupMenuTheme: PopupMenuThemeData(
       color: t.surface,
       surfaceTintColor: Colors.transparent,
       elevation: 8,
-      shape: RoundedRectangleBorder(
-        borderRadius: const BorderRadius.all(Radii.md),
-        side: BorderSide(color: t.border),
+      shape: shapes.border(
+        Corners.panel,
+        side: BorderSide(color: shapes.line(t.border)),
       ),
     ),
     tooltipTheme: TooltipThemeData(
       waitDuration: const Duration(milliseconds: 400),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       margin: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
+      decoration: shapes.box(
+        Corners.tag,
         color: t.surfaceAlt,
-        borderRadius: const BorderRadius.all(Radii.sm),
-        border: Border.all(color: t.border),
-        boxShadow: <BoxShadow>[
+        side: BorderSide(color: shapes.line(t.border)),
+        shadows: <BoxShadow>[
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.35),
             blurRadius: 12,
@@ -182,9 +194,7 @@ ThemeData buildTheme(AppThemeVariant variant, {bool highContrast = false}) {
       ),
       checkColor: WidgetStateProperty.all<Color>(t.accentContrast),
       side: BorderSide(color: t.border, width: 1.5),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.all(Radius.circular(3)),
-      ),
+      shape: shapes.border(Corners.check),
     ),
   );
 }

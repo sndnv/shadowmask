@@ -32,6 +32,8 @@
 
     <children>
         <Rectangle id="surface" visible="false">
+            <RoundedBox id="plate" visible="false" />
+            <Poster id="node" visible="false" muteAudioGuide="true" />
             <Poster id="glyph" muteAudioGuide="true" />
             <Label id="message" />
         </Rectangle>

@@ -147,8 +147,8 @@ sub LayoutEpisodes(theme as object, width as integer)
     end if
 
     space = SpacingScale()
-    headingHeight = SectionHeadingHeight()
-    DrawSectionHeading(m.episodesHeading, theme, CountLabel(Phrase("heading.episodes"), m.episodeCards.Count()), width)
+    headingHeight = SectionHeadingHeight(theme)
+    DrawSectionTab(m.episodesHeading, theme, Phrase("heading.episodes"), m.episodeCards.Count(), width)
 
     if m.episodeCards.Count() = 0
         m.episodes.visible = false

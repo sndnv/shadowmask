@@ -38,7 +38,7 @@
     </interface>
 
     <children>
-        <Label id="heading" />
+        <TabHeading id="heading" />
         <Group id="viewport">
             <Group id="strip" />
         </Group>

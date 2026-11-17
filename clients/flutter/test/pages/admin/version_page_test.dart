@@ -9,12 +9,14 @@ import 'package:shadowmask/components/admin/field_help.dart';
 import 'package:shadowmask/components/admin/form_dialog.dart';
 import 'package:shadowmask/components/admin/trickplay_sheets.dart';
 import 'package:shadowmask/components/card_art.dart';
+import 'package:shadowmask/components/edged_box.dart';
 import 'package:shadowmask/components/section_block.dart';
 import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/pages/admin/version_page.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
+import 'package:shadowmask/theme/shapes.dart';
 import 'package:shadowmask/theme/theme_scope.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -743,6 +745,17 @@ void main() {
       ),
       findsNWidgets(2),
     );
+    final Iterable<EdgedBox> sheets = tester.widgetList<EdgedBox>(
+      find.descendant(
+        of: find.byType(TrickplaySheets),
+        matching: find.byType(EdgedBox),
+      ),
+    );
+    expect(sheets, hasLength(2));
+    for (final EdgedBox sheet in sheets) {
+      expect(sheet.corner, Corners.inset);
+      expect(sheet.edge, BorderSide(color: Tokens.dark.border));
+    }
   });
 
   testWidgets('cancelling a dialog does not refetch the page', (

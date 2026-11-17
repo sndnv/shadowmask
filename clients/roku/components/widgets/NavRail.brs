@@ -21,7 +21,7 @@ sub render()
     m.panel.boxWidth = width
     m.panel.boxHeight = height
     m.panel.fillColor = NavPanelColor(theme)
-    m.panel.lineColor = theme.border
+    m.panel.lineColor = theme.lineSoft
 
     m.brand.uri = "pkg:/images/brand-mark.png"
     m.brand.width = space.s8

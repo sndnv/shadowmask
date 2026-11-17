@@ -30,6 +30,8 @@
         <field id="thickness" type="float" value="3" onChange="render" />
         <field id="fill" type="string" value="" onChange="render" />
         <field id="lineColor" type="string" value="" onChange="render" />
+        <field id="brackets" type="boolean" value="false" onChange="render" />
+        <field id="bracketColor" type="string" value="" onChange="render" />
     </interface>
 
     <children>
@@ -38,5 +40,15 @@
         <Rectangle id="bottom" />
         <Rectangle id="left" />
         <Rectangle id="right" />
+        <Group id="brackets" visible="false">
+            <Rectangle />
+            <Rectangle />
+            <Rectangle />
+            <Rectangle />
+            <Rectangle />
+            <Rectangle />
+            <Rectangle />
+            <Rectangle />
+        </Group>
     </children>
 </component>

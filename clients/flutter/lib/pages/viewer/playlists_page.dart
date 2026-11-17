@@ -281,6 +281,7 @@ class _PlaylistsBodyState extends State<_PlaylistsBody>
       context: context,
       position: menuPositionAt(at, MediaQuery.sizeOf(context)),
       constraints: const BoxConstraints.tightFor(width: kCardMenuWidth),
+      clipBehavior: Clip.antiAlias,
       popUpAnimationStyle: AnimationStyle.noAnimation,
       items: <PopupMenuEntry<_PlaylistMenu>>[
         for (final _PlaylistMenu item in _PlaylistMenu.values)

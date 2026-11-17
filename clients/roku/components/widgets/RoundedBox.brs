@@ -4,18 +4,34 @@ sub init()
     m.line = m.top.FindNode("line")
 end sub
 
+sub WatchTheme()
+    if m.DoesExist("themeWatched") then return
+    if not m.global.HasField("theme") then return
+
+    m.themeWatched = true
+    m.global.ObserveField("theme", "onThemeChanged")
+end sub
+
+sub onThemeChanged()
+    hidden = not m.top.visible
+    render()
+    if hidden then m.top.visible = false
+end sub
+
 sub render()
+    WatchTheme()
     width = Int(m.top.boxWidth)
     height = Int(m.top.boxHeight)
 
     m.top.visible = width > 0 and height > 0
     if not m.top.visible then return
 
+    theme = m.global.theme
     radius = CornerRadius()
-    lineUri = RoundedLineUri()
+    lineUri = BoxLineUri(theme)
     if m.top.focusRing
         radius = FocusRingRadius()
-        lineUri = FocusRingUri()
+        lineUri = FocusRingUri(theme)
     end if
     side = LCase(TextOrBlank(m.top.rounded))
 
@@ -26,7 +42,7 @@ sub render()
 
     m.clip.clippingRect = [0, 0, width, height]
 
-    Paint(m.fill, RoundedFillUri(), m.top.fillColor, drawn, height, bleed)
+    Paint(m.fill, BoxFillUri(theme), m.top.fillColor, drawn, height, bleed)
     Paint(m.line, lineUri, m.top.lineColor, drawn, height, bleed)
 end sub
 

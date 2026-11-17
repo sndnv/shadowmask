@@ -56,6 +56,7 @@
                     <Poster id="glyph" visible="false" />
                     <Label id="heading" />
                     <Label id="facts" />
+                    <Group id="readouts" visible="false" />
                     <Label id="crew" />
                     <ActionBar id="crewLinks" visible="false" />
                     <ChipRow id="genreChips" visible="false" />
@@ -68,7 +69,7 @@
                 </Group>
                 <CastRail id="cast" visible="false" />
                 <Group id="seasonsSection" visible="false">
-                    <Label id="seasonsHeading" />
+                    <TabHeading id="seasonsHeading" />
                     <CardGrid id="seasons" />
                 </Group>
                 <CardRail id="collection" visible="false" />

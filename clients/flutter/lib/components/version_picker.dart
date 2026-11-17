@@ -10,6 +10,7 @@ import 'package:shadowmask/components/admin/version_job_dialogs.dart';
 import 'package:shadowmask/components/long_menu_item.dart';
 import 'package:shadowmask/components/outline_pill.dart';
 import 'package:shadowmask/components/play_on_button.dart';
+import 'package:shadowmask/components/tab_heading.dart';
 import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/components/toggle_button.dart';
 import 'package:shadowmask/components/version_job_lines.dart';
@@ -25,7 +26,8 @@ import 'package:shadowmask/nav/routes.dart';
 import 'package:shadowmask/theme/app_menu.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/breakpoints.dart';
-import 'package:shadowmask/theme/radii.dart';
+import 'package:shadowmask/theme/shapes.dart';
+import 'package:shadowmask/theme/shapes_context.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
@@ -124,10 +126,7 @@ class _VersionPickerState extends State<VersionPicker>
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         if (widget.showHeading) ...<Widget>[
-          Text(
-            Strings.countLabel(Strings.versionsHeading, count),
-            style: Theme.of(context).textTheme.headlineMedium,
-          ),
+          RuledHeading(Strings.versionsHeading, count: count),
           const SizedBox(height: Space.s3),
         ],
         if (count == 0)
@@ -138,10 +137,12 @@ class _VersionPickerState extends State<VersionPicker>
         else
           Container(
             clipBehavior: Clip.antiAlias,
-            decoration: BoxDecoration(
-              color: context.tokens.surface,
-              borderRadius: const BorderRadius.all(Radii.md),
-              border: Border.all(color: context.tokens.border),
+            decoration: context.shapes.box(
+              Corners.panel,
+              color: context.shapes.panel(context.tokens.surface),
+              side: BorderSide(
+                color: context.shapes.line(context.tokens.border),
+              ),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -271,7 +272,7 @@ class _VersionRowState extends State<_VersionRow> {
     return MenuAnchor(
       controller: controller,
       alignmentOffset: kMenuOffset,
-      style: appMenuStyle(t),
+      style: appMenuStyle(context),
       menuChildren: <Widget>[
         MenuItemButton(
           leadingIcon: const Icon(Icons.download_outlined),
@@ -322,7 +323,7 @@ class _VersionRowState extends State<_VersionRow> {
     return MenuAnchor(
       controller: controller,
       alignmentOffset: kMenuOffset,
-      style: appMenuStyle(t),
+      style: appMenuStyle(context),
       menuChildren: <Widget>[
         MenuItemButton(
           leadingIcon: const Icon(Icons.search),
@@ -341,6 +342,7 @@ class _VersionRowState extends State<_VersionRow> {
         ),
         if (audio.length > 1)
           SubmenuButton(
+            menuStyle: appMenuStyle(context),
             leadingIcon: const Icon(Icons.record_voice_over_outlined),
             menuChildren: <Widget>[
               for (final AudioTrack track in audio)
@@ -358,6 +360,7 @@ class _VersionRowState extends State<_VersionRow> {
             child: const Text(Strings.transcribe),
           ),
         SubmenuButton(
+          menuStyle: appMenuStyle(context),
           leadingIcon: const Icon(Icons.translate),
           menuChildren: <Widget>[
             for (final SubtitleFile file in files)
@@ -507,13 +510,25 @@ class _VersionRowState extends State<_VersionRow> {
               ),
       );
 
-  Widget _label(Tokens t, Version v, bool available) => Text.rich(
-    TextSpan(
-      style: monoStyle.copyWith(color: available ? t.text : t.muted),
-      children: versionLabelSpans(t, v, widget.number, available: available),
-    ),
-    overflow: TextOverflow.ellipsis,
-  );
+  Widget _label(Tokens t, Version v, bool available) {
+    final Shapes shapes = context.shapes;
+    return Text.rich(
+      TextSpan(
+        style: shapes.mono(
+          monoStyle.copyWith(color: available ? t.text : t.muted),
+        ),
+        children: versionLabelSpans(
+          t,
+          v,
+          widget.number,
+          available: available,
+          caps: shapes.caps,
+        ),
+      ),
+      semanticsLabel: shapes.capsLabel(versionLabelText(v, widget.number)),
+      overflow: TextOverflow.ellipsis,
+    );
+  }
 
   Widget _header(
     BuildContext context,
@@ -698,7 +713,7 @@ class _VersionRowState extends State<_VersionRow> {
                         runSpacing: Space.s2,
                         children: <Widget>[
                           for (final String lang in languages)
-                            _langChip(t, lang),
+                            _langChip(t, context.shapes, lang),
                         ],
                       ),
               ),
@@ -718,11 +733,13 @@ class _VersionRowState extends State<_VersionRow> {
             width: 84,
             child: Text(
               label.toUpperCase(),
-              style: monoStyle.copyWith(
-                color: t.muted,
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 0.6,
+              style: context.shapes.mono(
+                monoStyle.copyWith(
+                  color: t.muted,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.6,
+                ),
               ),
             ),
           ),
@@ -736,13 +753,13 @@ class _VersionRowState extends State<_VersionRow> {
   Widget _value(Tokens t, String text) =>
       Text(text, style: monoStyle.copyWith(color: t.text, fontSize: 13));
 
-  Widget _langChip(Tokens t, String lang) {
+  Widget _langChip(Tokens t, Shapes shapes, String lang) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: Space.s2, vertical: 2),
-      decoration: BoxDecoration(
+      decoration: shapes.box(
+        Corners.chip,
         color: t.surfaceAlt,
-        borderRadius: const BorderRadius.all(Radii.pill),
-        border: Border.all(color: t.border),
+        side: BorderSide(color: shapes.lineSoft(t.border)),
       ),
       child: Text(lang, style: monoStyle.copyWith(color: t.text, fontSize: 12)),
     );

@@ -5,9 +5,11 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter/semantics.dart';
 
 import 'package:shadowmask/components/bottom_chrome.dart';
+import 'package:shadowmask/components/status_node.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/theme/breakpoints.dart';
-import 'package:shadowmask/theme/radii.dart';
+import 'package:shadowmask/theme/shapes.dart';
+import 'package:shadowmask/theme/shapes_context.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
@@ -342,12 +344,25 @@ class _ToastCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final Tokens t = context.tokens;
-    final (Color ground, Color ink) = switch (severity) {
-      ToastSeverity.success => (t.ok, t.accentContrast),
-      ToastSeverity.error => (t.danger, t.accentContrast),
-      ToastSeverity.warning => (t.warn, t.accentContrast),
-      ToastSeverity.info => (t.text, t.surface),
-    };
+    final Shapes shapes = context.shapes;
+    final (Color ground, Color ink) = shapes.cut
+        ? (t.surface, t.text)
+        : switch (severity) {
+            ToastSeverity.success => (t.ok, t.accentContrast),
+            ToastSeverity.error => (t.danger, t.accentContrast),
+            ToastSeverity.warning => (t.warn, t.accentContrast),
+            ToastSeverity.info => (t.text, t.surface),
+          };
+    Color edge(Color tone, double alpha) =>
+        shapes.highContrast ? tone : tone.withValues(alpha: alpha);
+    final (Color tone, Color edge)? mark = shapes.cut
+        ? switch (severity) {
+            ToastSeverity.success => (t.ok, edge(t.ok, 0.6)),
+            ToastSeverity.error => (t.danger, edge(t.danger, 0.65)),
+            ToastSeverity.warning => (t.warn, edge(t.warn, 0.6)),
+            ToastSeverity.info => (t.accent, shapes.line(t.accent)),
+          }
+        : null;
     final VoidCallback? dismiss = onDismiss;
     final Widget card = Container(
       width: kToastWidth,
@@ -358,10 +373,11 @@ class _ToastCard extends StatelessWidget {
         dismiss == null ? Space.s4 : Space.s2,
         Space.s3,
       ),
-      decoration: BoxDecoration(
+      decoration: shapes.box(
+        Corners.card,
         color: ground,
-        borderRadius: const BorderRadius.all(Radii.md),
-        boxShadow: <BoxShadow>[
+        side: mark == null ? null : BorderSide(color: mark.$2),
+        shadows: <BoxShadow>[
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.5),
             blurRadius: 28,
@@ -373,6 +389,10 @@ class _ToastCard extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.center,
         children: <Widget>[
+          if (mark != null) ...<Widget>[
+            StatusNode(color: mark.$1),
+            const SizedBox(width: Space.s3),
+          ],
           Expanded(child: _content(TextStyle(color: ink, height: 1.4))),
           if (dismiss != null)
             Padding(

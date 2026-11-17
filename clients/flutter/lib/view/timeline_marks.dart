@@ -31,6 +31,12 @@ class TimelineMarks {
     );
   }
 
+  static List<double> ticks(double width) => width < 1
+      ? const <double>[]
+      : <double>[
+          for (int i = 0; i <= 20; i++) math.min(width * i / 20, width - 1),
+        ];
+
   final double fillTo;
   final double previewTo;
   final double thumbAt;

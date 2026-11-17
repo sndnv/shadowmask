@@ -45,7 +45,7 @@
         <ActionBar id="crumbs" />
         <Label id="heading" />
         <ActionBar id="actions" />
-        <Label id="titlesHeading" visible="false" />
+        <TabHeading id="titlesHeading" visible="false" />
         <CardGrid id="grid" visible="false" />
         <ScrollBar id="scrollBar" />
         <StateNote id="note" kind="loading" visible="false" />

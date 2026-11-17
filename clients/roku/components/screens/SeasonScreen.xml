@@ -63,7 +63,7 @@
                     <ActionBar id="overviewToggle" />
                 </Group>
                 <Group id="episodesSection" visible="false">
-                    <Label id="episodesHeading" />
+                    <TabHeading id="episodesHeading" />
                     <CardGrid id="episodes" />
                     <StateNote id="episodesNote" kind="empty" visible="false" />
                 </Group>

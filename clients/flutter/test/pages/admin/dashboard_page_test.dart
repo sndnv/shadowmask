@@ -5,14 +5,22 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shadowmask/api/api_client.dart';
+import 'package:shadowmask/components/crumb_strip.dart';
+import 'package:shadowmask/components/tab_heading.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/pages/admin/dashboard_page.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
+import 'package:shadowmask/theme/shapes.dart';
 import 'package:shadowmask/theme/theme_scope.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-Future<void> _pump(WidgetTester tester) async {
+import '../../support/shape_guard.dart';
+
+Future<void> _pump(
+  WidgetTester tester, {
+  AppThemeVariant variant = AppThemeVariant.dark,
+}) async {
   tester.view.physicalSize = const Size(1600, 1200);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
@@ -31,10 +39,10 @@ Future<void> _pump(WidgetTester tester) async {
   );
   await tester.pumpWidget(
     ThemeScope(
-      variant: AppThemeVariant.dark,
+      variant: variant,
       setVariant: (_) {},
       child: MaterialApp(
-        theme: buildTheme(AppThemeVariant.dark),
+        theme: buildTheme(variant),
         onGenerateRoute: (RouteSettings settings) => MaterialPageRoute<void>(
           builder: (_) => settings.name == null || settings.name == '/'
               ? DashboardPage(api: api)
@@ -48,6 +56,41 @@ Future<void> _pump(WidgetTester tester) async {
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
+
+  for (final AppThemeVariant variant in AppThemeVariant.values) {
+    testWidgets('the dashboard draws the ${variant.name} shapes', (
+      WidgetTester tester,
+    ) async {
+      await _pump(tester, variant: variant);
+
+      expectShapesOf(tester, variant);
+    });
+  }
+
+  testWidgets('hologram heads each group with a tab', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, variant: AppThemeVariant.hologram);
+
+    expect(find.byType(TabHeading), findsNWidgets(2));
+    expect(
+      tester
+          .widget<Text>(
+            find.descendant(
+              of: find.byType(CrumbStrip),
+              matching: find.text(Strings.adminHeading),
+            ),
+          )
+          .style
+          ?.fontFamily,
+      kMonoFamily,
+    );
+    expect(find.text(Strings.adminGroupContent.toUpperCase()), findsOneWidget);
+    expect(
+      find.text(Strings.adminGroupOperations.toUpperCase()),
+      findsOneWidget,
+    );
+  });
 
   testWidgets('the Server card opens the server page', (
     WidgetTester tester,

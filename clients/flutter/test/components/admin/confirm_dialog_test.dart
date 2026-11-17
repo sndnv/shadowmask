@@ -7,6 +7,8 @@ import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
 import 'package:shadowmask/theme/tokens.dart';
 
+import '../../support/shape_guard.dart';
+
 class _Answer {
   bool? value;
 }
@@ -16,6 +18,7 @@ Future<_Answer> _open(
   String confirmLabel = Strings.delete,
   bool danger = true,
   double width = 900,
+  AppThemeVariant variant = AppThemeVariant.dark,
 }) async {
   tester.view.physicalSize = Size(width, 700);
   tester.view.devicePixelRatio = 1;
@@ -23,7 +26,7 @@ Future<_Answer> _open(
   final _Answer answer = _Answer();
   await tester.pumpWidget(
     MaterialApp(
-      theme: buildTheme(AppThemeVariant.dark),
+      theme: buildTheme(variant),
       home: Scaffold(
         body: Builder(
           builder: (BuildContext context) => TextButton(
@@ -54,6 +57,46 @@ Color? _fillOf(WidgetTester tester, String label) => tester
     ?.resolve(<WidgetState>{});
 
 void main() {
+  for (final AppThemeVariant variant in AppThemeVariant.values) {
+    testWidgets('a dialog draws the ${variant.name} shapes', (
+      WidgetTester tester,
+    ) async {
+      await _open(tester, variant: variant);
+
+      expectShapesOf(tester, variant);
+    });
+  }
+
+  testWidgets('hologram puts the dialog title on an accent bar', (
+    WidgetTester tester,
+  ) async {
+    final SemanticsHandle handle = tester.ensureSemantics();
+    await _open(tester, variant: AppThemeVariant.hologram);
+
+    final Finder title = find.text(Strings.deleteUser.toUpperCase());
+    expect(title, findsOneWidget);
+    expect(
+      tester.widget<Text>(title).style?.color,
+      Tokens.hologram.accentContrast,
+    );
+    final DecoratedBox bar = tester.widget<DecoratedBox>(
+      find.ancestor(of: title, matching: find.byType(DecoratedBox)).first,
+    );
+    expect((bar.decoration as BoxDecoration).color, Tokens.hologram.accent);
+    expect(find.bySemanticsLabel(Strings.deleteUser), findsOneWidget);
+    handle.dispose();
+  });
+
+  testWidgets('the dialog title stays plain text under the other themes', (
+    WidgetTester tester,
+  ) async {
+    await _open(tester);
+
+    final Text title = tester.widget<Text>(find.text(Strings.deleteUser));
+    expect(title.style?.color, Tokens.dark.text);
+    expect(title.style?.fontSize, 15);
+  });
+
   testWidgets('the destructive button is not the only one offered', (
     WidgetTester tester,
   ) async {

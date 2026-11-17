@@ -25,6 +25,7 @@ function BuildStringTable() as object
         "theme.dark": "Dark",
         "theme.light": "Light",
         "theme.retro": "Retro",
+        "theme.hologram": "Hologram",
 
         "nav.watchlist": "Watchlist",
         "nav.favorites": "Favorites",
@@ -519,6 +520,11 @@ end function
 function CountedHeading(noun as string, total as dynamic) as string
     if Int(total) <= 0 then return noun
     return CountLabel(noun, total)
+end function
+
+function HeadingCount(total as dynamic) as integer
+    if Int(total) <= 0 then return -1
+    return Int(total)
 end function
 
 function Phrase(key as string) as string

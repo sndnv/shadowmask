@@ -5,6 +5,7 @@ sub InitHero()
         glyph: m.top.FindNode("glyph"),
         heading: m.top.FindNode("heading"),
         facts: m.top.FindNode("facts"),
+        readouts: m.top.FindNode("readouts"),
         genreChips: m.top.FindNode("genreChips"),
         ratingChips: m.top.FindNode("ratingChips"),
         crew: m.top.FindNode("crew"),
@@ -75,7 +76,7 @@ function DrawHero(theme as object, content as object, width as integer) as integ
     if column < Px(400) then column = Px(400)
 
     offset = HeroLine(m.hero.heading, ValueAt(content, "heading", ""), sizes.text2xl, theme.text, true, textLeft, column, 0, 1)
-    offset = HeroLine(m.hero.facts, ValueAt(content, "facts", ""), sizes.textBase, theme.muted, false, textLeft, column, offset, 1)
+    offset = HeroFactRow(theme, content, textLeft, column, offset)
     offset = HeroLine(m.hero.crew, ValueAt(content, "crew", ""), sizes.textSm, theme.muted, false, textLeft, column, offset, 2)
     offset = HeroLinks(m.hero.crewLinks, theme, ValueAt(content, "crewButtons", invalid), textLeft, column, offset)
     offset = HeroChips(m.hero.genreChips, theme, ValueAt(content, "genreChips", invalid), textLeft, column, offset)
@@ -214,6 +215,130 @@ function HeroLine(node as dynamic, text as dynamic, size as integer, color as st
     return offset + TextBlockHeight(size, lines) + SpacingScale().s2
 end function
 
+function ReadoutSize() as integer
+    return Px(77)
+end function
+
+function ReadoutLineWidth() as integer
+    return Px(21)
+end function
+
+function ReadoutDotSize() as integer
+    return Px(10)
+end function
+
+function HexApothemRatio() as float
+    return 0.866
+end function
+
+function HeroFactRow(theme as object, content as object, left as integer, width as integer, offset as integer) as integer
+    size = TypeScale().textBase
+    space = SpacingScale()
+    row = m.hero.readouts
+    split = ReadoutSplit(ValueAt(content, "factList", invalid))
+
+    shown = row <> invalid and IsCut(theme) and split.readouts.Count() > 0
+    if row <> invalid then row.visible = shown
+    if not shown then return HeroLine(m.hero.facts, ValueAt(content, "facts", ""), size, theme.muted, false, left, width, offset, 1)
+
+    row.translation = [left, offset]
+    used = DrawReadouts(row, theme, split.readouts)
+    hex = ReadoutSize()
+    rest = FactsText(split.rest)
+    restLeft = left + used + space.s5
+
+    if restLeft + TextWidth(rest, size) > left + width
+        return HeroLine(m.hero.facts, rest, size, theme.muted, false, left, width, offset + hex + space.s3, 1)
+    end if
+
+    HeroLine(m.hero.facts, rest, size, theme.muted, false, restLeft, left + width - restLeft, offset + Int((hex - TextBlockHeight(size, 1)) / 2), 1)
+    return offset + hex + space.s2
+end function
+
+function DrawReadouts(row as object, theme as object, readouts as object) as integer
+    while row.GetChildCount() < readouts.Count()
+        BuildReadout(row.CreateChild("Group"))
+    end while
+
+    gap = SpacingScale().s5
+    used = 0
+    for index = 0 to row.GetChildCount() - 1
+        slot = row.GetChild(index)
+        slot.visible = index < readouts.Count()
+        if slot.visible
+            if used > 0 then used = used + gap
+            slot.translation = [used, 0]
+            used = used + DrawReadout(slot, theme, readouts[index])
+        end if
+    end for
+    return used
+end function
+
+sub BuildReadout(slot as object)
+    for each kind in ["Poster", "Poster", "Label", "Rectangle", "Poster", "Label"]
+        part = slot.CreateChild(kind)
+        if kind = "Poster" then part.muteAudioGuide = true
+    end for
+end sub
+
+function DrawReadout(slot as object, theme as object, fact as object) as integer
+    space = SpacingScale()
+    sizes = TypeScale()
+    hex = ReadoutSize()
+    edge = BorderThickness()
+    inset = Int(edge / HexApothemRatio() + 0.5)
+    line = ReadoutLineWidth()
+    dot = ReadoutDotSize()
+    unit = UCase(TextOrBlank(fact.label))
+
+    outer = slot.GetChild(0)
+    outer.uri = DiscUri(theme)
+    outer.width = hex
+    outer.height = hex
+    outer.blendColor = theme.line
+
+    inner = slot.GetChild(1)
+    inner.uri = DiscUri(theme)
+    inner.width = hex - inset * 2
+    inner.height = hex - inset * 2
+    inner.blendColor = theme.surface
+    inner.translation = [inset, inset]
+
+    value = slot.GetChild(2)
+    value.text = TextOrBlank(fact.value)
+    value.color = theme.text
+    value.font = SizedBoldFont(sizes.textSm)
+    value.width = hex
+    value.height = hex
+    value.maxLines = 1
+    value.horizAlign = "center"
+    value.vertAlign = "center"
+
+    lineLeft = hex + space.s2
+    rule = slot.GetChild(3)
+    rule.width = line
+    rule.height = edge
+    rule.color = theme.line
+    rule.translation = [lineLeft, Int((hex - edge) / 2)]
+
+    mark = slot.GetChild(4)
+    mark.uri = DiscUri(theme)
+    mark.width = dot
+    mark.height = dot
+    mark.blendColor = ReadoutDotColor(theme)
+    mark.translation = [lineLeft + line, Int((hex - dot) / 2)]
+
+    unitLeft = lineLeft + line + dot + space.s1
+    caption = slot.GetChild(5)
+    caption.text = unit
+    caption.color = theme.accent
+    caption.font = SizedFont(sizes.textXs)
+    caption.maxLines = 1
+    caption.translation = [unitLeft, Int((hex - TextBlockHeight(sizes.textXs, 1)) / 2)]
+
+    return unitLeft + TextWidth(unit, sizes.textXs)
+end function
+
 function HeroNote(theme as object, note as dynamic, left as integer, width as integer, offset as integer) as integer
     lead = m.hero.actionLead
     node = m.hero.actionNote
@@ -281,9 +406,20 @@ function HeroLineCount(text as string, width as integer, size as integer, maxLin
     return ClampInt(TextLineCount(text, width, size), 1, maxLines)
 end function
 
-function SectionHeadingHeight() as integer
-    return Int(TypeScale().textXl * 1.35) + SpacingScale().s3
+function SectionHeadingHeight(theme = invalid as dynamic) as integer
+    return ThemedHeadingHeight(theme, Int(TypeScale().textXl * 1.35)) + SpacingScale().s3
 end function
+
+sub DrawSectionTab(node as dynamic, theme as object, noun as string, count as integer, width as integer)
+    if node = invalid then return
+
+    node.size = TypeScale().textXl
+    node.headingWidth = width
+    node.count = count
+    node.text = noun
+    node.theme = theme
+    node.translation = [0, 0]
+end sub
 
 sub DrawSectionHeading(node as dynamic, theme as object, text as string, width as integer)
     if node = invalid then return

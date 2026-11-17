@@ -6,7 +6,8 @@ import 'package:shadowmask/components/toast_host.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
 import 'package:shadowmask/theme/breakpoints.dart';
-import 'package:shadowmask/theme/radii.dart';
+import 'package:shadowmask/theme/shapes.dart';
+import 'package:shadowmask/theme/shapes_context.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/theme_scope.dart';
 import 'package:shadowmask/theme/tokens.dart';
@@ -21,6 +22,7 @@ class AppearanceBlock extends StatelessWidget {
     AppThemeVariant.dark => Strings.themeDark,
     AppThemeVariant.light => Strings.themeLight,
     AppThemeVariant.retro => Strings.themeRetro,
+    AppThemeVariant.hologram => Strings.themeHologram,
   };
 
   void _setVariant(BuildContext context, ThemeScope scope, AppThemeVariant v) {
@@ -104,17 +106,18 @@ class _ThemeOption extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final Tokens t = context.tokens;
+    final Shapes shapes = context.shapes;
     return InkWell(
       onTap: onTap,
-      borderRadius: const BorderRadius.all(Radii.md),
+      customBorder: shapes.border(Corners.card),
       child: Container(
         width: width,
         padding: const EdgeInsets.all(Space.s2),
-        decoration: BoxDecoration(
+        decoration: shapes.box(
+          Corners.card,
           color: t.surfaceAlt,
-          borderRadius: const BorderRadius.all(Radii.md),
-          border: Border.all(
-            color: selected ? t.accent : t.border,
+          side: BorderSide(
+            color: selected ? t.accent : shapes.lineSoft(t.border),
             width: selected ? 2 : 1,
           ),
         ),
@@ -124,18 +127,18 @@ class _ThemeOption extends StatelessWidget {
             Container(
               height: 44,
               padding: const EdgeInsets.all(Space.s2),
-              decoration: BoxDecoration(
+              decoration: shapes.box(
+                Corners.inset,
                 color: preview.bg,
-                borderRadius: const BorderRadius.all(Radii.sm),
-                border: Border.all(color: preview.border),
+                side: BorderSide(color: preview.border),
               ),
               child: Row(
                 children: <Widget>[
-                  _swatch(preview.surface, preview.border),
+                  _swatch(shapes, preview.surface, preview.border),
                   const SizedBox(width: Space.s2),
-                  _swatch(preview.accent, preview.border),
+                  _swatch(shapes, preview.accent, preview.border),
                   const SizedBox(width: Space.s2),
-                  _swatch(preview.text, preview.border),
+                  _swatch(shapes, preview.text, preview.border),
                 ],
               ),
             ),
@@ -157,13 +160,12 @@ class _ThemeOption extends StatelessWidget {
     );
   }
 
-  Widget _swatch(Color color, Color border) => Container(
+  Widget _swatch(Shapes shapes, Color color, Color border) => Container(
     width: 20,
     height: 20,
-    decoration: BoxDecoration(
+    decoration: shapes.roundBox(
       color: color,
-      shape: BoxShape.circle,
-      border: Border.all(color: border),
+      side: BorderSide(color: border),
     ),
   );
 }

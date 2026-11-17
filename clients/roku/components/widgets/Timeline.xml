@@ -36,6 +36,7 @@
         <Rectangle id="track" />
         <Rectangle id="fill" />
         <Rectangle id="preview" />
+        <Group id="ticks" visible="false" />
         <Poster id="thumb" />
         <Poster id="scrub" />
     </children>

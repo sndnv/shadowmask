@@ -102,6 +102,11 @@ class TitlePage extends StatelessWidget {
   }
 }
 
+int? _numbered(List<Season> seasons) {
+  final int total = seasons.where((Season s) => s.number > 0).length;
+  return total > 0 ? total : null;
+}
+
 class _MovieDetailBody extends StatefulWidget {
   const _MovieDetailBody({
     required this.api,
@@ -298,7 +303,7 @@ class _MovieDetailBodyState extends State<_MovieDetailBody>
             DetailSplit(
               poster: PosterPlay(
                 progressPercent: resumeAt,
-                tooltip: resumeAt != null
+                label: resumeAt != null
                     ? Strings.resume(resumeAt)
                     : Strings.play,
                 onTap: shortcut == null
@@ -414,6 +419,7 @@ class _MovieDetailBodyState extends State<_MovieDetailBody>
                       (Strings.factQuality, best?.quality.label),
                     ]),
                     labels: false,
+                    readouts: true,
                   ),
                   if (d.credits.isNotEmpty) ...<Widget>[
                     const SizedBox(height: Space.s2),
@@ -855,16 +861,25 @@ class _SeriesDetailBodyState extends State<_SeriesDetailBody>
             ]),
             PageBackdrop(artwork: d.artwork, imageBase: _catalog.imageBase),
             DetailSplit(
-              poster: PosterPlay(
-                tooltip: Strings.play,
-                onTap: data.seasons.isEmpty
-                    ? null
-                    : () => _play.currentState?.press(),
-                child: CardArt(
-                  artwork: d.artwork,
-                  aspect: CardAspect.poster,
-                  imageBase: _catalog.imageBase,
-                ),
+              poster: FutureBuilder<NextEpisode?>(
+                future: data.next,
+                builder: (BuildContext context, AsyncSnapshot<NextEpisode?> s) {
+                  final int? resume = nextEpisodeResume(s.data);
+                  return PosterPlay(
+                    label: resume == null
+                        ? Strings.play
+                        : Strings.resume(resume),
+                    resumePercent: resume,
+                    onTap: data.seasons.isEmpty
+                        ? null
+                        : () => _play.currentState?.press(),
+                    child: CardArt(
+                      artwork: d.artwork,
+                      aspect: CardAspect.poster,
+                      imageBase: _catalog.imageBase,
+                    ),
+                  );
+                },
               ),
               headline: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -956,6 +971,7 @@ class _SeriesDetailBodyState extends State<_SeriesDetailBody>
                       ),
                     ]),
                     labels: false,
+                    readouts: true,
                   ),
                   if (d.credits.isNotEmpty) ...<Widget>[
                     const SizedBox(height: Space.s2),
@@ -980,10 +996,8 @@ class _SeriesDetailBodyState extends State<_SeriesDetailBody>
             ],
             const SizedBox(height: Space.s5),
             SectionHeading(
-              title: Strings.countedHeading(
-                Strings.seasonsHeading,
-                data.seasons.where((Season s) => s.number > 0).length,
-              ),
+              title: Strings.seasonsHeading,
+              count: _numbered(data.seasons),
               trailing: data.seasons.isEmpty
                   ? null
                   : RandomButton(

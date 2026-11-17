@@ -3,9 +3,11 @@ import 'dart:ui' as ui;
 import 'package:material_ui/material_ui.dart';
 
 import 'package:shadowmask/api/playback_api.dart';
+import 'package:shadowmask/components/edged_box.dart';
 import 'package:shadowmask/components/player/trickplay_loader.dart';
 import 'package:shadowmask/model/catalog/version_detail.dart';
-import 'package:shadowmask/theme/radii.dart';
+import 'package:shadowmask/theme/shapes.dart';
+import 'package:shadowmask/theme/shapes_context.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
@@ -60,15 +62,12 @@ class _TrickplaySheetsState extends State<TrickplaySheets> {
     final double aspect = image == null
         ? _gridAspect
         : image.width / image.height;
-    return Container(
+    return EdgedBox(
       width: widget.sheetWidth,
       height: widget.sheetWidth / aspect,
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        color: t.artBg,
-        border: Border.all(color: t.border),
-        borderRadius: const BorderRadius.all(Radii.sm),
-      ),
+      corner: Corners.inset,
+      color: t.artBg,
+      edge: BorderSide(color: context.shapes.lineSoft(t.border)),
       child: image == null ? null : CustomPaint(painter: _SheetPainter(image)),
     );
   }

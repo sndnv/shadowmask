@@ -4,7 +4,8 @@ import 'package:material_ui/material_ui.dart';
 
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/theme/app_theme.dart';
-import 'package:shadowmask/theme/radii.dart';
+import 'package:shadowmask/theme/shapes.dart';
+import 'package:shadowmask/theme/shapes_context.dart';
 import 'package:shadowmask/theme/space.dart';
 import 'package:shadowmask/theme/tokens.dart';
 import 'package:shadowmask/theme/tokens_context.dart';
@@ -76,10 +77,10 @@ class _SectionBody extends StatelessWidget {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(Space.s3),
-      decoration: BoxDecoration(
+      decoration: context.shapes.box(
+        Corners.inset,
         color: t.bg,
-        borderRadius: const BorderRadius.all(Radii.sm),
-        border: Border.all(color: t.border),
+        side: BorderSide(color: context.shapes.lineSoft(t.border)),
       ),
       child: Text(
         text.isEmpty ? Strings.reportNothing : text,
