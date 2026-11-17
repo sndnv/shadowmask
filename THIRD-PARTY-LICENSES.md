@@ -2791,10 +2791,10 @@ Used by:
 
 Used by:
 
-- [clap 4.6.7](https://github.com/clap-rs/clap)
+- [clap 4.6.8](https://github.com/clap-rs/clap)
 - [clap_builder 4.6.7](https://github.com/clap-rs/clap)
-- [clap_derive 4.6.7](https://github.com/clap-rs/clap)
-- [clap_lex 1.1.1](https://github.com/clap-rs/clap)
+- [clap_derive 4.6.8](https://github.com/clap-rs/clap)
+- [clap_lex 1.1.2](https://github.com/clap-rs/clap)
 - [serde_spanned 1.1.3](https://github.com/toml-rs/toml)
 - [toml 1.2.1+spec-1.1.0](https://github.com/toml-rs/toml)
 - [toml_datetime 1.1.3+spec-1.1.0](https://github.com/toml-rs/toml)
@@ -5753,7 +5753,7 @@ limitations under the License.
 
 Used by:
 
-- [notify-types 2.3.0](https://github.com/notify-rs/notify.git)
+- [notify-types 2.3.1](https://github.com/notify-rs/notify.git)
 
 ````text
                               Apache License
@@ -6406,7 +6406,7 @@ Used by:
 - [event-listener 5.4.2](https://github.com/smol-rs/event-listener)
 - [evmap 11.0.0](https://github.com/jonhoo/evmap.git)
 - [fastrand 2.5.0](https://github.com/smol-rs/fastrand)
-- [filetime 0.2.29](https://github.com/alexcrichton/filetime)
+- [filetime 0.2.30](https://github.com/alexcrichton/filetime)
 - [find-msvc-tools 0.1.15](https://github.com/rust-lang/cc-rs)
 - [flate2 1.1.11](https://github.com/rust-lang/flate2-rs)
 - [fnv 1.0.7](https://github.com/servo/rust-fnv)
@@ -6477,7 +6477,7 @@ Used by:
 - [unicode-width 0.1.14](https://github.com/unicode-rs/unicode-width)
 - [unicode-width 0.2.3](https://github.com/unicode-rs/unicode-width)
 - [url 2.5.8](https://github.com/servo/rust-url)
-- [uuid 1.29.2](https://github.com/uuid-rs/uuid)
+- [uuid 1.29.3](https://github.com/uuid-rs/uuid)
 - [version_check 0.9.5](https://github.com/SergioBenitez/version_check)
 
 ````text
@@ -11257,8 +11257,8 @@ Used by:
 - [aho-corasick 1.1.5](https://github.com/BurntSushi/aho-corasick)
 - [byteorder-lite 0.1.0](https://github.com/image-rs/byteorder-lite)
 - [byteorder 1.5.0](https://github.com/BurntSushi/byteorder)
-- [jiff-core 0.1.5](https://github.com/BurntSushi/jiff)
-- [jiff 0.2.43](https://github.com/BurntSushi/jiff)
+- [jiff-core 0.1.8](https://github.com/BurntSushi/jiff)
+- [jiff 0.2.46](https://github.com/BurntSushi/jiff)
 - [memchr 2.8.3](https://github.com/BurntSushi/memchr)
 - [termcolor 1.4.1](https://github.com/BurntSushi/termcolor)
 - [walkdir 2.5.0](https://github.com/BurntSushi/walkdir)
@@ -11349,7 +11349,7 @@ THE SOFTWARE.
 
 Used by:
 
-- [sysinfo 0.40.3](https://github.com/GuillaumeGomez/sysinfo)
+- [sysinfo 0.40.4](https://github.com/GuillaumeGomez/sysinfo)
 
 ````text
 The MIT License (MIT)
