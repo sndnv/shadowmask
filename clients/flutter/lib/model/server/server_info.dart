@@ -12,6 +12,8 @@ abstract class ServerInfo with _$ServerInfo {
     @Default(<String>[]) List<String> features,
     @Default(1) int profileVersion,
     @Default(<RatingSystem>[]) List<RatingSystem> ratingSystems,
+    String? startedAt,
+    int? uptimeMs,
   }) = _ServerInfo;
 
   factory ServerInfo.fromJson(Map<String, dynamic> json) =>

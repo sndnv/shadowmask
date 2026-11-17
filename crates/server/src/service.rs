@@ -498,7 +498,8 @@ impl Runtime {
             request_timeout,
         )
         .layer(Extension(::api::ServerFonts(crate::fonts::load(&config.fonts_dir))))
-        .layer(Extension(::api::ServerTools { yt_dlp }));
+        .layer(Extension(::api::ServerTools { yt_dlp }))
+        .layer(Extension(::api::ServerStarted(jiff::Timestamp::now())));
         let mut merged = observability_router(metrics, repos.clone())
             .merge(::api::basic_ui_router(&config.basic_client_dir))
             .merge(::api::fonts_router(&config.fonts_dir))

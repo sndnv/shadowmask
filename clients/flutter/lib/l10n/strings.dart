@@ -895,6 +895,8 @@ abstract final class Strings {
   static const String systemHeading = 'System';
   static const String couldNotLoadSystem = 'Could not load the system details.';
   static const String couldNotLoadSoftware = 'Could not load the software.';
+  static const String factStarted = 'Started';
+  static String startedAgo(String uptime) => '($uptime ago)';
   static const String factVersions = 'Versions';
   static const String featuresHeading = 'Features';
   static const String factServer = 'Server';

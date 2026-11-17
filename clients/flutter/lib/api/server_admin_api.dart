@@ -2,6 +2,7 @@ import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/model/server/benchmark_report.dart';
 import 'package:shadowmask/model/server/capabilities_report.dart';
 import 'package:shadowmask/model/server/playback_prep_report.dart';
+import 'package:shadowmask/model/server/server_info.dart';
 import 'package:shadowmask/model/server/server_log_page.dart';
 import 'package:shadowmask/model/server/server_software.dart';
 import 'package:shadowmask/model/server/transcode_totals.dart';
@@ -12,6 +13,9 @@ class ServerAdminApi {
   ServerAdminApi(this._api);
 
   final ApiClient _api;
+
+  Future<ServerInfo> info() =>
+      _api.getJson('/api/v1/server/info', ServerInfo.fromJson);
 
   Future<ServerSoftware> software() =>
       _api.getJson('/api/v1/admin/server/software', ServerSoftware.fromJson);

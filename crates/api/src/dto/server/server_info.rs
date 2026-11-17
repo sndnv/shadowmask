@@ -1,3 +1,4 @@
+use jiff::Timestamp;
 use serde::Serialize;
 
 use domain::session::PROFILE_VERSION;
@@ -14,6 +15,10 @@ pub struct ServerInfoResponse {
     pub profile_version: u32,
     pub rating_systems: Vec<RatingSystem>,
     pub fonts: Option<FontSet>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub uptime_ms: Option<u64>,
 }
 
 impl ServerInfoResponse {
@@ -25,6 +30,17 @@ impl ServerInfoResponse {
             profile_version: PROFILE_VERSION,
             rating_systems: RatingSystem::known(),
             fonts,
+            started_at: None,
+            uptime_ms: None,
+        }
+    }
+
+    pub fn with_uptime(self, started_at: Timestamp, now: Timestamp) -> Self {
+        let uptime_ms = u64::try_from(now.as_millisecond() - started_at.as_millisecond());
+        Self {
+            started_at: Some(started_at.to_string()),
+            uptime_ms: Some(uptime_ms.unwrap_or(0)),
+            ..self
         }
     }
 }
@@ -66,6 +82,33 @@ mod tests {
 
         let none = serde_json::to_value(ServerInfoResponse::current(Vec::new(), None)).unwrap();
         assert!(none["fonts"].is_null());
+    }
+
+    #[test]
+    fn leaves_the_uptime_out_unless_it_is_given() {
+        let value = serde_json::to_value(ServerInfoResponse::current(Vec::new(), None)).unwrap();
+        assert!(value.get("started_at").is_none(), "{value}");
+        assert!(value.get("uptime_ms").is_none(), "{value}");
+    }
+
+    #[test]
+    fn serializes_the_start_and_the_time_since() {
+        let started = Timestamp::from_second(1_700_000_000).unwrap();
+        let now = Timestamp::from_millisecond(1_700_090_061_500).unwrap();
+        let info = ServerInfoResponse::current(Vec::new(), None).with_uptime(started, now);
+
+        let value = serde_json::to_value(info).unwrap();
+        assert_eq!(value["started_at"], "2023-11-14T22:13:20Z");
+        assert_eq!(value["uptime_ms"], 90_061_500);
+    }
+
+    #[test]
+    fn a_start_after_now_is_no_uptime() {
+        let started = Timestamp::from_second(1_700_000_001).unwrap();
+        let now = Timestamp::from_second(1_700_000_000).unwrap();
+        let info = ServerInfoResponse::current(Vec::new(), None).with_uptime(started, now);
+
+        assert_eq!(serde_json::to_value(info).unwrap()["uptime_ms"], 0);
     }
 
     #[test]

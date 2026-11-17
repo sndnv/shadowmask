@@ -297,6 +297,9 @@ pub struct ServerTools {
     pub yt_dlp: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct ServerStarted(pub jiff::Timestamp);
+
 pub trait AppServices: Clone + Send + Sync + 'static {
     type Auth: AuthService + Send + Sync;
     type Catalog: CatalogService + Send + Sync;
