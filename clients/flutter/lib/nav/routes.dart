@@ -35,6 +35,15 @@ String collectionRoute(String id) => '/collections?id=${_enc(id)}';
 String playlistRoute(String id) => '/playlists?id=${_enc(id)}';
 String queuePlayRoute(String entryId) =>
     withQuery('/watch', <String, String?>{'queue': entryId});
+
+String queuedRoute(String route, String entryId) {
+  final Uri uri = Uri.parse(route);
+  return withQuery(uri.path, <String, String?>{
+    ...uri.queryParameters,
+    'queue': entryId,
+  });
+}
+
 String watchRoute(
   String versionId, {
   Map<String, String?> controls = const <String, String?>{},

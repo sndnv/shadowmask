@@ -559,6 +559,65 @@ namespace tests
             m.assertEqual(EpisodeSeasonCards(invalid, "s1").Count(), 0)
         end sub
 
+        @describe("FreshSeasons")
+
+        @it("keeps only the seasons neither loaded nor asked before")
+        sub freshSeasonsSkipsTheKnown()
+            fresh = FreshSeasons(["s1", "s2", "s3"], { "s1": [] }, { "s2": true })
+
+            m.assertEqual(fresh.Count(), 1)
+            m.assertEqual(fresh[0], "s3")
+        end sub
+
+        @it("asks nothing again once every season was asked, even one that never answered")
+        sub freshSeasonsNeverRepeats()
+            m.assertEqual(FreshSeasons(["s1", "s2"], {}, { "s1": true, "s2": true }).Count(), 0)
+        end sub
+
+        @it("survives what it was never given")
+        sub freshSeasonsSurvivesNothing()
+            m.assertEqual(FreshSeasons([], {}, {}).Count(), 0)
+            m.assertEqual(FreshSeasons(invalid, invalid, invalid).Count(), 0)
+            m.assertEqual(FreshSeasons(["s1"], invalid, invalid)[0], "s1")
+        end sub
+
+        @describe("EpisodeParents")
+
+        @it("keeps the ids it was handed")
+        sub episodeParentsKeepsHandedIds()
+            parents = EpisodeParents({ seriesId: "sr1", seasonId: "s2" }, { series_id: "sr9", season_id: "s9" })
+
+            m.assertEqual(parents.seriesId, "sr1")
+            m.assertEqual(parents.seasonId, "s2")
+        end sub
+
+        @it("takes the episode's ids when the card carried none")
+        sub episodeParentsTakesTheEpisodes()
+            parents = EpisodeParents({ kind: "episode", id: "e1", seriesId: "", seasonId: "" }, { series_id: "sr1", season_id: "s2" })
+
+            m.assertEqual(parents.seriesId, "sr1")
+            m.assertEqual(parents.seasonId, "s2")
+        end sub
+
+        @it("fills only the id that is missing")
+        sub episodeParentsFillsTheGap()
+            parents = EpisodeParents({ seriesId: "sr1" }, { series_id: "sr9", season_id: "s2" })
+
+            m.assertEqual(parents.seriesId, "sr1")
+            m.assertEqual(parents.seasonId, "s2")
+        end sub
+
+        @it("leaves blank what neither side knows")
+        sub episodeParentsLeavesTheUnknown()
+            parents = EpisodeParents({ seriesId: "sr1" }, invalid)
+            m.assertEqual(parents.seriesId, "sr1")
+            m.assertEqual(parents.seasonId, "")
+
+            parents = EpisodeParents(invalid, invalid)
+            m.assertEqual(parents.seriesId, "")
+            m.assertEqual(parents.seasonId, "")
+        end sub
+
         @describe("SeasonRailHeading")
 
         @it("names the series the season belongs to")
@@ -1329,6 +1388,37 @@ namespace tests
             m.assertEqual(AddedToQueueText(3), "Added 3 titles to your queue.")
         end sub
 
+        @describe("WithQueueEntry")
+
+        @it("carries the queue entry of the card that opened the page into the player")
+        sub withQueueEntryCarriesIt()
+            watch = WithQueueEntry({ versionId: "v1", percent: 0 }, "17")
+
+            m.assertEqual(watch.queueEntryId, "17")
+            m.assertEqual(watch.versionId, "v1")
+        end sub
+
+        @it("adds nothing for a page opened from any other card")
+        sub withQueueEntryAddsNothing()
+            m.assertFalse(WithQueueEntry({ versionId: "v1" }, "").DoesExist("queueEntryId"))
+            m.assertFalse(WithQueueEntry({ versionId: "v1" }, invalid).DoesExist("queueEntryId"))
+        end sub
+
+        @describe("QueueHolds")
+
+        @it("finds an entry still in the queue")
+        sub queueHoldsTheEntry()
+            m.assertTrue(QueueHolds([{ id: "16" }, { id: "17" }], "17"))
+        end sub
+
+        @it("misses an entry the queue let go of, or a queue it never got")
+        sub queueLetGoOfTheEntry()
+            m.assertFalse(QueueHolds([{ id: "18" }], "17"))
+            m.assertFalse(QueueHolds([], "17"))
+            m.assertFalse(QueueHolds(invalid, "17"))
+            m.assertFalse(QueueHolds([{ id: "17" }], ""))
+        end sub
+
         @describe("QueuePlayTarget")
 
         @it("plays the first available version, resolved by the player, with the entry id")
@@ -1465,13 +1555,27 @@ namespace tests
             m.assertTrue(CastArtworkWanted(0, 0, 4))
         end sub
 
-        @it("offers a collection the one thing it can do, which is pick something to play")
+        @it("offers a collection a random pick, then adding it to a playlist")
         sub offersCollectionRandom()
             actions = CardMenuActions({ kind: "collection", id: "c1" })
 
-            m.assertEqual(actions.Count(), 1)
+            m.assertEqual(actions.Count(), 2)
             m.assertEqual(actions[0].id, "randomInCollection")
             m.assertEqual(actions[0].label, "Random from this collection")
+            m.assertEqual(actions[1].id, "playlist")
+            m.assertEqual(actions[1].label, Phrase("action.addToPlaylist"))
+        end sub
+
+        @it("gives a collection page the same two actions as buttons")
+        sub collectionPageButtons()
+            buttons = CollectionPageButtons()
+
+            m.assertEqual(buttons.Count(), 2)
+            m.assertEqual(buttons[0].id, "randomInCollection")
+            m.assertEqual(buttons[0].label, "Random")
+            m.assertEqual(buttons[0].icon, "icon-shuffle")
+            m.assertEqual(buttons[1].id, PlaylistButton().id)
+            m.assertEqual(buttons[1].label, PlaylistButton().label)
         end sub
 
         @describe("CrumbEntries")

@@ -7,6 +7,10 @@ sub execute()
     fs = CreateObject("roFileSystem")
     fs.CreateDirectory(job.directory)
 
+    for each path in job.discard
+        fs.Delete(path)
+    end for
+
     wanted = {}
     for each file in job.files
         wanted[file.path] = true
@@ -16,27 +20,37 @@ sub execute()
         if not wanted.DoesExist(path) then fs.Delete(path)
     end for
 
+    notes = []
     missing = []
     for each file in job.files
         stat = fs.Stat(file.path)
-        if stat = invalid or stat.size <> file.size then missing.Push(file)
+        if stat = invalid or stat.size <> file.size
+            missing.Push(file)
+        else
+            notes.Push(file.role + " kept")
+        end if
     end for
     m.top.count = missing.Count()
 
     for index = 0 to missing.Count() - 1
+        file = missing[index]
         m.top.step = index + 1
-        failure = Download(fs, missing[index], job)
+        failure = Download(fs, file, job)
         if failure <> ""
+            notes.Push(file.role + " failed: " + failure)
+            print "[fonts] "; notes.Join(", ")
             m.top.result = { ok: false, error: failure }
             return
         end if
+        notes.Push(file.role + " downloaded")
     end for
 
+    print "[fonts] "; notes.Join(", ")
     m.top.result = { ok: true, error: "" }
 end sub
 
 function Download(fs as object, file as object, job as object) as string
-    part = file.path + ".part"
+    part = file.part
     fs.Delete(part)
 
     port = CreateObject("roMessagePort")
@@ -71,10 +85,30 @@ function Download(fs as object, file as object, job as object) as string
         return "the download was incomplete"
     end if
 
+    if Sha256Of(part, file.size, job.chunk) <> file.sha256
+        fs.Delete(part)
+        return "the download did not match its checksum"
+    end if
+
     fs.Delete(file.path)
     if not fs.Rename(part, file.path)
         fs.Delete(part)
         return "the file could not be saved"
     end if
     return ""
+end function
+
+function Sha256Of(path as string, size as dynamic, chunk as integer) as string
+    digest = CreateObject("roEVPDigest")
+    digest.Setup("sha256")
+    bytes = CreateObject("roByteArray")
+    offset = 0
+    while offset < size
+        length = chunk
+        if size - offset < length then length = size - offset
+        if not bytes.ReadFile(path, offset, length) then return ""
+        digest.Update(bytes)
+        offset = offset + length
+    end while
+    return LCase(digest.Final())
 end function

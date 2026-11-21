@@ -56,8 +56,11 @@ class CardMenuAction {
   final bool separated;
 }
 
-bool hasCardMenu(TitleKind kind, {required bool dismissible}) =>
-    dismissible || kind.isWatchTarget;
+bool hasCardMenu(
+  TitleKind kind, {
+  required bool dismissible,
+  bool playlists = false,
+}) => dismissible || kind.isWatchTarget || playlists && kind.isPlaylistTarget;
 
 List<CardMenuAction> cardMenuActions(
   ItemState state, {
@@ -99,7 +102,7 @@ List<CardMenuAction> cardMenuActions(
         icon: Icons.favorite_border,
       ),
   ],
-  if (playlists && state.title.type.isWatchTarget)
+  if (playlists && state.title.type.isPlaylistTarget)
     const CardMenuAction(
       action: CardAction.playlist,
       label: Strings.addToPlaylistEllipsis,
@@ -222,7 +225,11 @@ Future<void> showCardMenu(
   final TitleKind kind = card.ref.type;
   final bool dismissible = onDismiss != null;
   final String? entryId = card.queueEntryId;
-  if (!hasCardMenu(kind, dismissible: dismissible)) {
+  if (!hasCardMenu(
+    kind,
+    dismissible: dismissible,
+    playlists: playlists != null,
+  )) {
     return;
   }
 

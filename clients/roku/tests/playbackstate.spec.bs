@@ -4,7 +4,14 @@ namespace tests
     class PlaybackStateTests extends rooibos.BaseTestSuite
 
         function stepped(before as object, event as object) as object
-            taken = PlaybackStep(before, event)
+            posted = event
+            fromVideo = { videoState: true, reads: true, videoFailed: true }
+            if fromVideo.DoesExist(event.kind) and event.id = invalid
+                posted = {}
+                posted.Append(event)
+                posted.id = before.player.attachId
+            end if
+            taken = PlaybackStep(before, posted)
             m.check(before, taken.state, taken.commands)
             return taken
         end function
@@ -13,6 +20,31 @@ namespace tests
             change = after.status.sent
             carried = { sendStart: "start", sendUpdate: "controls", sendSeek: "seek", loadStream: "load" }
             stops = m.commandOf(commands, "stopPlayer") <> invalid
+            asked = 0
+            for each command in commands
+                if command.kind = "playPlayer"
+                    asked = asked + 1
+                    m.assertTrue(after.wanted.playing, "played when paused was wanted")
+                end if
+                if command.kind = "pausePlayer"
+                    asked = asked + 1
+                    m.assertFalse(after.wanted.playing, "paused when playing was wanted")
+                end if
+            end for
+            m.assertTrue(asked <= 1, "asked the player more than once in a step")
+            seekAt = -1
+            playAt = -1
+            pauseAt = -1
+            for index = 0 to commands.Count() - 1
+                if commands[index].kind = "seekPlayer" then seekAt = index
+                if commands[index].kind = "playPlayer" then playAt = index
+                if commands[index].kind = "pausePlayer" then pauseAt = index
+            end for
+            if seekAt >= 0 and after.wanted.playing then m.assertTrue(playAt >= 0 and playAt < seekAt, "a seek while playing not preceded by a play")
+            if seekAt >= 0 then m.assertTrue(pauseAt < 0, "paused in the same step as a seek")
+            if PlaybackLandsPaused(before, after) then m.assertTrue(pauseAt >= 0, "a seek landed while paused without a pause")
+            gap = PlaybackGap(after)
+            if gap <> "" then m.assertEqual(after.player.asked, gap, "a gap between wanted and the player left open")
             for each command in commands
                 if carried.DoesExist(command.kind)
                     m.assertNotInvalid(change, command.kind + " with no change in flight")
@@ -100,18 +132,38 @@ namespace tests
             return m.stepped(s, m.reading(s.timeline.positionMs - s.stream.originMs)).state
         end function
 
+        function pausedWatching() as object
+            asked = m.stepped(m.watching(), { kind: "toggle" }).state
+            return m.stepped(asked, m.reading(30000, false)).state
+        end function
+
         function flat() as object
             return m.watching(m.answer({ sequential: false, origin_ms: 0 }))
         end function
 
         function loadedPaused() as object
-            paused = m.stepped(m.watching(), { kind: "toggle" }).state
+            paused = m.pausedWatching()
             updated = m.stepped(m.changed(paused).state, { kind: "updated", id: 2, json: m.answer() }).state
             return m.stepped(updated, { kind: "loaded", id: 2 }).state
         end function
 
         function reading(positionMs as integer, playing = true as boolean, bufferedAheadMs = 0 as integer, ended = false as boolean, durationMs = 0 as integer) as object
-            return { kind: "reads", reading: { positionMs: positionMs, durationMs: durationMs, bufferedAheadMs: bufferedAheadMs, playing: playing, ended: ended } }
+            state = "paused"
+            if playing then state = "playing"
+            if ended then state = "finished"
+            return { kind: "videoState", state: state, reading: m.raw(positionMs, bufferedAheadMs, durationMs) }
+        end function
+
+        function position(positionMs as integer, bufferedAheadMs = 0 as integer, durationMs = 0 as integer) as object
+            return { kind: "reads", reading: m.raw(positionMs, bufferedAheadMs, durationMs) }
+        end function
+
+        function videoState(state as string, positionMs = -1 as integer) as object
+            return { kind: "videoState", state: state, reading: m.raw(positionMs, 0, 0) }
+        end function
+
+        function raw(positionMs as integer, bufferedAheadMs as integer, durationMs as integer) as object
+            return { positionMs: positionMs, durationMs: durationMs, bufferedAheadMs: bufferedAheadMs, bufferedPercent: 0 }
         end function
 
         function changed(s as object, height = 720 as integer) as object
@@ -238,21 +290,24 @@ namespace tests
 
         @describe("loading")
 
-        @it("plays a loaded stream when playing, and reports it")
+        @it("plays a loaded stream when playing, and reports it once the player plays")
         sub loadedPlays()
             started = m.stepped(m.opened(), { kind: "started", id: 1, json: m.answer() }).state
             taken = m.stepped(started, { kind: "loaded", id: 1 })
 
-            m.assertEqual(m.kinds(taken.commands), "playPlayer,sendProgress")
-            m.assertTrue(taken.commands[1].playing)
-            m.assertEqual(taken.commands[1].positionMs, 90000)
+            m.assertEqual(m.kinds(taken.commands), "playPlayer")
+            m.assertFalse(taken.commands[0].resume)
             m.assertInvalid(taken.state.status.sent)
+
+            playing = m.stepped(taken.state, m.videoState("playing"))
+            m.assertEqual(m.kinds(playing.commands), "sendProgress")
+            m.assertTrue(playing.commands[0].playing)
+            m.assertEqual(playing.commands[0].positionMs, 90000)
         end sub
 
         @it("keeps a stream loaded while paused paused")
         sub loadedStaysPaused()
-            paused = m.stepped(m.watching(), { kind: "toggle" }).state
-            updated = m.stepped(m.changed(paused).state, { kind: "updated", id: 2, json: m.answer() }).state
+            updated = m.stepped(m.changed(m.pausedWatching()).state, { kind: "updated", id: 2, json: m.answer() }).state
 
             m.assertEqual(m.kinds(m.stepped(updated, { kind: "loaded", id: 2 }).commands), "")
         end sub
@@ -260,7 +315,7 @@ namespace tests
         @it("ends the session of a stream that fails to load")
         sub failedToLoad()
             started = m.stepped(m.opened(), { kind: "started", id: 1, json: m.answer() }).state
-            taken = m.stepped(started, { kind: "failedToLoad", id: 1, message: "Playback failed (gone)." })
+            taken = m.stepped(started, { kind: "videoFailed", message: "Playback failed (gone)." })
 
             m.assertEqual(m.kinds(taken.commands), "endSession,unloadPlayer")
             m.assertEqual(taken.commands[0].sessionId, "s1")
@@ -268,12 +323,13 @@ namespace tests
             m.assertInvalid(taken.state.stream)
         end sub
 
-        @it("ignores a load reported for another change")
+        @it("ignores a load or a failure reported for another stream")
         sub otherLoadIgnored()
             started = m.stepped(m.opened(), { kind: "started", id: 1, json: m.answer() }).state
 
             m.assertEqual(m.kinds(m.stepped(started, { kind: "loaded", id: 2 }).commands), "")
-            m.assertEqual(m.kinds(m.stepped(started, { kind: "failedToLoad", id: 2, message: "x" }).commands), "")
+            m.assertEqual(m.kinds(m.stepped(started, { kind: "videoFailed", id: 2, message: "x" }).commands), "")
+            m.assertEqual(m.kinds(m.stepped(m.watching(), { kind: "videoFailed", id: 2, message: "x" }).commands), "")
         end sub
 
         @describe("the player's readings")
@@ -342,26 +398,64 @@ namespace tests
 
         @it("keep the position before the stream has played")
         sub readingsWithoutPosition()
-            taken = m.stepped(m.justLoaded(), m.reading(-1, false))
+            taken = m.stepped(m.justLoaded(), m.position(-1))
 
             m.assertEqual(taken.state.timeline.positionMs, 90000)
             m.assertEqual(taken.state.timeline.seekingToMs, 90000)
-            m.assertFalse(taken.state.timeline.playing)
-            m.assertEqual(m.kinds(taken.commands), "sendProgress")
+            m.assertFalse(taken.state.timeline.placed)
+            m.assertEqual(m.kinds(taken.commands), "")
         end sub
 
-        @it("are ignored during a change")
+        @it("keep the player's buffered figure from each reading, for the stall watchdog")
+        sub readingsKeepBuffered()
+            s = m.watching()
+            m.assertEqual(s.player.buffered, 0)
+
+            read = m.stepped(s, { kind: "reads", reading: { positionMs: 31000, durationMs: 0, bufferedAheadMs: 0, bufferedPercent: 40 } }).state
+            m.assertEqual(read.player.buffered, 40)
+            m.assertEqual(m.stepped(m.changed(read).state, m.position(32000)).state.player.buffered, 0)
+
+            buffering = m.stepped(read, { kind: "videoState", state: "buffering", reading: { positionMs: 31000, durationMs: 0, bufferedAheadMs: 0, bufferedPercent: 55 } }).state
+            m.assertEqual(buffering.player.buffered, 55)
+        end sub
+
+        @it("count a player already playing when first asked to play as having played")
+        sub paintedWhenAlreadyPlaying()
+            started = m.stepped(m.opened(), { kind: "started", id: 1, json: m.answer() }).state
+            early = m.stepped(started, m.videoState("playing")).state
+            loaded = m.stepped(early, { kind: "loaded", id: 1 })
+
+            m.assertEqual(m.kinds(loaded.commands), "playPlayer,sendProgress")
+            m.assertTrue(loaded.state.player.painted)
+            m.assertTrue(m.stepped(loaded.state, m.position(30000)).state.timeline.placed)
+        end sub
+
+        @it("take no position from a player that was never asked to play")
+        sub readingsNeedAPlay()
+            loaded = m.loadedPaused()
+            untold = m.stepped(loaded, m.reading(30000))
+
+            m.assertFalse(untold.state.player.painted)
+            m.assertFalse(untold.state.timeline.placed)
+            m.assertEqual(untold.state.timeline.positionMs, 90000)
+        end sub
+
+        @it("are ignored while no stream is attached")
         sub readingsIgnoredDuringChange()
             s = m.changed(m.watching()).state
             taken = m.stepped(s, m.reading(40000, false))
 
             m.assertEqual(taken.state.timeline.positionMs, 90000)
-            m.assertTrue(taken.state.timeline.playing)
+            m.assertEqual(taken.state.player.state, "none")
+            m.assertEqual(m.kinds(taken.commands), "")
         end sub
 
         @it("report a change between playing and paused, once")
         sub readingsReportPause()
-            paused = m.stepped(m.watching(), m.reading(30000, false))
+            asked = m.stepped(m.watching(), { kind: "toggle" })
+            m.assertEqual(m.kinds(asked.commands), "pausePlayer")
+
+            paused = m.stepped(asked.state, m.reading(30000, false))
             m.assertEqual(m.kinds(paused.commands), "sendProgress")
             m.assertFalse(paused.commands[0].playing)
 
@@ -370,7 +464,8 @@ namespace tests
 
         @it("take the end however far from a held target, freeing the hold")
         sub readingsEndSettles()
-            taken = m.stepped(m.justLoaded(), m.reading(0, false, 5000, true))
+            painted = m.stepped(m.justLoaded(), m.videoState("playing")).state
+            taken = m.stepped(painted, m.reading(0, false, 5000, true))
 
             m.assertTrue(taken.state.timeline.ended)
             m.assertEqual(taken.state.timeline.seekingToMs, -1)
@@ -392,7 +487,7 @@ namespace tests
             m.assertTrue(stepped.state.timeline.ended)
         end sub
 
-        @it("leave the end once the node reports a position again")
+        @it("leave the end once the node reports a position again, still not wanting to play")
         sub readingsLeaveTheEnd()
             ended = m.stepped(m.watching(), m.reading(30000, false, 0, true)).state
             taken = m.stepped(ended, m.reading(25000))
@@ -400,13 +495,14 @@ namespace tests
             m.assertFalse(taken.state.timeline.ended)
             m.assertTrue(taken.state.timeline.placed)
             m.assertEqual(taken.state.timeline.positionMs, 85000)
+            m.assertEqual(m.kinds(taken.commands), "pausePlayer,sendProgress")
         end sub
 
         @describe("player errors")
 
         @it("end the stream while watching, with Try again")
         sub errorEndsStream()
-            taken = m.stepped(m.watching(), { kind: "errs", message: "Could not start playback (decoder)." })
+            taken = m.stepped(m.watching(), { kind: "videoFailed", message: "Could not start playback (decoder)." })
 
             m.assertEqual(m.kinds(taken.commands), "endSession,unloadPlayer")
             m.assertEqual(taken.commands[0].positionMs, 90000)
@@ -417,9 +513,9 @@ namespace tests
 
         @it("are ignored during a start or a change")
         sub errorIgnoredDuringChange()
-            m.assertEqual(m.kinds(m.stepped(m.opened(), { kind: "errs", message: "x" }).commands), "")
+            m.assertEqual(m.kinds(m.stepped(m.opened(), { kind: "videoFailed", message: "x" }).commands), "")
 
-            taken = m.stepped(m.changed(m.watching()).state, { kind: "errs", message: "x" })
+            taken = m.stepped(m.changed(m.watching()).state, { kind: "videoFailed", message: "x" })
             m.assertEqual(m.kinds(taken.commands), "")
             m.assertTrue(IsBlank(taken.state.status.error))
         end sub
@@ -431,8 +527,9 @@ namespace tests
             s = m.stepped(m.watching(), m.reading(30000, true, 10000)).state
             taken = m.stepped(s, { kind: "seek", positionMs: 130000 })
 
-            m.assertEqual(m.kinds(taken.commands), "seekPlayer")
-            m.assertEqual(taken.commands[0].offsetMs, 70000)
+            m.assertEqual(m.kinds(taken.commands), "playPlayer,seekPlayer")
+            m.assertTrue(taken.commands[0].resume)
+            m.assertEqual(taken.commands[1].offsetMs, 70000)
             m.assertEqual(taken.state.timeline.positionMs, 130000)
             m.assertEqual(taken.state.timeline.seekingToMs, 130000)
         end sub
@@ -455,14 +552,14 @@ namespace tests
         sub seekFlatStream()
             taken = m.stepped(m.flat(), { kind: "seek", positionMs: 500000 })
 
-            m.assertEqual(m.kinds(taken.commands), "seekPlayer")
-            m.assertEqual(taken.commands[0].offsetMs, 500000)
+            m.assertEqual(m.kinds(taken.commands), "playPlayer,seekPlayer")
+            m.assertEqual(m.commandOf(taken.commands, "seekPlayer").offsetMs, 500000)
         end sub
 
         @it("keeps a seek within the title")
         sub seekWithinTitle()
-            m.assertEqual(m.stepped(m.flat(), { kind: "seek", positionMs: -5000 }).commands[0].offsetMs, 0)
-            m.assertEqual(m.stepped(m.flat(), { kind: "seek", positionMs: 900000 }).commands[0].offsetMs, 600000)
+            m.assertEqual(m.commandOf(m.stepped(m.flat(), { kind: "seek", positionMs: -5000 }).commands, "seekPlayer").offsetMs, 0)
+            m.assertEqual(m.commandOf(m.stepped(m.flat(), { kind: "seek", positionMs: 900000 }).commands, "seekPlayer").offsetMs, 600000)
         end sub
 
         @it("refuses seeks, steps and play or pause during a change")
@@ -481,7 +578,7 @@ namespace tests
             twice = m.stepped(once.state, { kind: "seekBy", deltaMs: 10000 })
 
             m.assertEqual(twice.state.timeline.positionMs, 110000)
-            m.assertEqual(twice.commands[0].offsetMs, 110000)
+            m.assertEqual(m.commandOf(twice.commands, "seekPlayer").offsetMs, 110000)
         end sub
 
         @it("takes no step with no length known")
@@ -518,7 +615,7 @@ namespace tests
             m.assertEqual(taken.state.timeline.positionMs, 100000)
             m.assertEqual(taken.state.timeline.seekingToMs, 100000)
             m.assertEqual(m.kinds(m.stepped(taken.state, { kind: "seekBy", deltaMs: 10000 }).commands), "")
-            m.assertEqual(m.kinds(m.stepped(taken.state, { kind: "loaded", id: 2 }).commands), "playPlayer,sendProgress")
+            m.assertEqual(m.kinds(m.stepped(taken.state, { kind: "loaded", id: 2 }).commands), "playPlayer")
         end sub
 
         @it("reloads a stream loaded paused for a step, and keeps it paused")
@@ -534,7 +631,7 @@ namespace tests
         @it("ends the stream with the error when a reload for a seek fails")
         sub seekReloadFails()
             reloading = m.stepped(m.justLoaded(), { kind: "seek", positionMs: 100000 }).state
-            taken = m.stepped(reloading, { kind: "failedToLoad", id: 2, message: "Playback failed (gone)." })
+            taken = m.stepped(reloading, { kind: "videoFailed", message: "Playback failed (gone)." })
 
             m.assertEqual(m.kinds(taken.commands), "endSession,unloadPlayer")
             m.assertEqual(taken.commands[0].positionMs, 100000)
@@ -583,51 +680,118 @@ namespace tests
 
         @describe("play and pause")
 
-        @it("toggles pause and play, reporting each")
+        @it("toggles pause and play by what the player does, reporting each once it does")
         sub togglePausesAndPlays()
-            paused = m.stepped(m.watching(), { kind: "toggle" })
-            m.assertEqual(m.kinds(paused.commands), "pausePlayer,sendProgress")
-            m.assertFalse(paused.state.timeline.playing)
+            asked = m.stepped(m.watching(), { kind: "toggle" })
+            m.assertEqual(m.kinds(asked.commands), "pausePlayer")
+            m.assertFalse(asked.state.wanted.playing)
+            m.assertTrue(asked.state.player.playing)
 
-            m.assertEqual(m.kinds(m.stepped(paused.state, { kind: "toggle" }).commands), "playPlayer,sendProgress")
+            paused = m.stepped(asked.state, m.videoState("paused"))
+            m.assertEqual(m.kinds(paused.commands), "sendProgress")
+            m.assertFalse(paused.state.player.playing)
+
+            resumed = m.stepped(paused.state, { kind: "toggle" })
+            m.assertEqual(m.kinds(resumed.commands), "playPlayer")
+            m.assertTrue(resumed.commands[0].resume)
+            m.assertEqual(m.kinds(m.stepped(resumed.state, m.videoState("playing")).commands), "sendProgress")
         end sub
 
-        @it("pauses and plays when asked, and does nothing when it already is")
-        sub playsWhenAsked()
-            paused = m.stepped(m.watching(), { kind: "plays", playing: false })
-            m.assertEqual(m.kinds(paused.commands), "pausePlayer,sendProgress")
-            m.assertFalse(paused.state.timeline.playing)
-
-            m.assertEqual(m.kinds(m.stepped(paused.state, { kind: "plays", playing: false }).commands), "")
-            m.assertEqual(m.kinds(m.stepped(paused.state, { kind: "plays", playing: true }).commands), "playPlayer,sendProgress")
-            m.assertEqual(m.kinds(m.stepped(m.changed(m.watching()).state, { kind: "plays", playing: false }).commands), "")
-        end sub
-
-        @it("resumes after a seek within reach, seeking first")
-        sub seekResumesWithinReach()
+        function heldPaused() as object
             within = m.stepped(m.watching(), m.reading(30000, true, 10000)).state
-            paused = m.stepped(within, { kind: "plays", playing: false }).state
-            taken = m.stepped(paused, { kind: "seekResumes", positionMs: 130000 })
+            held = m.stepped(within, { kind: "holdPauses" }).state
+            return m.stepped(held, m.videoState("paused")).state
+        end function
 
-            m.assertEqual(m.kinds(taken.commands), "seekPlayer,playPlayer,sendProgress")
-            m.assertEqual(taken.commands[0].offsetMs, 70000)
-            m.assertTrue(taken.state.timeline.playing)
+        @it("pauses a playing stream for a hold, remembering to resume it")
+        sub holdPausesPlaying()
+            within = m.stepped(m.watching(), m.reading(30000, true, 10000)).state
+            held = m.stepped(within, { kind: "holdPauses" })
+
+            m.assertEqual(m.kinds(held.commands), "pausePlayer")
+            m.assertFalse(held.state.wanted.playing)
+            m.assertTrue(held.state.wanted.resumeAfterHold)
+            m.assertEqual(m.kinds(m.stepped(m.changed(m.watching()).state, { kind: "holdPauses" }).commands), "")
         end sub
 
-        @it("resumes after a seek past reach once the new stream loads")
-        sub seekResumesPastReach()
-            within = m.stepped(m.watching(), m.reading(30000, true, 10000)).state
-            paused = m.stepped(within, { kind: "plays", playing: false }).state
-            taken = m.stepped(paused, { kind: "seekResumes", positionMs: 130001 })
+        @it("resumes at a hold's end within reach, playing before the seek so the player reports it")
+        sub holdEndsWithinReach()
+            taken = m.stepped(m.heldPaused(), { kind: "holdEnds", targetMs: 130000 })
+
+            m.assertEqual(m.kinds(taken.commands), "playPlayer,seekPlayer")
+            m.assertTrue(taken.commands[0].resume)
+            m.assertEqual(taken.commands[1].offsetMs, 70000)
+            m.assertTrue(taken.state.wanted.playing)
+            m.assertFalse(taken.state.wanted.resumeAfterHold)
+        end sub
+
+        @it("resumes at a hold's end past reach once the new stream loads, and as before the hold if the server fails")
+        sub holdEndsPastReach()
+            taken = m.stepped(m.heldPaused(), { kind: "holdEnds", targetMs: 130001 })
 
             m.assertEqual(m.kinds(taken.commands), "stopPlayer,sendSeek")
-            m.assertTrue(taken.state.timeline.playing)
+            m.assertTrue(taken.state.wanted.playing)
+            m.assertTrue(taken.state.status.sent.previousPlaying)
+            m.assertTrue(m.stepped(taken.state, { kind: "failed", id: 2 }).state.wanted.playing)
         end sub
 
-        @it("only seeks when it is already playing")
-        sub seekResumesWhilePlaying()
+        @it("seeks for a tap on a playing stream, saying play again first")
+        sub tapOnAPlayingStream()
             within = m.stepped(m.watching(), m.reading(30000, true, 10000)).state
-            m.assertEqual(m.kinds(m.stepped(within, { kind: "seekResumes", positionMs: 130000 }).commands), "seekPlayer")
+            taken = m.stepped(within, { kind: "holdEnds", targetMs: 100000 })
+
+            m.assertEqual(m.kinds(taken.commands), "playPlayer,seekPlayer")
+            m.assertTrue(taken.state.wanted.playing)
+        end sub
+
+        @it("forgets a hold's pause when the stream fails, so a tap after Try again stays paused")
+        sub holdForgottenOnFailure()
+            within = m.stepped(m.watching(), m.reading(30000, true, 10000)).state
+            held = m.stepped(within, { kind: "holdPauses" }).state
+            failed = m.stepped(held, { kind: "videoFailed", message: "x" }).state
+            m.assertFalse(failed.wanted.resumeAfterHold)
+
+            retried = m.stepped(failed, { kind: "retry" }).state
+            started = m.stepped(retried, { kind: "started", id: 2, json: m.answer() }).state
+            loaded = m.stepped(started, { kind: "loaded", id: 2 })
+            m.assertEqual(m.kinds(loaded.commands), "")
+
+            tapped = m.stepped(loaded.state, { kind: "holdEnds", targetMs: 100000 })
+            m.assertFalse(tapped.state.wanted.playing)
+        end sub
+
+        @it("seeks at the end of a hold on a paused stream, and pauses once the seek lands")
+        sub holdOnAPausedStream()
+            held = m.stepped(m.pausedWatching(), { kind: "holdPauses" })
+            m.assertEqual(m.kinds(held.commands), "")
+            m.assertFalse(held.state.wanted.resumeAfterHold)
+
+            taken = m.stepped(held.state, { kind: "holdEnds", targetMs: 100000 })
+            m.assertEqual(m.kinds(taken.commands), "seekPlayer")
+            m.assertEqual(m.kinds(m.stepped(taken.state, m.position(40000)).commands), "pausePlayer")
+            m.assertFalse(taken.state.wanted.playing)
+        end sub
+
+        @it("resumes what a hold paused when the hold loses the keys, without seeking")
+        sub holdDroppedResumes()
+            dropped = m.stepped(m.heldPaused(), { kind: "holdDropped" })
+            m.assertEqual(m.kinds(dropped.commands), "playPlayer")
+            m.assertTrue(dropped.state.wanted.playing)
+            m.assertFalse(dropped.state.wanted.resumeAfterHold)
+
+            untouched = m.stepped(m.pausedWatching(), { kind: "holdDropped" })
+            m.assertEqual(m.kinds(untouched.commands), "")
+            m.assertFalse(untouched.state.wanted.playing)
+        end sub
+
+        @it("forgets a hold's pause during a change, staying paused")
+        sub holdDuringAChange()
+            changing = m.changed(m.heldPaused()).state
+            taken = m.stepped(changing, { kind: "holdEnds", targetMs: 130000 })
+
+            m.assertEqual(m.kinds(taken.commands), "")
+            m.assertFalse(taken.state.wanted.playing)
+            m.assertFalse(taken.state.wanted.resumeAfterHold)
         end sub
 
         @it("replays from the start at the end, reloading the stream")
@@ -639,9 +803,9 @@ namespace tests
             m.assertEqual(m.kinds(taken.commands), "loadStream")
             m.assertEqual(taken.commands[0].offsetMs, 0)
             m.assertEqual(taken.state.status.sent.kind, "load")
-            m.assertTrue(taken.state.timeline.playing)
+            m.assertTrue(taken.state.wanted.playing)
             m.assertFalse(taken.state.timeline.ended)
-            m.assertEqual(m.kinds(m.stepped(taken.state, { kind: "loaded", id: 2 }).commands), "playPlayer,sendProgress")
+            m.assertEqual(m.kinds(m.stepped(taken.state, { kind: "loaded", id: 2 }).commands), "playPlayer")
         end sub
 
         @it("asks the server for a replay the stream cannot reach, and puts paused back when it fails")
@@ -651,10 +815,10 @@ namespace tests
 
             m.assertEqual(m.kinds(taken.commands), "stopPlayer,sendSeek")
             m.assertEqual(taken.commands[1].positionMs, 0)
-            m.assertTrue(taken.state.timeline.playing)
+            m.assertTrue(taken.state.wanted.playing)
 
             failed = m.stepped(taken.state, { kind: "failed", id: 2 }).state
-            m.assertFalse(failed.timeline.playing)
+            m.assertFalse(failed.wanted.playing)
             m.assertEqual(failed.timeline.positionMs, 90000)
         end sub
 
@@ -665,7 +829,7 @@ namespace tests
             m.assertEqual(m.kinds(during.commands), "")
             m.assertEqual(during.state.status.sent.kind, "controls")
 
-            failed = m.stepped(ended, { kind: "errs", message: "x" }).state
+            failed = m.stepped(ended, { kind: "videoFailed", message: "x" }).state
             m.assertTrue(failed.timeline.ended)
             m.assertEqual(m.kinds(m.stepped(failed, { kind: "toggle" }).commands), "")
         end sub
@@ -681,7 +845,260 @@ namespace tests
             taken = m.stepped(ended, { kind: "toggle" })
             m.assertEqual(m.kinds(taken.commands), "loadStream")
             m.assertEqual(taken.commands[0].offsetMs, 0)
-            m.assertTrue(taken.state.timeline.playing)
+            m.assertTrue(taken.state.wanted.playing)
+        end sub
+
+        @describe("the player against what is wanted")
+
+        @it("pauses a player that plays on its own after a seek while paused")
+        sub pausesAnUntoldResume()
+            within = m.stepped(m.pausedWatching(), m.reading(30000, false, 10000)).state
+            sought = m.stepped(within, { kind: "seek", positionMs: 130000 })
+            m.assertEqual(m.kinds(sought.commands), "seekPlayer")
+            m.assertEqual(m.kinds(m.stepped(within, { kind: "seekBy", deltaMs: -10000 }).commands), "seekPlayer")
+
+            buffering = m.stepped(sought.state, m.videoState("buffering"))
+            m.assertEqual(m.kinds(buffering.commands), "")
+
+            resumed = m.stepped(buffering.state, m.videoState("playing"))
+            m.assertEqual(m.kinds(resumed.commands), "pausePlayer,sendProgress")
+            m.assertTrue(resumed.commands[1].playing)
+            m.assertTrue(resumed.state.player.playing)
+
+            settled = m.stepped(resumed.state, m.videoState("paused"))
+            m.assertEqual(m.kinds(settled.commands), "sendProgress")
+            m.assertFalse(settled.state.player.playing)
+        end sub
+
+        @it("pauses a seek made while paused once it lands, so the player shows the new picture first")
+        sub pausesWhenTheSeekLands()
+            within = m.stepped(m.pausedWatching(), m.reading(30000, false, 10000)).state
+            sought = m.stepped(within, { kind: "seek", positionMs: 130000 }).state
+            m.assertEqual(sought.timeline.seekingToMs, 130000)
+
+            m.assertEqual(m.kinds(m.stepped(sought, m.position(20000)).commands), "")
+            landed = m.stepped(sought, m.position(70200))
+            m.assertEqual(m.kinds(landed.commands), "pausePlayer")
+            m.assertEqual(landed.state.timeline.seekingToMs, -1)
+            m.assertEqual(m.kinds(m.stepped(landed.state, m.position(71200)).commands), "")
+
+            settled = m.stepped(sought, { kind: "seekSettled", targetMs: 130000 })
+            m.assertEqual(m.kinds(settled.commands), "pausePlayer")
+        end sub
+
+        @it("says a seek still in flight again when play is pressed during it")
+        sub playDuringAPausedSeek()
+            within = m.stepped(m.pausedWatching(), m.reading(30000, false, 10000)).state
+            sought = m.stepped(within, { kind: "seek", positionMs: 130000 })
+            played = m.stepped(sought.state, { kind: "toggle" })
+            m.assertEqual(m.kinds(played.commands), "playPlayer,seekPlayer")
+            m.assertTrue(played.commands[0].resume)
+            m.assertEqual(played.commands[1].offsetMs, sought.commands[0].offsetMs)
+            m.assertEqual(played.state.timeline.seekingToMs, 130000)
+
+            reported = m.stepped(played.state, m.videoState("playing")).state
+            m.assertTrue(reported.player.playing)
+            m.assertEqual(m.kinds(m.stepped(reported, m.position(70200)).commands), "")
+        end sub
+
+        @it("leaves a seek that lands while playing, or one on a stream never started, alone")
+        sub landingNeedsAPausedStart()
+            within = m.stepped(m.watching(), m.reading(30000, true, 10000)).state
+            sought = m.stepped(within, { kind: "seek", positionMs: 130000 }).state
+            m.assertEqual(m.kinds(m.stepped(sought, m.position(70000)).commands), "")
+
+            reloading = m.stepped(m.loadedPaused(), { kind: "seekBy", deltaMs: 10000 }).state
+            reloaded = m.stepped(reloading, { kind: "loaded", id: 3 }).state
+            m.assertEqual(m.kinds(m.stepped(reloaded, { kind: "seekSettled", targetMs: reloaded.timeline.seekingToMs }).commands), "")
+        end sub
+
+        @it("plays a player that pauses on its own while playing is wanted")
+        sub playsAnUntoldPause()
+            taken = m.stepped(m.watching(), m.videoState("paused"))
+
+            m.assertEqual(m.kinds(taken.commands), "playPlayer,sendProgress")
+            m.assertTrue(taken.commands[0].resume)
+        end sub
+
+        @it("asks once until the player reports a new state")
+        sub asksOnce()
+            asked = m.stepped(m.watching(), { kind: "toggle" }).state
+            m.assertEqual(asked.player.asked, "pause")
+
+            m.assertEqual(m.kinds(m.stepped(asked, m.position(31000)).commands), "")
+            m.assertEqual(m.kinds(m.stepped(asked, { kind: "heartbeatDue" }).commands), "sendProgress")
+            m.assertEqual(m.kinds(m.stepped(asked, m.videoState("playing")).commands), "pausePlayer")
+
+            playAsked = m.stepped(m.pausedWatching(), { kind: "toggle" }).state
+            m.assertEqual(playAsked.player.asked, "play")
+            m.assertEqual(m.kinds(m.stepped(playAsked, m.position(31000)).commands), "")
+            m.assertEqual(m.kinds(m.stepped(playAsked, m.videoState("paused")).commands), "playPlayer")
+        end sub
+
+        @it("resumes before the seek of a hold that ends before its pause has landed")
+        sub holdEndsBeforeThePause()
+            within = m.stepped(m.watching(), m.reading(30000, true, 10000)).state
+            asked = m.stepped(within, { kind: "holdPauses" }).state
+            sought = m.stepped(asked, { kind: "holdEnds", targetMs: 130000 })
+            m.assertEqual(m.kinds(sought.commands), "playPlayer,seekPlayer")
+            m.assertTrue(sought.commands[0].resume)
+            m.assertTrue(sought.state.wanted.playing)
+
+            landed = m.stepped(sought.state, m.videoState("paused"))
+            m.assertEqual(m.kinds(landed.commands), "playPlayer,seekPlayer,sendProgress")
+            m.assertEqual(landed.commands[1].offsetMs, sought.commands[1].offsetMs)
+            m.assertEqual(m.kinds(m.stepped(landed.state, m.videoState("playing")).commands), "sendProgress")
+        end sub
+
+        @it("pauses after a hold that ends before its pause is reported")
+        sub pausesAfterAnUnreportedHold()
+            within = m.stepped(m.watching(), m.reading(30000, true, 10000)).state
+            asked = m.stepped(within, { kind: "holdPauses" }).state
+            sought = m.stepped(asked, { kind: "holdEnds", targetMs: 130000 }).state
+            m.assertEqual(sought.player.asked, "play")
+
+            m.assertEqual(m.kinds(m.stepped(sought, { kind: "toggle" }).commands), "pausePlayer")
+        end sub
+
+        @it("asks nothing of a player that stopped while watching")
+        sub nothingOfAStoppedPlayer()
+            taken = m.stepped(m.watching(), m.videoState("stopped"))
+
+            m.assertEqual(m.kinds(taken.commands), "sendProgress")
+            m.assertFalse(taken.commands[0].playing)
+            m.assertEqual(PlaybackGap(taken.state), "")
+        end sub
+
+        @it("acts on a report from before the load once the stream is loaded")
+        sub reportBeforeLoaded()
+            updated = m.stepped(m.changed(m.pausedWatching()).state, { kind: "updated", id: 2, json: m.answer() }).state
+            early = m.stepped(updated, m.videoState("playing"))
+            m.assertEqual(m.kinds(early.commands), "")
+
+            loaded = m.stepped(early.state, { kind: "loaded", id: 2 })
+            m.assertEqual(m.kinds(loaded.commands), "pausePlayer,sendProgress")
+        end sub
+
+        @it("toggles by what the player shows, so a press during a pause on its way does not undo it")
+        sub toggleFollowsThePlayer()
+            asked = m.stepped(m.watching(), { kind: "toggle" }).state
+            again = m.stepped(asked, { kind: "toggle" })
+
+            m.assertFalse(again.state.wanted.playing)
+            m.assertEqual(m.kinds(again.commands), "")
+        end sub
+
+        @it("takes a toggle before the player plays as play, the way the bar shows it")
+        sub toggleWhileStarting()
+            taken = m.stepped(m.justLoaded(), { kind: "toggle" })
+
+            m.assertTrue(taken.state.wanted.playing)
+            m.assertEqual(m.kinds(taken.commands), "")
+        end sub
+
+        @it("waits out buffering, playing or paused")
+        sub waitsOutBuffering()
+            playing = m.stepped(m.watching(), m.videoState("buffering"))
+            m.assertEqual(m.kinds(playing.commands), "")
+            m.assertTrue(playing.state.player.playing)
+
+            paused = m.stepped(m.pausedWatching(), m.videoState("buffering"))
+            m.assertEqual(m.kinds(paused.commands), "")
+            m.assertFalse(paused.state.player.playing)
+        end sub
+
+        @it("asks nothing of a player before its stream is loaded")
+        sub nothingBeforeLoaded()
+            started = m.stepped(m.opened(), { kind: "started", id: 1, json: m.answer() }).state
+            early = m.stepped(started, m.videoState("playing"))
+
+            m.assertEqual(m.kinds(early.commands), "")
+            m.assertTrue(early.state.player.playing)
+            m.assertFalse(early.state.player.painted)
+        end sub
+
+        @it("pauses a stream loaded paused that plays untold, without placing it")
+        sub pausesAnUntoldStart()
+            taken = m.stepped(m.loadedPaused(), m.reading(30000))
+
+            m.assertEqual(m.kinds(taken.commands), "pausePlayer,sendProgress")
+            m.assertFalse(taken.state.timeline.placed)
+            m.assertEqual(m.kinds(m.stepped(taken.state, { kind: "seekBy", deltaMs: 10000 }).commands), "loadStream")
+        end sub
+
+        @it("takes an end while paused as an end, asking nothing")
+        sub endWhilePaused()
+            taken = m.stepped(m.pausedWatching(), m.reading(600000, false, 0, true))
+
+            m.assertTrue(taken.state.timeline.ended)
+            m.assertFalse(taken.state.wanted.playing)
+            m.assertEqual(m.kinds(taken.commands), "")
+        end sub
+
+        @it("stops wanting to play at the end, so a seek back from it stays paused")
+        sub endStopsWanting()
+            ended = m.stepped(m.flat(), m.reading(598500, false, 0, true)).state
+            m.assertFalse(ended.wanted.playing)
+
+            back = m.stepped(ended, { kind: "seekBy", deltaMs: -10000 }).state
+            m.assertEqual(m.kinds(m.stepped(back, { kind: "loaded", id: 2 }).commands), "")
+        end sub
+
+        function heldToTheEnd() as object
+            held = m.stepped(m.flat(), { kind: "holdPauses" }).state
+            return m.stepped(held, m.reading(598500, false, 0, true)).state
+        end function
+
+        @it("keeps not wanting to play at the end, whatever a hold that paused before it asks")
+        sub endKeepsNotWanting()
+            ended = m.heldToTheEnd()
+            m.assertTrue(ended.wanted.resumeAfterHold)
+
+            dropped = m.stepped(ended, { kind: "holdDropped" })
+            m.assertFalse(dropped.state.wanted.playing)
+            m.assertEqual(m.kinds(dropped.commands), "")
+
+            forward = m.stepped(ended, { kind: "holdEnds", targetMs: 600000 })
+            m.assertFalse(forward.state.wanted.playing)
+            m.assertEqual(m.kinds(forward.commands), "")
+        end sub
+
+        @it("resumes a hold back from the end once the stream loads")
+        sub resumesBackFromTheEnd()
+            back = m.stepped(m.heldToTheEnd(), { kind: "holdEnds", targetMs: 588500 })
+
+            m.assertEqual(m.kinds(back.commands), "loadStream")
+            m.assertTrue(back.state.wanted.playing)
+            m.assertEqual(m.kinds(m.stepped(back.state, { kind: "loaded", id: 2 }).commands), "playPlayer")
+        end sub
+
+        @it("forgets the player when the stream stops, and starts afresh on the next load")
+        sub forgetsThePlayer()
+            stopped = m.changed(m.watching()).state
+            m.assertEqual(stopped.player.attachId, -1)
+            m.assertFalse(stopped.player.loaded)
+
+            loading = m.stepped(stopped, { kind: "updated", id: 2, json: m.answer() }).state
+            m.assertEqual(loading.player.attachId, 2)
+            m.assertFalse(loading.player.started)
+            m.assertFalse(loading.player.painted)
+
+            loaded = m.stepped(loading, { kind: "loaded", id: 2 })
+            m.assertEqual(m.kinds(loaded.commands), "playPlayer")
+            m.assertFalse(loaded.commands[0].resume)
+        end sub
+
+        @it("names the gap only while watching a loaded stream short of the end")
+        sub gapNeedsWatching()
+            m.assertEqual(PlaybackGap(m.opened()), "")
+            started = m.stepped(m.opened(), { kind: "started", id: 1, json: m.answer() }).state
+            m.assertEqual(PlaybackGap(started), "")
+            m.assertEqual(PlaybackGap(m.watching()), "")
+
+            asked = m.stepped(m.watching(), { kind: "toggle" }).state
+            m.assertEqual(PlaybackGap(asked), "pause")
+            ended = m.stepped(m.watching(), m.reading(30000, false, 0, true)).state
+            m.assertEqual(PlaybackGap(ended), "")
         end sub
 
         @describe("stream settings")
@@ -842,7 +1259,7 @@ namespace tests
             m.assertEqual(taken.state.status.notice, "changeFailed")
 
             loaded = m.stepped(taken.state, { kind: "loaded", id: 2 })
-            m.assertEqual(m.kinds(loaded.commands), "playPlayer,sendProgress")
+            m.assertEqual(m.kinds(loaded.commands), "playPlayer")
             m.assertEqual(loaded.state.status.notice, "changeFailed")
         end sub
 
@@ -854,7 +1271,7 @@ namespace tests
             m.assertEqual(m.kinds(taken.commands), "loadStream")
             m.assertEqual(taken.commands[0].offsetMs, 30000)
             m.assertEqual(taken.state.timeline.positionMs, 90000)
-            m.assertFalse(taken.state.timeline.playing)
+            m.assertFalse(taken.state.wanted.playing)
             m.assertEqual(taken.state.status.notice, "seekFailed")
             m.assertEqual(m.kinds(m.stepped(taken.state, { kind: "loaded", id: 2 }).commands), "")
         end sub
@@ -886,7 +1303,7 @@ namespace tests
         @it("ends the session when the reload fails")
         sub failedReload()
             reloading = m.stepped(m.changed(m.watching()).state, { kind: "failed", id: 2 }).state
-            taken = m.stepped(reloading, { kind: "failedToLoad", id: 2, message: "Playback failed (gone)." })
+            taken = m.stepped(reloading, { kind: "videoFailed", message: "Playback failed (gone)." })
 
             m.assertEqual(m.kinds(taken.commands), "endSession,unloadPlayer")
             m.assertEqual(taken.state.status.error, "Playback failed (gone).")
@@ -904,7 +1321,7 @@ namespace tests
 
         @it("starts at the position with the chosen settings")
         sub retryStarts()
-            failed = m.stepped(m.watching(), { kind: "errs", message: "x" }).state
+            failed = m.stepped(m.watching(), { kind: "videoFailed", message: "x" }).state
             chosen = m.changed(failed).state
             taken = m.stepped(chosen, { kind: "retry" })
 
@@ -978,7 +1395,7 @@ namespace tests
         sub opensNextEpisodeFresh()
             noted = m.stepped(m.stepped(m.changed(m.watching()).state, { kind: "failed", id: 2 }).state, { kind: "loaded", id: 2 }).state
             ended = m.stepped(noted, m.reading(30000, false, 0, true)).state
-            failed = m.stepped(ended, { kind: "errs", message: "x" }).state
+            failed = m.stepped(ended, { kind: "videoFailed", message: "x" }).state
             m.assertEqual(failed.status.notice, "changeFailed")
             m.assertFalse(IsBlank(failed.status.error))
             m.assertTrue(failed.timeline.ended)
@@ -986,7 +1403,9 @@ namespace tests
             left = m.stepped(failed, { kind: "leave" }).state
             fresh = m.stepped(left, { kind: "open", versionId: "v2", remote: DefaultControls() }).state
 
-            m.assertTrue(fresh.timeline.playing)
+            m.assertTrue(fresh.wanted.playing)
+            m.assertFalse(fresh.player.playing)
+            m.assertEqual(fresh.player.attachId, -1)
             m.assertFalse(fresh.timeline.ended)
             m.assertEqual(fresh.timeline.positionMs, 0)
             m.assertEqual(fresh.timeline.seekingToMs, -1)
@@ -1007,7 +1426,7 @@ namespace tests
             m.assertTrue(IsBlank(reloaded.state.status.notice))
             m.assertEqual(reloaded.state.status.lastChangeId, 3)
 
-            failed = m.stepped(noted, { kind: "errs", message: "x" }).state
+            failed = m.stepped(noted, { kind: "videoFailed", message: "x" }).state
             m.assertEqual(failed.status.notice, "changeFailed")
             m.assertTrue(IsBlank(m.stepped(failed, { kind: "retry" }).state.status.notice))
         end sub
@@ -1051,7 +1470,7 @@ namespace tests
             m.assertFalse(m.stepped(slowStart, { kind: "leave" }).state.status.slow)
 
             slowLoad = m.stepped(slowStart, { kind: "started", id: 1, json: m.answer() }).state
-            m.assertFalse(m.stepped(slowLoad, { kind: "failedToLoad", id: 1, message: "x" }).state.status.slow)
+            m.assertFalse(m.stepped(slowLoad, { kind: "videoFailed", message: "x" }).state.status.slow)
 
             slowChange = m.stepped(m.changed(m.watching()).state, { kind: "changeSlow", id: 2 }).state
             m.assertTrue(slowChange.status.slow)

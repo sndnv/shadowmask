@@ -1,3 +1,4 @@
+import 'package:shadowmask/api/playlist_api.dart';
 import 'package:shadowmask/model/common/title_ref.dart';
 import 'package:shadowmask/model/playlist/queue_entry.dart';
 import 'package:shadowmask/view/catalog_card.dart';
@@ -9,6 +10,24 @@ QueueEntry? queueNext(List<QueueEntry> entries, String entryId) {
     return entries.firstOrNull;
   }
   return at + 1 < entries.length ? entries[at + 1] : null;
+}
+
+bool queueHolds(List<QueueEntry> entries, String entryId) =>
+    entries.any((QueueEntry e) => e.id == entryId);
+
+Future<String?> stillQueued(
+  PlaylistApi playlists,
+  String userId,
+  String? entryId,
+) async {
+  if (entryId == null) {
+    return null;
+  }
+  try {
+    return queueHolds(await playlists.queue(userId), entryId) ? entryId : null;
+  } catch (_) {
+    return entryId;
+  }
 }
 
 String queueLabel(CatalogCard card) => card.ref.type == TitleKind.episode

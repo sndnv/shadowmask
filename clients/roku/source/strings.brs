@@ -181,6 +181,7 @@ function BuildStringTable() as object
         "error.serverUnreachableBody": "The server did not answer. It may be restarting, or this device may be offline.",
         "error.fontsFailed": "Fonts not downloaded",
         "error.fontsFailedBody": "Without them, Chinese, Japanese and Korean text shows as boxes.",
+        "error.fontsUndrawn": "Fonts could not be drawn",
 
         "toast.ok.watchlistAdded": "Added {title} to your watchlist.",
         "toast.ok.watchlistRemoved": "Removed {title} from your watchlist.",
@@ -215,6 +216,7 @@ function BuildStringTable() as object
         "form.linking": "Linking…",
         "form.signingOut": "Signing out…",
 
+        "player.backToExit": "Press Back again to exit",
         "player.loading": "Loading…",
         "player.loadingTitle": "Loading {title}…",
         "player.slow": "Taking longer than usual.",

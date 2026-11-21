@@ -228,11 +228,6 @@ sub onCardSelected()
     target = m.rows.selected
     if target = invalid or target.Count() = 0 then return
 
-    if not IsBlank(TextOrBlank(ValueAt(target, "queueEntryId", "")))
-        PlayQueued(target)
-        return
-    end if
-
     screen = ScreenForKind(ValueAt(target, "kind", ""))
     if IsBlank(screen) then return
 

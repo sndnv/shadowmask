@@ -1,24 +1,22 @@
 sub RunnerInit()
     m.playback = invalid
-    m.playbackQueue = []
-    m.playbackDraining = false
-    m.beatKey = ""
-    m.slowId = -1
-    m.slowTimer = invalid
-    m.timeoutKey = ""
-    m.timeoutTimer = invalid
-    m.settleTimer = invalid
-    m.endWaitTimer = invalid
-    m.pendingStart = invalid
-    m.pendingEnds = 0
-    m.giveUpTimer = invalid
-    m.attachId = -1
-    m.attachLoaded = false
-    m.segments = SegmentWatchStart()
-    m.started = false
-    m.painted = false
-    m.toldToPlay = false
-    m.runnerReleased = false
+    m.runner = {
+        queue: [],
+        draining: false,
+        beatKey: "",
+        slowId: -1,
+        slowTimer: invalid,
+        timeoutKey: "",
+        timeoutTimer: invalid,
+        settleTimer: invalid,
+        endWaitTimer: invalid,
+        pendingStart: invalid,
+        pendingEnds: 0,
+        giveUpTimer: invalid,
+        loadedId: -1,
+        segments: SegmentWatchStart(),
+        released: false
+    }
     m.reportHistory = []
 
     m.video.ObserveField("state", "onPlaybackVideoState")
@@ -34,8 +32,13 @@ sub NoteHistory(event as string, facts = invalid as dynamic)
     HistoryAdd(m.reportHistory, event, facts, HistoryNow())
 end sub
 
+function AttachedId() as integer
+    if m.playback = invalid then return -1
+    return m.playback.player.attachId
+end function
+
 sub RunnerOpen(versionId as string, controls as dynamic)
-    if m.runnerReleased then return
+    if m.runner.released then return
     NoteHistory("opened")
     if m.playback = invalid
         m.playback = PlaybackOpens(versionId, controls)
@@ -47,7 +50,7 @@ sub RunnerOpen(versionId as string, controls as dynamic)
 end sub
 
 sub RunnerRelease()
-    m.runnerReleased = true
+    m.runner.released = true
     PostPlayback({ kind: "leave" })
     m.global.UnobserveFieldScoped("endsDone")
 end sub
@@ -55,19 +58,19 @@ end sub
 sub PostPlayback(event as object)
     if m.playback = invalid then return
 
-    m.playbackQueue.Push(event)
-    if m.playbackDraining then return
+    m.runner.queue.Push(event)
+    if m.runner.draining then return
 
-    m.playbackDraining = true
-    while m.playbackQueue.Count() > 0
-        HandlePlayback(m.playbackQueue.Shift())
+    m.runner.draining = true
+    while m.runner.queue.Count() > 0
+        HandlePlayback(m.runner.queue.Shift())
     end while
-    m.playbackDraining = false
+    m.runner.draining = false
 end sub
 
 sub HandlePlayback(event as object)
     posted = event
-    if posted.kind = "readNow" then posted = { kind: "reads", reading: PlayerReading() }
+    if posted.kind = "readNow" then posted = { kind: "reads", id: AttachedId(), reading: PlayerReading() }
 
     before = m.playback
     taken = PlaybackStep(before, posted)
@@ -79,7 +82,7 @@ sub HandlePlayback(event as object)
         RunPlaybackCommand(command)
     end for
 
-    if PlaybackReadsNow(before, after, taken.commands) then m.playbackQueue.Push({ kind: "readNow" })
+    if PlaybackReadsNow(before, after, taken.commands) then m.runner.queue.Push({ kind: "readNow" })
     if before.status.life = "open" and after.status.life = "closed" then ClosePlayback()
     PlaybackChanged(before, after)
 end sub
@@ -87,8 +90,8 @@ end sub
 sub ArmPlayback(before as object, after as object, commands as object)
     plan = PlaybackTimers(before, after, commands)
 
-    if plan.heartbeatKey <> m.beatKey
-        m.beatKey = plan.heartbeatKey
+    if plan.heartbeatKey <> m.runner.beatKey
+        m.runner.beatKey = plan.heartbeatKey
         m.beat.control = "stop"
         if not IsBlank(plan.heartbeatKey)
             m.beat.duration = plan.heartbeatS
@@ -96,41 +99,41 @@ sub ArmPlayback(before as object, after as object, commands as object)
         end if
     end if
 
-    if plan.slowId <> m.slowId
-        m.slowId = plan.slowId
-        StopTimer(m.slowTimer)
-        m.slowTimer = invalid
-        if plan.slowId >= 0 then m.slowTimer = ArmTimer(StallSeconds(), "onPlaybackSlow", { id: plan.slowId })
+    if plan.slowId <> m.runner.slowId
+        m.runner.slowId = plan.slowId
+        StopTimer(m.runner.slowTimer)
+        m.runner.slowTimer = invalid
+        if plan.slowId >= 0 then m.runner.slowTimer = ArmTimer(StallSeconds(), "onPlaybackSlow", { id: plan.slowId })
     end if
 
-    if plan.timeoutKey <> m.timeoutKey
-        m.timeoutKey = plan.timeoutKey
-        StopTimer(m.timeoutTimer)
-        m.timeoutTimer = invalid
-        if not IsBlank(plan.timeoutKey) then m.timeoutTimer = ArmTimer(plan.timeoutS, "onPlaybackTimeout", { id: plan.timeoutId, kind: plan.timeoutKind })
+    if plan.timeoutKey <> m.runner.timeoutKey
+        m.runner.timeoutKey = plan.timeoutKey
+        StopTimer(m.runner.timeoutTimer)
+        m.runner.timeoutTimer = invalid
+        if not IsBlank(plan.timeoutKey) then m.runner.timeoutTimer = ArmTimer(plan.timeoutS, "onPlaybackTimeout", { id: plan.timeoutId, kind: plan.timeoutKind })
     end if
 
     if plan.settle = "keep" then return
 
-    StopTimer(m.settleTimer)
-    m.settleTimer = invalid
-    if plan.settle = "arm" then m.settleTimer = ArmTimer(SeekSettleWaitMs() / 1000.0, "onPlaybackSettle", { targetMs: plan.settleMs })
+    StopTimer(m.runner.settleTimer)
+    m.runner.settleTimer = invalid
+    if plan.settle = "arm" then m.runner.settleTimer = ArmTimer(SeekSettleWaitMs() / 1000.0, "onPlaybackSettle", { targetMs: plan.settleMs })
 end sub
 
 sub ClosePlayback()
-    m.beatKey = ""
+    m.runner.beatKey = ""
     m.beat.control = "stop"
-    m.slowId = -1
-    m.timeoutKey = ""
-    StopTimer(m.slowTimer)
-    StopTimer(m.timeoutTimer)
-    StopTimer(m.settleTimer)
-    StopTimer(m.endWaitTimer)
-    m.slowTimer = invalid
-    m.timeoutTimer = invalid
-    m.settleTimer = invalid
-    m.endWaitTimer = invalid
-    m.pendingStart = invalid
+    m.runner.slowId = -1
+    m.runner.timeoutKey = ""
+    StopTimer(m.runner.slowTimer)
+    StopTimer(m.runner.timeoutTimer)
+    StopTimer(m.runner.settleTimer)
+    StopTimer(m.runner.endWaitTimer)
+    m.runner.slowTimer = invalid
+    m.runner.timeoutTimer = invalid
+    m.runner.settleTimer = invalid
+    m.runner.endWaitTimer = invalid
+    m.runner.pendingStart = invalid
 end sub
 
 sub RunPlaybackCommand(command as object)
@@ -155,9 +158,8 @@ sub RunPlaybackCommand(command as object)
     else if kind = "seekPlayer"
         PlaybackSeek(command.offsetMs)
     else if kind = "playPlayer"
-        PlaybackPlay()
+        if command.resume = true then m.video.control = "resume" else m.video.control = "play"
     else if kind = "pausePlayer"
-        m.toldToPlay = false
         m.video.control = "pause"
     else if kind = "stopPlayer" or kind = "unloadPlayer"
         DetachPlayback()
@@ -176,10 +178,10 @@ sub SendPlaybackStart(command as object)
         return
     end if
 
-    m.pendingStart = command
-    m.pendingEnds = ahead
-    StopTimer(m.endWaitTimer)
-    m.endWaitTimer = ArmTimer(EndWaitSeconds(), "onPlaybackEndWait", { id: command.id })
+    m.runner.pendingStart = command
+    m.runner.pendingEnds = ahead
+    StopTimer(m.runner.endWaitTimer)
+    m.runner.endWaitTimer = ArmTimer(EndWaitSeconds(), "onPlaybackEndWait", { id: command.id })
 end sub
 
 sub StartPlaybackNow(command as object)
@@ -191,8 +193,8 @@ sub StartPlaybackNow(command as object)
 end sub
 
 sub onEndsDone()
-    if m.pendingStart = invalid or Int(m.global.endsDone) < m.pendingEnds then return
-    ReleasePlaybackStart(m.pendingStart.id)
+    if m.runner.pendingStart = invalid or Int(m.global.endsDone) < m.runner.pendingEnds then return
+    ReleasePlaybackStart(m.runner.pendingStart.id)
 end sub
 
 sub onPlaybackEndWait(event as object)
@@ -200,12 +202,12 @@ sub onPlaybackEndWait(event as object)
 end sub
 
 sub ReleasePlaybackStart(id as integer)
-    command = m.pendingStart
+    command = m.runner.pendingStart
     if command = invalid or command.id <> id then return
 
-    m.pendingStart = invalid
-    StopTimer(m.endWaitTimer)
-    m.endWaitTimer = invalid
+    m.runner.pendingStart = invalid
+    StopTimer(m.runner.endWaitTimer)
+    m.runner.endWaitTimer = invalid
     if PlaybackAwaitsKind(m.playback, id, "start") then StartPlaybackNow(command)
 end sub
 
@@ -303,37 +305,21 @@ sub AttachPlayback(command as object)
     content.PlayStart = AttachSeconds(command.offsetMs, 0)
 
     NoteHistory("load", { session: command.stream.sessionId, offset_ms: command.offsetMs })
-    m.attachId = command.id
     m.global.negotiated = command.stream
     m.global.sessionId = command.stream.sessionId
     SubtitlesAttach(command)
     m.video.content = content
     m.video.control = "prebuffer"
-    m.giveUpTimer = ArmTimer(PrebufferGiveUpSeconds(), "onPlaybackGiveUp", { id: command.id })
+    m.runner.giveUpTimer = ArmTimer(PrebufferGiveUpSeconds(), "onPlaybackGiveUp", { id: command.id })
 end sub
 
 sub DetachPlayback()
-    m.attachId = -1
-    m.attachLoaded = false
-    m.segments = SegmentWatchStart()
-    m.started = false
-    m.painted = false
-    m.toldToPlay = false
-    StopTimer(m.giveUpTimer)
-    m.giveUpTimer = invalid
+    m.runner.loadedId = -1
+    m.runner.segments = SegmentWatchStart()
+    StopTimer(m.runner.giveUpTimer)
+    m.runner.giveUpTimer = invalid
     SubtitlesClear()
     m.video.control = "stop"
-end sub
-
-sub PlaybackPlay()
-    m.toldToPlay = true
-    if m.started and TextOrBlank(m.video.state) <> "finished"
-        m.video.control = "resume"
-        return
-    end if
-
-    m.started = true
-    m.video.control = "play"
 end sub
 
 sub PlaybackSeek(offsetMs as integer)
@@ -344,12 +330,11 @@ sub PlaybackSeek(offsetMs as integer)
 end sub
 
 function PlayerReading() as object
-    state = TextOrBlank(m.video.state)
-    stopped = state = "finished" or state = "stopped" or state = "error"
-    reading = { positionMs: -1, durationMs: 0, bufferedAheadMs: 0, playing: m.toldToPlay and not stopped, ended: state = "finished" }
-
+    reading = { positionMs: -1, durationMs: 0, bufferedAheadMs: 0, bufferedPercent: 0 }
     if m.video.duration <> invalid and m.video.duration > 0 then reading.durationMs = Int(m.video.duration * 1000.0)
-    if not m.painted or m.video.position = invalid then return reading
+    buffering = m.video.bufferingStatus
+    if type(buffering) = "roAssociativeArray" then reading.bufferedPercent = Int(ValueAt(buffering, "percentage", 0))
+    if m.video.position = invalid then return reading
 
     reading.positionMs = Int(m.video.position * 1000.0)
     if reading.positionMs < 0 then reading.positionMs = 0
@@ -359,13 +344,14 @@ function PlayerReading() as object
 end function
 
 sub onPlaybackPosition()
-    if m.attachId < 0 then return
-    PostPlayback({ kind: "reads", reading: PlayerReading() })
+    if AttachedId() < 0 then return
+    PostPlayback({ kind: "reads", id: AttachedId(), reading: PlayerReading() })
 end sub
 
 sub onPlaybackBuffering()
-    if m.attachId < 0 or m.attachLoaded then return
-    if ValueAt(m.video.bufferingStatus, "prebufferDone", false) = true then PlaybackAttached(m.attachId)
+    if AttachedId() < 0 then return
+    PostPlayback({ kind: "reads", id: AttachedId(), reading: PlayerReading() })
+    if ValueAt(m.video.bufferingStatus, "prebufferDone", false) = true then PlaybackAttached(AttachedId())
 end sub
 
 sub onPlaybackGiveUp(event as object)
@@ -373,11 +359,11 @@ sub onPlaybackGiveUp(event as object)
 end sub
 
 sub PlaybackAttached(id as integer)
-    if id <> m.attachId or m.attachLoaded then return
+    if id <> AttachedId() or id = m.runner.loadedId then return
 
-    m.attachLoaded = true
-    StopTimer(m.giveUpTimer)
-    m.giveUpTimer = invalid
+    m.runner.loadedId = id
+    StopTimer(m.runner.giveUpTimer)
+    m.runner.giveUpTimer = invalid
     NoteHistory("loaded")
     PostPlayback({ kind: "loaded", id: id })
 end sub
@@ -385,42 +371,33 @@ end sub
 sub onPlaybackVideoState()
     state = TextOrBlank(m.video.state)
     NoteVideoState(state)
-    if m.attachId < 0 then return
+    if AttachedId() < 0 then return
 
-    if state = "playing" then m.painted = true
-    if state <> "error"
-        PostPlayback({ kind: "reads", reading: PlayerReading() })
+    if state = "error"
+        PlaybackFails(PhraseWith("error.playbackFailed", { detail: VideoDetail() }))
         return
     end if
-
-    PlaybackFails(PhraseWith("error.playbackFailed", { detail: VideoDetail() }))
+    PostPlayback({ kind: "videoState", id: AttachedId(), state: state, reading: PlayerReading() })
 end sub
 
 sub onPlaybackSegment(event as object)
-    if m.attachId < 0 then return
+    if AttachedId() < 0 then return
 
     report = event.GetData()
-    before = m.segments
-    m.segments = SegmentWatched(before, report)
-    if SegmentStreakStarts(before, m.segments)
+    before = m.runner.segments
+    m.runner.segments = SegmentWatched(before, report)
+    if SegmentStreakStarts(before, m.runner.segments)
         AppendPlaybackLog(m.playbackLog, PlaybackSegmentFailedLine(NowClock(), report))
         RefreshDiagnostics()
     end if
-    if not SegmentsLost(m.segments) then return
+    if not SegmentsLost(m.runner.segments) then return
 
-    AppendPlaybackLog(m.playbackLog, PlaybackLostLine(NowClock(), m.segments.last))
-    m.segments = SegmentWatchStart()
+    AppendPlaybackLog(m.playbackLog, PlaybackLostLine(NowClock(), m.runner.segments.last))
+    m.runner.segments = SegmentWatchStart()
     RefreshDiagnostics()
     PlaybackFails(PhraseWith("error.playbackFailed", { detail: Phrase("error.couldNotLoad") }))
 end sub
 
 sub PlaybackFails(message as string)
-    if m.attachLoaded
-        PostPlayback({ kind: "errs", message: message })
-        return
-    end if
-
-    id = m.attachId
-    DetachPlayback()
-    PostPlayback({ kind: "failedToLoad", id: id, message: message })
+    PostPlayback({ kind: "videoFailed", id: AttachedId(), message: message })
 end sub

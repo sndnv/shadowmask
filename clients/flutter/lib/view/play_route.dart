@@ -49,7 +49,9 @@ Future<String> playRouteFor(
       );
     }
   } catch (_) {}
-  return link.kind == TitleKind.movie
+  final String page = link.kind == TitleKind.movie
       ? movieRoute(link.id)
       : episodeRoute(link.id, series: seriesId);
+  final String? queue = link.queueEntryId;
+  return queue == null ? page : queuedRoute(page, queue);
 }

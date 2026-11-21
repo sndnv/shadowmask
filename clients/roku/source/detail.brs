@@ -742,6 +742,18 @@ function SeasonsToLoad(episode as dynamic, seasons as dynamic, currentSeason as 
     return wanted
 end function
 
+function FreshSeasons(wanted as dynamic, loaded as dynamic, asked as dynamic) as object
+    fresh = []
+    if type(wanted) <> "roArray" then return fresh
+
+    for each seasonId in wanted
+        known = type(loaded) = "roAssociativeArray" and loaded.DoesExist(seasonId)
+        if type(asked) = "roAssociativeArray" and asked.DoesExist(seasonId) then known = true
+        if not known then fresh.Push(seasonId)
+    end for
+    return fresh
+end function
+
 function EdgeEpisode(ordered as dynamic, at as integer, span as integer, episodesBySeason as dynamic, takeLast as boolean) as dynamic
     neighbour = at + span
     if neighbour < 0 or neighbour >= ordered.Count() then return invalid
@@ -785,6 +797,16 @@ function EpisodeSeasonCards(seasons as dynamic, seasonId as dynamic) as object
     if at < 0 then return []
 
     return [SeasonCard(seasons[at])]
+end function
+
+function EpisodeParents(known as dynamic, episode as dynamic) as object
+    seriesId = TextOrBlank(ValueAt(known, "seriesId", ""))
+    if IsBlank(seriesId) then seriesId = TextOrBlank(ValueAt(episode, "series_id", ""))
+
+    seasonId = TextOrBlank(ValueAt(known, "seasonId", ""))
+    if IsBlank(seasonId) then seasonId = TextOrBlank(ValueAt(episode, "season_id", ""))
+
+    return { seriesId: seriesId, seasonId: seasonId }
 end function
 
 function SeasonRailHeading(episode as dynamic) as string
@@ -1147,6 +1169,7 @@ function CardMenuActions(card as dynamic, listKind = "" as dynamic) as object
 
     if kind = "collection"
         actions.Push({ id: "randomInCollection", label: Phrase("action.randomInCollection"), icon: "icon-shuffle" })
+        actions.Push({ id: "playlist", label: Phrase("action.addToPlaylist"), icon: "icon-playlist-add" })
         return actions
     end if
 
@@ -1215,6 +1238,10 @@ function PlaylistButton() as object
     return { id: "playlist", label: Phrase("action.playlistLabel"), icon: "icon-playlist-add", collapsible: true }
 end function
 
+function CollectionPageButtons() as object
+    return [{ id: "randomInCollection", label: Phrase("action.random"), icon: "icon-shuffle" }, PlaylistButton()]
+end function
+
 function PlaylistsBarButtons(queueCount as integer) as object
     empty = queueCount <= 0
     return [
@@ -1269,6 +1296,22 @@ function AddedToQueueText(added as dynamic) as string
     count = Int(added)
     if count = 1 then return Phrase("toast.ok.addedToQueueOne")
     return PhraseWith("toast.ok.addedToQueue", { count: count })
+end function
+
+function WithQueueEntry(watch as object, entryId as dynamic) as object
+    id = TextOrBlank(entryId)
+    if not IsBlank(id) then watch.queueEntryId = id
+    return watch
+end function
+
+function QueueHolds(entries as dynamic, entryId as dynamic) as boolean
+    id = TextOrBlank(entryId)
+    if IsBlank(id) or type(entries) <> "roArray" then return false
+
+    for each entry in entries
+        if TextOrBlank(ValueAt(entry, "id", "")) = id then return true
+    end for
+    return false
 end function
 
 function QueuePlayTarget(card as dynamic, versions as dynamic) as dynamic

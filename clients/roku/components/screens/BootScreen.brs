@@ -9,6 +9,7 @@ sub init()
     m.started = false
     m.fontStep = 0
     m.fontCount = 0
+    m.fontAttempts = 0
 
     m.actions.ObserveField("activated", "onAction")
     m.top.ObserveField("focusedChild", "onFocus")
@@ -61,7 +62,12 @@ end function
 
 function FailureTitle() as string
     if m.failure = "fonts" then return Phrase("error.fontsFailed")
+    if m.failure = "fontsUndrawn" then return Phrase("error.fontsUndrawn")
     return Phrase("error.serverUnreachable")
+end function
+
+function FontsFailed() as boolean
+    return m.failure = "fonts" or m.failure = "fontsUndrawn"
 end function
 
 function NoteMessage() as string
@@ -71,7 +77,7 @@ function NoteMessage() as string
     end if
 
     body = Phrase("error.serverUnreachableBody")
-    if m.failure = "fonts" then body = Phrase("error.fontsFailedBody")
+    if FontsFailed() then body = Phrase("error.fontsFailedBody")
     if IsBlank(m.detail) then return body
     if m.detail = Phrase("error.serverUnreachable") then return body
     return body + " " + m.detail
@@ -80,7 +86,7 @@ end function
 function FailureButtons() as object
     if not m.failed then return []
 
-    if m.failure = "fonts"
+    if FontsFailed()
         return [
             { id: "retryFonts", label: Phrase("action.retry"), style: "primary" },
             { id: "continueFonts", label: Phrase("action.continueAnyway") }
@@ -134,6 +140,7 @@ sub LoadFonts()
     m.detail = ""
     m.fontStep = 0
     m.fontCount = 0
+    m.fontAttempts = 0
     render()
 
     m.infoTask = SendRequest(ServerInfoRequest(ReadServerUrl(), ReadToken()), "onFontsInfo")
@@ -163,10 +170,14 @@ sub onFontsInfo()
     end if
 
     m.fontPlan = plan
+    RunFontTask([])
+end sub
+
+sub RunFontTask(discard as object)
     m.fontTask = CreateObject("roSGNode", "FontTask")
     m.fontTask.ObserveField("step", "onFontStep")
     m.fontTask.ObserveField("result", "onFontsSaved")
-    m.fontTask.job = FontJob(plan)
+    m.fontTask.job = FontJob(m.fontPlan, DeviceInfo().GetRandomUUID(), discard)
     m.fontTask.control = "run"
 end sub
 
@@ -183,12 +194,38 @@ sub onFontsSaved()
 
     result = m.fontTask.result
     m.fontTask = invalid
-    if ValueAt(result, "ok", false) = true
-        UseFonts(ActiveFontsFrom(m.fontPlan))
+    if ValueAt(result, "ok", false) <> true
+        FailFonts(ValueAt(result, "error", ""))
         return
     end if
 
-    FailFonts(ValueAt(result, "error", ""))
+    CheckFonts(ActiveFontsFrom(m.fontPlan))
+end sub
+
+sub CheckFonts(fonts as object)
+    undrawn = UndrawnFontRoles(fonts, NextFontCheckSize())
+    attempts = m.fontAttempts
+    if AllKnownUndrawn(fonts, undrawn) then attempts = FontRetries()
+    outcome = FontCheckOutcome(undrawn, attempts)
+    if outcome <> "use" then print "[fonts] "; undrawn.Join(", "); " did not draw"
+
+    if outcome = "redownload"
+        m.fontAttempts = m.fontAttempts + 1
+        m.fontStep = 0
+        m.fontCount = 0
+        render()
+        RunFontTask(UndrawnFontPaths(fonts, undrawn))
+        return
+    end if
+
+    if outcome = "fail"
+        m.failure = "fontsUndrawn"
+        Fail("")
+        return
+    end if
+
+    if outcome = "withoutItalic" then fonts = FontsWithout(fonts, "italic")
+    UseFonts(fonts)
 end sub
 
 sub UseFonts(fonts as object)

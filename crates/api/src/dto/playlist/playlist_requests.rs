@@ -1,6 +1,7 @@
 use serde::Deserialize;
 
-use domain::playback::{PlaylistId, WatchTarget};
+use domain::catalog::CollectionId;
+use domain::playback::{PlaylistId, PlaylistTarget};
 
 use crate::dto::user_library::WatchTargetKind;
 
@@ -9,16 +10,35 @@ pub struct PlaylistNameRequest {
     pub name: String,
 }
 
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlaylistItemKind {
+    Movie,
+    Episode,
+    Season,
+    Series,
+    Collection,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct PlaylistItemRequest {
     #[serde(rename = "type")]
-    pub kind: WatchTargetKind,
+    pub kind: PlaylistItemKind,
     pub id: String,
 }
 
 impl PlaylistItemRequest {
-    pub fn into_target(self) -> WatchTarget {
-        self.kind.target(self.id)
+    pub fn into_target(self) -> PlaylistTarget {
+        let title = match self.kind {
+            PlaylistItemKind::Movie => WatchTargetKind::Movie,
+            PlaylistItemKind::Episode => WatchTargetKind::Episode,
+            PlaylistItemKind::Season => WatchTargetKind::Season,
+            PlaylistItemKind::Series => WatchTargetKind::Series,
+            PlaylistItemKind::Collection => {
+                return PlaylistTarget::Collection(CollectionId(self.id));
+            }
+        };
+        PlaylistTarget::Title(title.target(self.id))
     }
 }
 
@@ -43,13 +63,42 @@ impl QueuePlaylistRequest {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use domain::catalog::SeasonId;
+    use domain::catalog::{EpisodeId, MovieId, SeasonId, SeriesId};
+    use domain::playback::WatchTarget;
+
+    fn target(json: &str) -> PlaylistTarget {
+        serde_json::from_str::<PlaylistItemRequest>(json).unwrap().into_target()
+    }
 
     #[test]
     fn an_item_request_names_what_to_add() {
-        let req: PlaylistItemRequest =
-            serde_json::from_str(r#"{"type":"season","id":"se1"}"#).unwrap();
-        assert_eq!(req.into_target(), WatchTarget::Season(SeasonId("se1".into())));
+        let title = PlaylistTarget::Title;
+        assert_eq!(
+            target(r#"{"type":"movie","id":"m1"}"#),
+            title(WatchTarget::Movie(MovieId("m1".into())))
+        );
+        assert_eq!(
+            target(r#"{"type":"episode","id":"e1"}"#),
+            title(WatchTarget::Episode(EpisodeId("e1".into())))
+        );
+        assert_eq!(
+            target(r#"{"type":"season","id":"se1"}"#),
+            title(WatchTarget::Season(SeasonId("se1".into())))
+        );
+        assert_eq!(
+            target(r#"{"type":"series","id":"sr1"}"#),
+            title(WatchTarget::Series(SeriesId("sr1".into())))
+        );
+        assert_eq!(
+            target(r#"{"type":"collection","id":"c1"}"#),
+            PlaylistTarget::Collection(CollectionId("c1".into()))
+        );
+    }
+
+    #[test]
+    fn an_item_request_refuses_a_kind_it_cannot_add() {
+        let person = serde_json::from_str::<PlaylistItemRequest>(r#"{"type":"person","id":"p1"}"#);
+        assert!(person.is_err());
     }
 
     #[test]

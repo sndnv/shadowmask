@@ -2,13 +2,17 @@ import 'package:material_ui/material_ui.dart';
 
 import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/api/catalog_api.dart';
+import 'package:shadowmask/api/playlist_api.dart';
 import 'package:shadowmask/components/backdrop_scope.dart';
 import 'package:shadowmask/components/breadcrumbs.dart';
+import 'package:shadowmask/components/card_menu.dart';
 import 'package:shadowmask/components/crumb.dart';
 import 'package:shadowmask/components/empty_note.dart';
+import 'package:shadowmask/components/playlist_dialogs.dart';
 import 'package:shadowmask/components/random_button.dart';
 import 'package:shadowmask/components/section_heading.dart';
 import 'package:shadowmask/components/title_heading.dart';
+import 'package:shadowmask/model/common/title_ref.dart';
 import 'package:shadowmask/nav/nav_section.dart';
 import 'package:shadowmask/pages/viewer/catalog_support.dart';
 import 'package:shadowmask/theme/space.dart';
@@ -234,9 +238,34 @@ class _CollectionDetailBodyState extends State<_CollectionDetailBody> {
               count: data.$2.isEmpty ? null : data.$2.length,
               trailing: data.$2.isEmpty
                   ? null
-                  : RandomButton(
-                      tooltip: Strings.randomInCollection,
-                      pick: () => _catalog.randomInCollection(c.id),
+                  : Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        RandomButton(
+                          tooltip: Strings.randomInCollection,
+                          pick: () => _catalog.randomInCollection(c.id),
+                        ),
+                        if (CardMenuHost.maybeOf(context)?.playlists
+                            case final PlaylistApi playlists)
+                          IconButton(
+                            tooltip: Strings.addToPlaylist,
+                            visualDensity: VisualDensity.compact,
+                            onPressed: () => addToPlaylist(
+                              context,
+                              playlists: playlists,
+                              userId: widget.user.id,
+                              title: TitleRef(
+                                type: TitleKind.collection,
+                                id: c.id,
+                              ),
+                            ),
+                            icon: Icon(
+                              Icons.playlist_add,
+                              size: 18,
+                              color: context.tokens.muted,
+                            ),
+                          ),
+                      ],
                     ),
             ),
             const SizedBox(height: Space.s3),

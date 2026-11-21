@@ -144,8 +144,40 @@ function HideSecondsFor(audioGuide as boolean) as integer
     return ControlsHideSeconds()
 end function
 
-function DoubleBackMs() as integer
-    return 750
+function ExitHintSeconds() as float
+    return 1.5
+end function
+
+function SpokenExitHintSeconds() as float
+    return 4.0
+end function
+
+function ExitHintSecondsFor(audioGuide as boolean) as float
+    if audioGuide then return SpokenExitHintSeconds()
+    return ExitHintSeconds()
+end function
+
+function KeyKeepsExitHint(key as string) as boolean
+    return key = "back"
+end function
+
+function ExitHintLayout(labelWidth as integer, size as integer) as object
+    space = SpacingScale()
+    line = Int(size * 1.8)
+    thickness = Px(6)
+    width = labelWidth + space.s5 * 2
+    return { width: width, height: line + thickness + space.s3, lineHeight: line, barX: space.s5, barY: line, barWidth: labelWidth, barHeight: thickness }
+end function
+
+function ExitHintCountdown(hint as object) as object
+    return [hint.barWidth * 1.0, 0.0]
+end function
+
+function PlayerBackAction(upNextShown as boolean, failed as boolean, ended as boolean, armed as boolean, barShown as boolean) as string
+    if upNextShown then return "upNext"
+    if failed or ended or armed then return "exit"
+    if barShown then return "close"
+    return "hint"
 end function
 
 function StallSeconds() as integer
@@ -157,6 +189,10 @@ function ProgressMark(positionMs as dynamic, bufferedPercent as dynamic) as inte
     if positionMs <> invalid then mark = Int(positionMs)
     if bufferedPercent <> invalid then mark = mark + Int(bufferedPercent)
     return mark
+end function
+
+function PlaybackProgressMark(s as object) as integer
+    return ProgressMark(s.timeline.positionMs, s.player.buffered)
 end function
 
 function StallTicks(previous as integer, lastMark as integer, mark as integer) as integer
@@ -519,14 +555,33 @@ function HoldTickStepMs(ticks as integer) as integer
     return Int(HoldStepMs(HoldHeldSeconds(ticks)) * HoldTickMs() / 1000)
 end function
 
-function HoldAfterFocusLoss(key as string, paused as boolean, focused as boolean) as string
-    if focused or IsBlank(key) then return ""
-    if paused then return "resume"
-    return "drop"
+function HoldLosesKeys(key as string, focused as boolean) as boolean
+    return not focused and not IsBlank(key)
+end function
+
+function HoldLoopSeconds(speed as integer) as float
+    return 1.2 / Sqr(speed)
+end function
+
+function HoldSpeedLayout(width as integer, size as integer) as object
+    space = SpacingScale()
+    line = Int(size * 1.6)
+    thickness = Px(6)
+    return { width: width, height: line + thickness + space.s3, lineHeight: line, barX: space.s3, barY: line, barWidth: width - space.s3 * 2, barHeight: thickness }
+end function
+
+function HoldLoopFrames(pill as object, key as string) as object
+    seg = Int(pill.barWidth / 3)
+    near = pill.barX
+    far = pill.barX + pill.barWidth
+    y = pill.barY
+    places = [[near, y], [near, y], [far - seg, y], [far, y]]
+    if key = "left" then places = [[far, y], [far - seg, y], [near, y], [near, y]]
+    return { keys: [0.0, 0.25, 0.75, 1.0], widths: [0.0, seg * 1.0, seg * 1.0, 0.0], places: places }
 end function
 
 function HoldBadge(key as string, ticks as integer) as object
-    badge = { glyph: "", speed: "" }
+    badge = { glyph: "", speed: "", rate: 0 }
     if ticks <= 0 then return badge
     if key = "left"
         badge.glyph = "icon-rewind-large"
@@ -536,8 +591,8 @@ function HoldBadge(key as string, ticks as integer) as object
         return badge
     end if
 
-    speed = HoldSpeedAt(HoldHeldSeconds(ticks - 1))
-    if speed > 1 then badge.speed = PhraseWith("player.holdSpeed", { speed: speed })
+    badge.rate = HoldSpeedAt(HoldHeldSeconds(ticks - 1))
+    badge.speed = PhraseWith("player.holdSpeed", { speed: badge.rate })
     return badge
 end function
 
@@ -582,14 +637,15 @@ function PlaybackNote(s as object, loading as string) as object
     if not IsBlank(s.status.error) then return { kind: "error", message: s.status.error }
     if s.status.slow then return { kind: "loading", message: loading + " " + Phrase("player.slow") }
     if not s.status.gathered or s.status.sent <> invalid then return { kind: "loading", message: loading }
-    if IsWatching(s) and s.timeline.playing and not s.timeline.placed then return { kind: "loading", message: loading }
+    if PlaybackWantsPlaying(s) and not s.timeline.placed then return { kind: "loading", message: loading }
 
     return { kind: "empty", message: "" }
 end function
 
 function PausedGlyph(s as object) as string
-    if not IsWatching(s) or s.timeline.playing then return ""
+    if not IsWatching(s) or s.player.playing then return ""
     if s.timeline.ended then return "icon-replay-large"
+    if s.wanted.playing and s.player.state <> "paused" then return ""
 
     return "icon-play-large"
 end function

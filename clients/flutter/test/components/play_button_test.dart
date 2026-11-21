@@ -15,6 +15,7 @@ import 'package:shadowmask/model/auth/play_on_device.dart';
 import 'package:shadowmask/model/catalog/version.dart';
 import 'package:shadowmask/model/common/quality.dart';
 import 'package:shadowmask/model/common/title_ref.dart';
+import 'package:shadowmask/nav/routes.dart';
 import 'package:shadowmask/theme/app_theme.dart';
 import 'package:shadowmask/theme/radii.dart';
 import 'package:shadowmask/theme/app_theme_variant.dart';
@@ -76,6 +77,7 @@ Future<_Pushes> _pump(
   List<String>? cleared,
   PlayOnServer? server,
   bool Function()? feedDown,
+  String? queueEntryId,
   AppThemeVariant variant = AppThemeVariant.dark,
 }) async {
   final ApiClient api = ApiClient(
@@ -122,6 +124,7 @@ Future<_Pushes> _pump(
                   versions: versions,
                   playback: dismissible ? PlaybackApi(api) : null,
                   playOn: server?.api(api),
+                  queueEntryId: queueEntryId,
                 )
               : const SizedBox.shrink(),
         ),
@@ -179,6 +182,19 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(pushes.names.last, '/watch?version=v1');
+  });
+
+  testWidgets('a page opened from a queue card plays in queue mode', (
+    WidgetTester tester,
+  ) async {
+    final _Pushes pushes = await _pump(tester, <Version>[
+      _version('v1'),
+    ], queueEntryId: 'q4');
+
+    await tester.tap(find.text(Strings.play));
+    await tester.pumpAndSettle();
+
+    expect(pushes.names.last, watchRoute('v1', queue: 'q4'));
   });
 
   testWidgets('no available version disables the button', (

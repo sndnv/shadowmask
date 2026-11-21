@@ -766,9 +766,148 @@ function CachedFont(role as string, size as float) as object
     key = role + ":" + Str(size).Trim()
     if m.smFontNodes.DoesExist(key) then return m.smFontNodes[key]
 
-    font = FontNode(FontPathIn(ActiveFonts(), role), SystemFontName(role), size)
+    fonts = ActiveFonts()
+    uri = FontPathIn(fonts, role)
+    font = FontNode(uri, SystemFontName(role), size)
+    if not IsBlank(uri) and size > 0 and not CachedFontDraws(font, uri, size)
+        print "[fonts] "; role; " stopped drawing; using the system font"
+        m.global.fonts = FontsWithout(fonts, role)
+        font = FontNode("", SystemFontName(role), size)
+    end if
     m.smFontNodes[key] = font
     return font
+end function
+
+function CachedFontDraws(font as object, uri as string, size as float) as boolean
+    shared = m.global
+    if shared = invalid or not shared.HasField("fontDraws") then return FontNodeDraws(font)
+
+    key = uri + "@" + Str(size).Trim()
+    known = shared.fontDraws
+    if known.DoesExist(key) then return known[key]
+    if not FontCheckWorks() then return true
+
+    drawn = RectDrawn(SampleRect(font))
+    known[key] = drawn
+    shared.fontDraws = known
+    return drawn
+end function
+
+function FontKnownUndrawn(uri as string) as boolean
+    shared = m.global
+    if shared = invalid or not shared.HasField("fontDraws") then return false
+
+    known = shared.fontDraws
+    prefix = LCase(uri + "@")
+    for each key in known
+        if LCase(Left(key, Len(prefix))) = prefix and known[key] = false then return true
+    end for
+    return false
+end function
+
+function AllKnownUndrawn(fonts as object, roles as object) as boolean
+    if roles.Count() = 0 then return false
+    for each role in roles
+        if not FontKnownUndrawn(FontPathIn(fonts, role)) then return false
+    end for
+    return true
+end function
+
+function FontUsable(uri as string, size as integer) as boolean
+    if FontKnownUndrawn(uri) then return false
+    return FontFileDraws(uri, size)
+end function
+
+function FontNodeDraws(font as object) as boolean
+    if not FontCheckWorks() then return true
+    return RectDrawn(SampleRect(font))
+end function
+
+function FontFileDraws(uri as string, size as integer) as boolean
+    return FontNodeDraws(FontNode(uri, "", size))
+end function
+
+function FontCheckWorks() as boolean
+    if m.DoesExist("smFontCheckWorks") then return m.smFontCheckWorks
+
+    m.smFontCheckWorks = RectDrawn(SampleRect(FontNode("", SystemFontName("regular"), SystemSampleSize())))
+    return m.smFontCheckWorks
+end function
+
+function SampleRect(font as object) as object
+    label = CreateObject("roSGNode", "Label")
+    label.font = font
+    label.text = "Ag"
+    return label.boundingRect()
+end function
+
+function RectDrawn(rect as dynamic) as boolean
+    width = ValueAt(rect, "width", 0)
+    height = ValueAt(rect, "height", 0)
+    if not IsNumber(width) or not IsNumber(height) then return false
+    return width > 0 and height > 0
+end function
+
+function SystemSampleSize() as integer
+    return 28
+end function
+
+function DrawnFontRoles() as object
+    return ["regular", "medium", "italic"]
+end function
+
+function FontCheckSizeFor(round as integer) as integer
+    return 200 + 2 * round
+end function
+
+function NextFontCheckSize() as integer
+    shared = m.global
+    if shared = invalid or not shared.HasField("fontCheckRound") then return FontCheckSizeFor(0)
+
+    round = shared.fontCheckRound
+    shared.fontCheckRound = round + 1
+    return FontCheckSizeFor(round)
+end function
+
+function UndrawnFontRoles(fonts as object, size as integer) as object
+    undrawn = []
+    for each role in DrawnFontRoles()
+        uri = FontPathIn(fonts, role)
+        if not IsBlank(uri) and not FontUsable(uri, size) then undrawn.Push(role)
+    end for
+    return undrawn
+end function
+
+function UndrawnFontPaths(fonts as object, roles as object) as object
+    paths = []
+    for each role in roles
+        uri = FontPathIn(fonts, role)
+        if not IsBlank(uri) then paths.Push(uri)
+    end for
+    return paths
+end function
+
+function FontRetries() as integer
+    return 3
+end function
+
+function FontCheckOutcome(undrawn as object, attempts as integer) as string
+    if undrawn.Count() = 0 then return "use"
+    if attempts < FontRetries() then return "redownload"
+    for each role in undrawn
+        if role <> "italic" then return "fail"
+    end for
+    return "withoutItalic"
+end function
+
+function FontsWithout(fonts as object, role as string) as object
+    if role <> "italic" then return {}
+
+    kept = {}
+    for each key in fonts
+        if key <> "italic" and key <> "italic_license" then kept[key] = fonts[key]
+    end for
+    return kept
 end function
 
 function FontNode(uri as string, systemName as string, size as float) as object
@@ -826,10 +965,17 @@ function CachedFontUri(key as string, fonts as dynamic) as string
 end function
 
 sub ForgetTextMeasures()
-    for each key in ["smFontFamilies", "smFonts", "smFontRegistry", "smMeasureLabels", "smLineHeights", "smMiddleEllipsis", "smWordMeasure", "smLineCount"]
+    for each key in ["smFontFamilies", "smFonts", "smFontRegistry", "smWordMeasure", "smLineCount"]
         m.Delete(key)
     end for
+    for each key in MeasureCacheKeys()
+        if m.DoesExist(key) then m[key].Clear()
+    end for
 end sub
+
+function MeasureCacheKeys() as object
+    return ["smMeasureLabels", "smLineHeights", "smMiddleEllipsis"]
+end function
 
 function FontsDirectory() as string
     return "cachefs:/fonts"
@@ -847,8 +993,23 @@ function FontTimeoutSeconds() as integer
     return 300
 end function
 
-function FontJob(plan as object) as object
-    return { directory: FontsDirectory(), files: plan.files, certificates: CertificatesFile(), timeout: FontTimeoutSeconds() }
+function FontJob(plan as object, tag as string, discard as object) as object
+    files = []
+    for each file in plan.files
+        entry = {}
+        entry.Append(file)
+        entry.part = FontPartPath(file.path, tag)
+        files.Push(entry)
+    end for
+    return { directory: FontsDirectory(), files: files, discard: discard, certificates: CertificatesFile(), timeout: FontTimeoutSeconds(), chunk: FontHashChunkBytes() }
+end function
+
+function FontPartPath(path as string, tag as string) as string
+    return path + "." + tag + ".part"
+end function
+
+function FontHashChunkBytes() as integer
+    return 4194304
 end function
 
 function FontCachePath(file as dynamic) as string
@@ -885,7 +1046,7 @@ function FontRoleDownloads(fonts as object, roles as object, base as string) as 
         url = TextOrBlank(ValueAt(file, "url", ""))
         size = ValueAt(file, "size", invalid)
         if IsBlank(path) or Left(url, 1) <> "/" or not IsNumber(size) then return invalid
-        files.Push({ role: role, url: JoinUrl(base, url), path: path, size: size })
+        files.Push({ role: role, url: JoinUrl(base, url), path: path, size: size, sha256: LCase(TextOrBlank(ValueAt(file, "sha256", ""))) })
     end for
     return files
 end function

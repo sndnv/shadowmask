@@ -22,8 +22,9 @@ use crate::library::{
 use crate::media::SubtitleFileId;
 use crate::metadata::{ExternalId, Genre, Person, PersonId};
 use crate::playback::{
-    Favorite, PlaybackProgress, Playlist, PlaylistDetail, PlaylistId, PlaylistSummary, QueueCard,
-    QueueEntryId, TitleState, WatchHistory, WatchTarget, WatchedRollup, WatchlistItem,
+    Favorite, PlaybackProgress, Playlist, PlaylistDetail, PlaylistId, PlaylistSummary,
+    PlaylistTarget, QueueCard, QueueEntryId, TitleState, WatchHistory, WatchTarget, WatchedRollup,
+    WatchlistItem,
 };
 use crate::session::{
     HeartbeatAck, NowPlaying, PlaybackSession, PlaybackState, Renegotiated, SessionId,
@@ -720,7 +721,7 @@ pub trait PlaylistService {
         &self,
         audience: &Audience,
         id: &PlaylistId,
-        target: &WatchTarget,
+        target: &PlaylistTarget,
     ) -> impl Future<Output = Result<usize, PlaylistError>> + Send;
     fn remove_from_playlist(
         &self,

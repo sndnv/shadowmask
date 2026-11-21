@@ -113,6 +113,7 @@ ApiClient _api({
   Set<String>? watchlist,
   bool Function()? stateFails,
   int? year,
+  List<String> queued = const <String>[],
 }) {
   final Set<String> saved = watchlist ?? <String>{};
   bool cleared = false;
@@ -261,6 +262,22 @@ ApiClient _api({
           200,
         );
       }
+      if (req.url.path == '/api/v1/users/u1/queue') {
+        return http.Response(
+          jsonEncode(<dynamic>[
+            for (final String id in queued)
+              <String, dynamic>{
+                'id': id,
+                'card': <String, dynamic>{
+                  'type': 'movie',
+                  'id': 'm1',
+                  'title': 'One',
+                },
+              },
+          ]),
+          200,
+        );
+      }
       return http.Response('[]', 200);
     }),
   );
@@ -271,6 +288,7 @@ Future<void> _pump(
   ApiClient api, {
   Size window = const Size(1600, 1400),
   AppThemeVariant variant = AppThemeVariant.dark,
+  String? queue,
 }) async {
   tester.view.physicalSize = window;
   tester.view.devicePixelRatio = 1;
@@ -286,7 +304,12 @@ Future<void> _pump(
         navigatorObservers: <NavigatorObserver>[appRouteObserver],
         onGenerateRoute: (RouteSettings settings) => MaterialPageRoute<void>(
           builder: (_) => settings.name == null || settings.name == '/'
-              ? TitlePage(api: api, kind: 'movie', id: 'm1')
+              ? TitlePage(
+                  api: api,
+                  kind: 'movie',
+                  id: 'm1',
+                  queueEntryId: queue,
+                )
               : Text('went to ${settings.name}'),
         ),
       ),
@@ -375,6 +398,92 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(PlayOnSubmenu), findsOneWidget);
+  });
+
+  testWidgets('a movie opened from a queue card plays in queue mode', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      _api(
+        versions: <Map<String, dynamic>>[_version('v1', 'fhd')],
+        queued: <String>['q4'],
+      ),
+      queue: 'q4',
+    );
+
+    await tester.tap(find.text(Strings.play));
+    await tester.pumpAndSettle();
+
+    expect(find.text('went to /watch?version=v1&queue=q4'), findsOneWidget);
+  });
+
+  testWidgets('a queue card whose entry is already gone plays unqueued', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      _api(versions: <Map<String, dynamic>>[_version('v1', 'fhd')]),
+      queue: 'q4',
+    );
+
+    await tester.tap(find.text(Strings.play));
+    await tester.pumpAndSettle();
+
+    expect(find.text('went to /watch?version=v1'), findsOneWidget);
+  });
+
+  testWidgets('back on the page, an entry the queue let go of is dropped', (
+    WidgetTester tester,
+  ) async {
+    final List<String> queued = <String>['q4'];
+    await _pump(
+      tester,
+      _api(
+        versions: <Map<String, dynamic>>[_version('v1', 'fhd')],
+        queued: queued,
+      ),
+      queue: 'q4',
+    );
+    final NavigatorState nav = tester.state<NavigatorState>(
+      find.byType(Navigator),
+    );
+
+    await tester.tap(find.text(Strings.play));
+    await tester.pumpAndSettle();
+    expect(find.text('went to /watch?version=v1&queue=q4'), findsOneWidget);
+    queued.clear();
+    nav.pop();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(Strings.play));
+    await tester.pumpAndSettle();
+
+    expect(find.text('went to /watch?version=v1'), findsOneWidget);
+  });
+
+  testWidgets('back on the page, an entry still queued is kept', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      _api(
+        versions: <Map<String, dynamic>>[_version('v1', 'fhd')],
+        queued: <String>['q4'],
+      ),
+      queue: 'q4',
+    );
+    final NavigatorState nav = tester.state<NavigatorState>(
+      find.byType(Navigator),
+    );
+
+    await tester.tap(find.text(Strings.play));
+    await tester.pumpAndSettle();
+    nav.pop();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(Strings.play));
+    await tester.pumpAndSettle();
+
+    expect(find.text('went to /watch?version=v1&queue=q4'), findsOneWidget);
   });
 
   testWidgets('the poster plays the top version when nothing resumes', (

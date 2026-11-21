@@ -144,8 +144,12 @@ Image assets come from the central pipeline in [`assets/`](../../assets). Run
 the Roku's system font (`font:MediumSystemFont`, `font:MediumBoldSystemFont`). After sign-in the boot
 screen saves the server's fonts (`fonts` in `/server/info`) under `cachefs:/fonts/<sha256><ext>` and
 publishes their paths in the global `fonts` field; every `Font` node from `SizedFont` and
-`SizedBoldFont` switches to them in place. With no fonts on the server, or after "Continue anyway",
-the system font stays, and Chinese, Japanese and Korean text draws as boxes.
+`SizedBoldFont` switches to them in place. A download is checked against its SHA-256 before it is
+saved, and the fonts are used only once a sample drawn in each measures above 0; one that does not
+is deleted and downloaded again, up to three times. Each check draws at a size no text uses (200,
+202, 204 and on, a new one each time), since the Roku keeps what it loaded by path and size for the
+rest of the session. With no fonts on the server, after "Continue anyway", or when a font stops
+drawing, the system font stays, and Chinese, Japanese and Korean text draws as boxes.
 
 **Text is measured three ways, in order.** `TextWidth` and `FontLineHeight` in `source/tokens.brs`
 first ask `roFontRegistry` for an `roFont` (`GetOneLineWidth`, `GetOneLineHeight`), which works in

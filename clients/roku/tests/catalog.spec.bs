@@ -223,6 +223,19 @@ namespace tests
             m.assertEqual(request.url, EpisodeByIdRequest("http://host", "smk_a", "e1").url)
         end sub
 
+        @it("addresses an episode under its series and season, or under any when either is unknown")
+        sub addressesEpisodeParents()
+            known = EpisodePathParents("sr1", "se1")
+            m.assertEqual(known.seriesId, "sr1")
+            m.assertEqual(known.seasonId, "se1")
+
+            for each pair in [["", ""], ["sr1", ""], ["", "se1"], [invalid, invalid]]
+                parents = EpisodePathParents(pair[0], pair[1])
+                m.assertEqual(parents.seriesId, AnyIdMark())
+                m.assertEqual(parents.seasonId, AnyIdMark())
+            end for
+        end sub
+
         @it("asks for nothing on a card that has no summary")
         sub asksForNoSummary()
             m.assertInvalid(SummaryRequest("http://host", "smk_a", { kind: "person", id: "p1" }))

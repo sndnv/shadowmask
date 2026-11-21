@@ -108,14 +108,32 @@ void main() {
     }
   });
 
-  test('a person or collection is offered nothing, so it opens no menu', () {
-    for (final TitleKind kind in <TitleKind>[
-      TitleKind.person,
-      TitleKind.collection,
-    ]) {
-      expect(cardMenuActions(_state(kind), dismissible: false), isEmpty);
-      expect(hasCardMenu(kind, dismissible: false), isFalse);
-    }
+  test('a person is offered nothing, so it opens no menu', () {
+    final ItemState person = _state(TitleKind.person);
+    expect(cardMenuActions(person, dismissible: false), isEmpty);
+    expect(
+      cardMenuActions(person, dismissible: false, playlists: true),
+      isEmpty,
+    );
+    expect(hasCardMenu(TitleKind.person, dismissible: false), isFalse);
+    expect(
+      hasCardMenu(TitleKind.person, dismissible: false, playlists: true),
+      isFalse,
+    );
+  });
+
+  test('a collection opens a menu only where it can go into a playlist', () {
+    final ItemState collection = _state(TitleKind.collection);
+    expect(cardMenuActions(collection, dismissible: false), isEmpty);
+    expect(hasCardMenu(TitleKind.collection, dismissible: false), isFalse);
+    expect(
+      _labels(cardMenuActions(collection, dismissible: false, playlists: true)),
+      <String>[Strings.addToPlaylistEllipsis],
+    );
+    expect(
+      hasCardMenu(TitleKind.collection, dismissible: false, playlists: true),
+      isTrue,
+    );
   });
 
   test('every kind the server takes a call for still opens a menu', () {
@@ -465,7 +483,7 @@ void main() {
       );
       expect(
         labels.contains(Strings.addToPlaylistEllipsis),
-        kind.isWatchTarget,
+        kind.isWatchTarget || kind == TitleKind.collection,
         reason: kind.wire,
       );
     }
@@ -498,6 +516,32 @@ void main() {
     );
     expect(
       find.text(Strings.toastAddedToPlaylist(4, 'Weekend')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('a picked playlist takes a whole collection', (
+    WidgetTester tester,
+  ) async {
+    final List<String> seen = <String>[];
+    await _open(
+      tester,
+      _card(kind: TitleKind.collection),
+      seen,
+      playlists: _playlists(seen, added: 3),
+    );
+
+    await tester.tap(find.text(Strings.addToPlaylistEllipsis));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Weekend'));
+    await tester.pumpAndSettle();
+
+    expect(
+      seen.last,
+      'POST /api/v1/users/u1/playlists/pl1/items {"type":"collection","id":"m1"}',
+    );
+    expect(
+      find.text(Strings.toastAddedToPlaylist(3, 'Weekend')),
       findsOneWidget,
     );
   });

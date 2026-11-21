@@ -3,7 +3,6 @@ import 'package:shadowmask/model/common/title_ref.dart';
 import 'package:shadowmask/model/playlist/playlist.dart';
 import 'package:shadowmask/model/playlist/playlist_detail.dart';
 import 'package:shadowmask/model/playlist/queue_entry.dart';
-import 'package:shadowmask/nav/routes.dart';
 
 Map<String, dynamic> _episodeCard() => <String, dynamic>{
   'type': 'episode',
@@ -78,15 +77,18 @@ void main() {
     expect(detail.items, isEmpty);
   });
 
-  test('a queue entry plays from itself in queue mode', () {
+  test('a queue entry opens its title\'s page, carrying the entry', () {
     final QueueEntry entry = QueueEntry.fromJson(<String, dynamic>{
       'id': '12',
       'card': _episodeCard(),
     });
+    final Uri route = Uri.parse(entry.card.route);
 
     expect(entry.id, '12');
     expect(entry.card.ref, const TitleRef(type: TitleKind.episode, id: 'e1'));
-    expect(entry.card.route, queuePlayRoute('12'));
+    expect(route.path, '/episode');
+    expect(route.queryParameters['id'], 'e1');
+    expect(route.queryParameters['queue'], '12');
     expect(entry.card.queueEntryId, '12');
   });
 }

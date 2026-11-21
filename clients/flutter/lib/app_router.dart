@@ -106,8 +106,12 @@ class AppRouter {
     );
     _define(
       '/title',
-      (Map<String, String> a) =>
-          TitlePage(api: api, kind: a['type'] ?? 'movie', id: a['id'] ?? ''),
+      (Map<String, String> a) => TitlePage(
+        api: api,
+        kind: a['type'] ?? 'movie',
+        id: a['id'] ?? '',
+        queueEntryId: a['queue'],
+      ),
     );
     _define(
       '/season',
@@ -121,6 +125,7 @@ class AppRouter {
         id: a['id'] ?? '',
         season: a['season'],
         series: a['series'],
+        queueEntryId: a['queue'],
       ),
     );
     _define(

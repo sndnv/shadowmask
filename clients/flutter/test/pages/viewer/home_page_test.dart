@@ -267,23 +267,24 @@ void main() {
     });
   }
 
-  testWidgets('the queue\'s next title leads Up next and plays in queue mode', (
-    WidgetTester tester,
-  ) async {
-    await _pump(tester, watchlist: false, upNext: true, queued: true);
+  testWidgets(
+    'the queue\'s next title leads Up next and opens its page queued',
+    (WidgetTester tester) async {
+      await _pump(tester, watchlist: false, upNext: true, queued: true);
 
-    final List<String> upNext = tester
-        .widgetList<CatalogCardTile>(find.byType(CatalogCardTile))
-        .take(2)
-        .map((CatalogCardTile t) => t.card.ref.id)
-        .toList();
-    expect(upNext, <String>['m7', 'm9']);
+      final List<String> upNext = tester
+          .widgetList<CatalogCardTile>(find.byType(CatalogCardTile))
+          .take(2)
+          .map((CatalogCardTile t) => t.card.ref.id)
+          .toList();
+      expect(upNext, <String>['m7', 'm9']);
 
-    await tester.tap(find.text('Echo'));
-    await tester.pumpAndSettle();
+      await tester.tap(find.text('Echo'));
+      await tester.pumpAndSettle();
 
-    expect(_pushedRoute, queuePlayRoute('q3'));
-  });
+      expect(_pushedRoute, queuedRoute(movieRoute('m7'), 'q3'));
+    },
+  );
 
   testWidgets('adding a title to a playlist leaves home as it is', (
     WidgetTester tester,

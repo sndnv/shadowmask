@@ -8,6 +8,7 @@ import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/components/pagination.dart';
 import 'package:shadowmask/components/random_button.dart';
 import 'package:shadowmask/components/section_heading.dart';
+import 'package:shadowmask/components/toggle_button.dart';
 import 'package:shadowmask/l10n/strings.dart';
 import 'package:shadowmask/pages/viewer/collections_page.dart';
 import 'package:shadowmask/theme/app_theme.dart';
@@ -36,9 +37,27 @@ Map<String, dynamic> _page(int offset) {
   };
 }
 
-ApiClient _api(List<int> offsets) => ApiClient(
+ApiClient _api(List<int> offsets, {List<String>? posted}) => ApiClient(
   baseUrl: 'http://test',
   httpClient: MockClient((http.Request req) async {
+    if (req.method == 'GET' && req.url.path == '/api/v1/users/u1/playlists') {
+      return http.Response(
+        jsonEncode(<dynamic>[
+          <String, dynamic>{
+            'id': 'pl1',
+            'name': 'Weekend',
+            'item_count': 0,
+            'created_at': '2026-11-06T10:00:00Z',
+            'updated_at': '2026-11-06T10:00:00Z',
+          },
+        ]),
+        200,
+      );
+    }
+    if (req.url.path == '/api/v1/users/u1/playlists/pl1/items') {
+      posted?.add(req.body);
+      return http.Response(jsonEncode(<String, dynamic>{'added': 3}), 200);
+    }
     if (req.url.path == '/api/v1/users/self') {
       return http.Response(
         jsonEncode(<String, dynamic>{
@@ -141,5 +160,39 @@ void main() {
       findsOneWidget,
       reason: 'random play sits on the Movies heading, as on the season page',
     );
+  });
+
+  testWidgets('a collection page adds the whole collection to a playlist '
+      'from the Movies heading, after the shuffle', (
+    WidgetTester tester,
+  ) async {
+    final List<String> posted = <String>[];
+    await _pump(tester, _api(<int>[], posted: posted), id: 'c3');
+
+    final Finder heading = find.ancestor(
+      of: find.text(Strings.countLabel(Strings.moviesHeading, 3)),
+      matching: find.byType(SectionHeading),
+    );
+    final Finder add = find.descendant(
+      of: heading,
+      matching: find.byTooltip(Strings.addToPlaylist),
+    );
+    final Finder shuffle = find.descendant(
+      of: heading,
+      matching: find.byType(RandomButton),
+    );
+    expect(add, findsOneWidget);
+    expect(
+      find.descendant(of: heading, matching: find.byType(ToggleButton)),
+      findsNothing,
+    );
+    expect(tester.getCenter(add).dx, greaterThan(tester.getCenter(shuffle).dx));
+
+    await tester.tap(add);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Weekend'));
+    await tester.pumpAndSettle();
+
+    expect(posted, <String>['{"type":"collection","id":"c3"}']);
   });
 }

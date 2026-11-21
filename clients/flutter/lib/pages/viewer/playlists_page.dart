@@ -177,7 +177,7 @@ class _PlaylistsBodyState extends State<_PlaylistsBody>
   void _play() {
     final QueueEntry? first = _entries.firstOrNull;
     if (first != null) {
-      Navigator.of(context).pushNamed(first.card.route);
+      Navigator.of(context).pushNamed(queuePlayRoute(first.id));
     }
   }
 

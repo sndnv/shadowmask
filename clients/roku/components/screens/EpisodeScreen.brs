@@ -20,6 +20,8 @@ sub init()
     m.id = ""
     m.seriesId = ""
     m.seasonId = ""
+    m.seasonsAsked = false
+    m.queueEntryId = ""
     m.episode = invalid
     m.ordered = []
     m.available = []
@@ -37,6 +39,7 @@ sub init()
     m.seasons = []
     m.seasonCards = []
     m.bySeason = {}
+    m.edgeAsked = {}
     m.pendingSeasons = 0
     m.neighbours = { previous: invalid, following: invalid }
     m.versionChoices = []
@@ -58,8 +61,8 @@ sub render()
 
     if IsBlank(m.id)
         m.id = TextOrBlank(ValueAt(target, "id", ""))
-        m.seriesId = TextOrBlank(ValueAt(target, "seriesId", ""))
-        m.seasonId = TextOrBlank(ValueAt(target, "seasonId", ""))
+        m.queueEntryId = TextOrBlank(ValueAt(target, "queueEntryId", ""))
+        AdoptParents(target, invalid)
     end if
 
     Layout()
@@ -219,10 +222,25 @@ sub Load()
     session = SessionFor(m.global)
     ShowNote(Phrase("state.loading"), "loading")
 
-    Ask(EpisodeRequest(session.serverUrl, session.token, m.seriesId, m.seasonId, m.id), "onEpisode")
-    Ask(EpisodeVersionsRequest(session.serverUrl, session.token, m.seriesId, m.seasonId, m.id), "onVersions")
+    path = EpisodePathParents(m.seriesId, m.seasonId)
+    Ask(EpisodeRequest(session.serverUrl, session.token, path.seriesId, path.seasonId, m.id), "onEpisode")
+    Ask(EpisodeVersionsRequest(session.serverUrl, session.token, path.seriesId, path.seasonId, m.id), "onVersions")
     AskContinue()
     LoadState()
+    AskSeasons()
+end sub
+
+sub AdoptParents(known as dynamic, episode as dynamic)
+    parents = EpisodeParents(known, episode)
+    m.seriesId = parents.seriesId
+    m.seasonId = parents.seasonId
+end sub
+
+sub AskSeasons()
+    if m.seasonsAsked or IsBlank(m.seriesId) or IsBlank(m.seasonId) then return
+    m.seasonsAsked = true
+
+    session = SessionFor(m.global)
     Ask(SeasonsRequest(session.serverUrl, session.token, m.seriesId), "onSeasons")
 end sub
 
@@ -263,11 +281,12 @@ sub onEpisode(event as object)
     end if
 
     m.episode = parsed.json
-    if IsBlank(m.seriesId) then m.seriesId = TextOrBlank(ValueAt(m.episode, "series_id", ""))
-    if IsBlank(m.seasonId) then m.seasonId = TextOrBlank(ValueAt(m.episode, "season_id", ""))
+    AdoptParents({ seriesId: m.seriesId, seasonId: m.seasonId }, m.episode)
 
     PublishBackdropFrom(EpisodeBackdropCandidates(m.episode))
     BuildSeasonCard()
+    AskSeasons()
+    if m.seasons.Count() > 0 and m.pendingSeasons = 0 then LoadEdgeSeason()
     Refresh()
 end sub
 
@@ -382,11 +401,7 @@ sub LoadEdgeSeason()
         return
     end if
 
-    wanted = SeasonsToLoad(m.episode, m.seasons, current)
-    fresh = []
-    for each seasonId in wanted
-        if not m.bySeason.DoesExist(seasonId) then fresh.Push(seasonId)
-    end for
+    fresh = FreshSeasons(SeasonsToLoad(m.episode, m.seasons, current), m.bySeason, m.edgeAsked)
 
     if fresh.Count() = 0
         ResolveNeighbours()
@@ -396,6 +411,7 @@ sub LoadEdgeSeason()
     session = SessionFor(m.global)
     m.pendingSeasons = fresh.Count()
     for each seasonId in fresh
+        m.edgeAsked[seasonId] = true
         Ask(EpisodesRequest(session.serverUrl, session.token, m.seriesId, seasonId), "onSeasonEpisodes")
     end for
 end sub
@@ -492,6 +508,7 @@ end sub
 sub onRevealed()
     if m.released then return
     ReloadViewing()
+    CheckQueueEntry()
 end sub
 
 sub ReloadViewing()
@@ -533,7 +550,7 @@ sub OpenWatch(versionId as dynamic)
     id = TextOrBlank(versionId)
     if IsBlank(id) then return
 
-    m.top.advanceTarget = {
+    m.top.advanceTarget = WithQueueEntry({
         versionId: id,
         title: EpisodePlayerTitle(m.episode),
         label: EpisodeLabel(ValueAt(m.episode, "season_number", invalid), m.episode),
@@ -541,7 +558,7 @@ sub OpenWatch(versionId as dynamic)
         seasonNumber: ValueAt(m.episode, "season_number", invalid),
         percent: ResumePercentFor(m.resumable, id),
         episode: { id: m.id, seriesId: m.seriesId, seasonId: m.seasonId }
-    }
+    }, m.queueEntryId)
     m.top.advance = "WatchScreen"
 end sub
 
