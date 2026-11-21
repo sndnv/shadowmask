@@ -15,8 +15,8 @@ server image are credited from the *Third-party content* section of the
 
 | License | Crates |
 | --- | ---: |
-| Apache License 2.0 | 288 |
-| MIT License | 98 |
+| Apache License 2.0 | 283 |
+| MIT License | 97 |
 | Unicode License v3 | 20 |
 | ISC License | 7 |
 | BSD 3-Clause "New" or "Revised" License | 6 |
@@ -457,7 +457,7 @@ Used by:
 - [tinyvec 1.13.3](https://github.com/Lokathor/tinyvec)
 - [utf8_iter 1.1.0](https://github.com/hsivonen/utf8_iter)
 - [utf_types 1.0.0](https://github.com/hsivonen/utf_types)
-- [zeroize 1.9.1](https://github.com/RustCrypto/utils)
+- [zeroize 1.9.2](https://github.com/RustCrypto/utils)
 - [zeroize_derive 1.5.0](https://github.com/RustCrypto/utils)
 
 ````text
@@ -1736,8 +1736,8 @@ Used by:
 
 Used by:
 
-- [zerocopy-derive 0.8.63](https://github.com/google/zerocopy)
-- [zerocopy 0.8.63](https://github.com/google/zerocopy)
+- [zerocopy-derive 0.8.65](https://github.com/google/zerocopy)
+- [zerocopy 0.8.65](https://github.com/google/zerocopy)
 
 ````text
                                  Apache License
@@ -2791,14 +2791,14 @@ Used by:
 
 Used by:
 
-- [clap 4.6.8](https://github.com/clap-rs/clap)
-- [clap_builder 4.6.7](https://github.com/clap-rs/clap)
-- [clap_derive 4.6.8](https://github.com/clap-rs/clap)
+- [clap 4.6.10](https://github.com/clap-rs/clap)
+- [clap_builder 4.6.10](https://github.com/clap-rs/clap)
+- [clap_derive 4.6.9](https://github.com/clap-rs/clap)
 - [clap_lex 1.1.2](https://github.com/clap-rs/clap)
 - [serde_spanned 1.1.3](https://github.com/toml-rs/toml)
-- [toml 1.2.1+spec-1.1.0](https://github.com/toml-rs/toml)
+- [toml 1.2.3+spec-1.1.0](https://github.com/toml-rs/toml)
 - [toml_datetime 1.1.3+spec-1.1.0](https://github.com/toml-rs/toml)
-- [toml_parser 1.1.5+spec-1.1.0](https://github.com/toml-rs/toml)
+- [toml_parser 1.1.7+spec-1.1.0](https://github.com/toml-rs/toml)
 - [toml_writer 1.2.0+spec-1.1.0](https://github.com/toml-rs/toml)
 
 ````text
@@ -3223,7 +3223,7 @@ Used by:
 - [anstyle-query 1.1.5](https://github.com/rust-cli/anstyle.git)
 - [anstyle 1.0.14](https://github.com/rust-cli/anstyle.git)
 - [colorchoice 1.0.5](https://github.com/rust-cli/anstyle.git)
-- [crc32fast 1.5.5](https://github.com/srijs/rust-crc32fast)
+- [crc32fast 1.5.6](https://github.com/srijs/rust-crc32fast)
 - [derive_builder 0.20.2](https://github.com/colin-kiegel/rust-derive-builder)
 - [derive_builder_core 0.20.2](https://github.com/colin-kiegel/rust-derive-builder)
 - [derive_builder_macro 0.20.2](https://github.com/colin-kiegel/rust-derive-builder)
@@ -6380,7 +6380,7 @@ limitations under the License.
 
 Used by:
 
-- [ahash 0.8.12](https://github.com/tkaitchuck/ahash)
+- [ahash 0.8.14](https://github.com/tkaitchuck/ahash)
 - [arc-swap 1.9.5](https://github.com/vorner/arc-swap)
 - [atomic-waker 1.1.2](https://github.com/smol-rs/atomic-waker)
 - [autocfg 1.5.1](https://github.com/cuviper/autocfg)
@@ -6389,7 +6389,7 @@ Used by:
 - [base64 0.23.1](https://github.com/marshallpierce/rust-base64)
 - [bitflags 1.3.2](https://github.com/bitflags/bitflags)
 - [bitflags 2.13.2](https://github.com/bitflags/bitflags)
-- [cc 1.11.2](https://github.com/rust-lang/cc-rs)
+- [cc 1.11.3](https://github.com/rust-lang/cc-rs)
 - [cfg-if 1.0.5](https://github.com/rust-lang/cfg-if)
 - [cmake 0.1.58](https://github.com/rust-lang/cmake-rs)
 - [core-foundation-sys 0.8.7](https://github.com/servo/core-foundation-rs)
@@ -6410,9 +6410,9 @@ Used by:
 - [find-msvc-tools 0.1.15](https://github.com/rust-lang/cc-rs)
 - [flate2 1.1.11](https://github.com/rust-lang/flate2-rs)
 - [fnv 1.0.7](https://github.com/servo/rust-fnv)
-- [form_urlencoded 1.2.2](https://github.com/servo/rust-url)
+- [form_urlencoded 1.2.3](https://github.com/servo/rust-url)
 - [hashbrown 0.16.1](https://github.com/rust-lang/hashbrown)
-- [hashbrown 0.17.1](https://github.com/rust-lang/hashbrown)
+- [hashbrown 0.17.2](https://github.com/rust-lang/hashbrown)
 - [heck 0.5.0](https://github.com/withoutboats/heck)
 - [httparse 1.10.1](https://github.com/seanmonstar/httparse)
 - [hyper-rustls 0.27.10](https://github.com/rustls/hyper-rustls)
@@ -6452,9 +6452,9 @@ Used by:
 - [rayon-cond 0.4.0](https://github.com/cuviper/rayon-cond)
 - [rayon-core 1.13.0](https://github.com/rayon-rs/rayon)
 - [rayon 1.12.0](https://github.com/rayon-rs/rayon)
-- [regex-automata 0.4.18](https://github.com/rust-lang/regex)
-- [regex-syntax 0.8.11](https://github.com/rust-lang/regex)
-- [regex 1.13.1](https://github.com/rust-lang/regex)
+- [regex-automata 0.4.19](https://github.com/rust-lang/regex)
+- [regex-syntax 0.8.12](https://github.com/rust-lang/regex)
+- [regex 1.13.2](https://github.com/rust-lang/regex)
 - [rustix 1.1.6](https://github.com/bytecodealliance/rustix)
 - [rustls-native-certs 0.8.5](https://github.com/rustls/rustls-native-certs)
 - [rustls 0.23.46](https://github.com/rustls/rustls)
@@ -6462,7 +6462,7 @@ Used by:
 - [security-framework-sys 2.17.0](https://github.com/kornelski/rust-security-framework)
 - [security-framework 3.7.0](https://github.com/kornelski/rust-security-framework)
 - [signal-hook-registry 1.4.8](https://github.com/vorner/signal-hook)
-- [smallvec 1.16.5](https://github.com/servo/rust-smallvec)
+- [smallvec 1.16.6](https://github.com/smallvec/smallvec)
 - [socket2 0.6.5](https://github.com/rust-lang/socket2)
 - [stable_deref_trait 1.2.1](https://github.com/storyyeller/stable_deref_trait)
 - [subst 0.3.8](https://github.com/fizyr/subst)
@@ -6476,7 +6476,7 @@ Used by:
 - [unicode-segmentation 1.13.3](https://github.com/unicode-rs/unicode-segmentation)
 - [unicode-width 0.1.14](https://github.com/unicode-rs/unicode-width)
 - [unicode-width 0.2.3](https://github.com/unicode-rs/unicode-width)
-- [url 2.5.8](https://github.com/servo/rust-url)
+- [url 2.5.9](https://github.com/servo/rust-url)
 - [uuid 1.29.3](https://github.com/uuid-rs/uuid)
 - [version_check 0.9.5](https://github.com/SergioBenitez/version_check)
 
@@ -7108,19 +7108,14 @@ Used by:
 - [argon2 0.6.0](https://github.com/RustCrypto/password-hashes)
 - [base64ct 1.8.3](https://github.com/RustCrypto/formats)
 - [blake2 0.11.0](https://github.com/RustCrypto/hashes)
-- [block-buffer 0.10.4](https://github.com/RustCrypto/utils)
 - [block-buffer 0.12.1](https://github.com/RustCrypto/utils)
 - [const-oid 0.10.3](https://github.com/RustCrypto/formats)
-- [cpufeatures 0.2.17](https://github.com/RustCrypto/utils)
 - [cpufeatures 0.3.1](https://github.com/RustCrypto/utils)
-- [crypto-common 0.1.6](https://github.com/RustCrypto/traits)
 - [crypto-common 0.2.2](https://github.com/RustCrypto/traits)
-- [digest 0.10.7](https://github.com/RustCrypto/traits)
 - [digest 0.11.3](https://github.com/RustCrypto/traits)
 - [hybrid-array 0.4.15](https://github.com/RustCrypto/hybrid-array)
 - [password-hash 0.6.1](https://github.com/RustCrypto/traits)
 - [phc 0.6.1](https://github.com/RustCrypto/formats)
-- [sha2 0.10.9](https://github.com/RustCrypto/hashes)
 - [sha2 0.11.1](https://github.com/RustCrypto/hashes)
 - [signature 2.2.0](https://github.com/RustCrypto/traits/tree/master/signature)
 
@@ -8850,7 +8845,11 @@ limitations under the License.
 
 Used by:
 
-- [sqlx 0.9.0](https://github.com/launchbadge/sqlx)
+- [sqlx-core 0.9.1](https://github.com/launchbadge/sqlx)
+- [sqlx-macros-core 0.9.1](https://github.com/launchbadge/sqlx)
+- [sqlx-macros 0.9.1](https://github.com/launchbadge/sqlx)
+- [sqlx-sqlite 0.9.1](https://github.com/launchbadge/sqlx)
+- [sqlx 0.9.1](https://github.com/launchbadge/sqlx)
 
 ````text
 Apache License
@@ -9270,7 +9269,7 @@ limitations under the License.
 Used by:
 
 - [allocator-api2 0.2.21](https://github.com/zakarumych/allocator-api2)
-- [anyhow 1.0.104](https://github.com/dtolnay/anyhow)
+- [anyhow 1.0.105](https://github.com/dtolnay/anyhow)
 - [aws-lc-sys 0.47.0](https://github.com/aws/aws-lc-rs)
 - [cxx-build 1.0.205](https://github.com/dtolnay/cxx)
 - [cxx 1.0.205](https://github.com/dtolnay/cxx)
@@ -9303,7 +9302,7 @@ Used by:
 - [pastey 0.2.3](https://github.com/as1100k/pastey)
 - [pear 0.2.9](https://github.com/SergioBenitez/Pear)
 - [pear_codegen 0.2.9](https://github.com/SergioBenitez/Pear)
-- [pin-project-lite 0.2.17](https://github.com/taiki-e/pin-project-lite)
+- [pin-project-lite 0.2.18](https://github.com/taiki-e/pin-project-lite)
 - [portable-atomic 1.15.0](https://github.com/taiki-e/portable-atomic)
 - [proc-macro2-diagnostics 0.10.1](https://github.com/SergioBenitez/proc-macro2-diagnostics)
 - [proc-macro2 1.0.107](https://github.com/dtolnay/proc-macro2)
@@ -9322,10 +9321,6 @@ Used by:
 - [serde_path_to_error 0.1.20](https://github.com/dtolnay/path-to-error)
 - [serde_urlencoded 0.7.1](https://github.com/nox/serde_urlencoded)
 - [shlex 2.0.1](https://github.com/comex/rust-shlex)
-- [sqlx-core 0.9.0](https://github.com/launchbadge/sqlx)
-- [sqlx-macros-core 0.9.0](https://github.com/launchbadge/sqlx)
-- [sqlx-macros 0.9.0](https://github.com/launchbadge/sqlx)
-- [sqlx-sqlite 0.9.0](https://github.com/launchbadge/sqlx)
 - [syn 2.0.119](https://github.com/dtolnay/syn)
 - [syn 3.0.10](https://github.com/dtolnay/syn)
 - [sync_wrapper 1.0.2](https://github.com/Actyx/sync_wrapper)
@@ -9707,7 +9702,7 @@ THE SOFTWARE IS PROVIDED "AS IS" AND ISC DISCLAIMS ALL WARRANTIES WITH REGARD TO
 ## MIT License
 Used by:
 
-- [ct2rs-sys 0.11.2](https://github.com/jkawamoto/ctranslate2-rs)
+- [ct2rs-sys 0.11.3](https://github.com/jkawamoto/ctranslate2-rs)
 
 ````text
 # Copyright (c) 2014 Jarryd Beck
@@ -9741,7 +9736,7 @@ target_compile_options(example PRIVATE
 
 Used by:
 
-- [ct2rs-sys 0.11.2](https://github.com/jkawamoto/ctranslate2-rs)
+- [ct2rs-sys 0.11.3](https://github.com/jkawamoto/ctranslate2-rs)
 
 ````text
 # Copyright (c) 2014 Jarryd Beck
@@ -9937,7 +9932,7 @@ DEALINGS IN THE SOFTWARE.
 
 Used by:
 
-- [ct2rs-sys 0.11.2](https://github.com/jkawamoto/ctranslate2-rs)
+- [ct2rs-sys 0.11.3](https://github.com/jkawamoto/ctranslate2-rs)
 
 ````text
 Copyright (c) 2012 - present, Victor Zverovich
@@ -9999,7 +9994,7 @@ THE SOFTWARE.
 
 Used by:
 
-- [ct2rs-sys 0.11.2](https://github.com/jkawamoto/ctranslate2-rs)
+- [ct2rs-sys 0.11.3](https://github.com/jkawamoto/ctranslate2-rs)
 
 ````text
 Copyright (c) 2014 Jarryd Beck
@@ -10026,7 +10021,7 @@ THE SOFTWARE.
 
 Used by:
 
-- [libsqlite3-sys 0.37.0](https://github.com/rusqlite/rusqlite)
+- [libsqlite3-sys 0.40.0](https://github.com/rusqlite/rusqlite)
 
 ````text
 Copyright (c) 2014 The rusqlite developers
@@ -10081,7 +10076,7 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 Used by:
 
-- [hyper 1.12.0](https://github.com/hyperium/hyper)
+- [hyper 1.13.0](https://github.com/hyperium/hyper)
 
 ````text
 Copyright (c) 2014-2026 Sean McArthur
@@ -10108,7 +10103,7 @@ THE SOFTWARE.
 
 Used by:
 
-- [h2 0.4.20](https://github.com/hyperium/h2)
+- [h2 0.4.21](https://github.com/hyperium/h2)
 
 ````text
 Copyright (c) 2017 h2 authors
@@ -10141,7 +10136,7 @@ DEALINGS IN THE SOFTWARE.
 
 Used by:
 
-- [bytes 1.12.1](https://github.com/tokio-rs/bytes)
+- [bytes 1.12.2](https://github.com/tokio-rs/bytes)
 
 ````text
 Copyright (c) 2018 Carl Lerche
@@ -10605,7 +10600,7 @@ SOFTWARE.
 
 Used by:
 
-- [lru 0.19.0](https://github.com/jeromefroe/lru-rs.git)
+- [lru 0.19.2](https://github.com/jeromefroe/lru-rs.git)
 
 ````text
 MIT License
@@ -10751,7 +10746,7 @@ SOFTWARE.
 
 Used by:
 
-- [ct2rs-sys 0.11.2](https://github.com/jkawamoto/ctranslate2-rs)
+- [ct2rs-sys 0.11.3](https://github.com/jkawamoto/ctranslate2-rs)
 
 ````text
 MIT License
@@ -11019,7 +11014,7 @@ SOFTWARE.
 
 Used by:
 
-- [ct2rs 0.11.2](https://github.com/jkawamoto/ctranslate2-rs)
+- [ct2rs 0.11.3](https://github.com/jkawamoto/ctranslate2-rs)
 
 ````text
 MIT License
@@ -11261,7 +11256,7 @@ Used by:
 - [jiff 0.2.46](https://github.com/BurntSushi/jiff)
 - [memchr 2.8.3](https://github.com/BurntSushi/memchr)
 - [termcolor 1.4.1](https://github.com/BurntSushi/termcolor)
-- [walkdir 2.5.0](https://github.com/BurntSushi/walkdir)
+- [walkdir 2.5.1](https://github.com/BurntSushi/walkdir)
 
 ````text
 The MIT License (MIT)
@@ -11616,35 +11611,7 @@ SOFTWARE.
 
 Used by:
 
-- [generic-array 0.14.9](https://github.com/fizyk20/generic-array.git)
-
-````text
-The MIT License (MIT)
-
-Copyright (c) 2015 Bartłomiej Kamiński
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-````
-
-Used by:
-
-- [ct2rs-sys 0.11.2](https://github.com/jkawamoto/ctranslate2-rs)
+- [ct2rs-sys 0.11.3](https://github.com/jkawamoto/ctranslate2-rs)
 
 ````text
 The MIT License (MIT)

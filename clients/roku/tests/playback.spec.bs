@@ -19,7 +19,11 @@ namespace tests
         end function
 
         function placedState() as object
-            return PlaybackStep(m.watchingState(), { kind: "reads", reading: { positionMs: 0, durationMs: 600000, bufferedAheadMs: 0, playing: true, ended: false } }).state
+            return m.reported(m.watchingState(), "playing", 0)
+        end function
+
+        function reported(s as object, state as string, positionMs as integer) as object
+            return PlaybackStep(s, { kind: "videoState", id: s.player.attachId, state: state, reading: { positionMs: positionMs, durationMs: 600000, bufferedAheadMs: 0, bufferedPercent: 0 } }).state
         end function
 
         function failedSegments(sequences as object) as object
@@ -333,26 +337,70 @@ namespace tests
             m.assertEqual(HoldTickStepMs(4), 7500)
         end sub
 
-        @describe("HoldAfterFocusLoss")
+        @describe("HoldLosesKeys")
 
-        @it("keeps a hold while the player keeps the keys")
-        sub holdSurvivesInFocus()
-            m.assertEqual(HoldAfterFocusLoss("right", true, true), "")
-            m.assertEqual(HoldAfterFocusLoss("", true, false), "")
+        @it("ends a hold only when the player loses the keys during one")
+        sub holdEndsOnFocusLoss()
+            m.assertTrue(HoldLosesKeys("right", false))
+            m.assertFalse(HoldLosesKeys("right", true))
+            m.assertFalse(HoldLosesKeys("", false))
         end sub
 
-        @it("ends a hold the player loses the keys to, resuming what the hold paused")
-        sub holdEndsOnFocusLoss()
-            m.assertEqual(HoldAfterFocusLoss("right", true, false), "resume")
-            m.assertEqual(HoldAfterFocusLoss("left", false, false), "drop")
+        @describe("the hold's sweep")
+
+        @it("sweeps faster the faster the hold moves, never to a flicker")
+        sub sweepFollowsTheSpeed()
+            m.assertEqual(HoldLoopSeconds(1), 1.2)
+            m.assertTrue(HoldLoopSeconds(3) < HoldLoopSeconds(1))
+            m.assertTrue(HoldLoopSeconds(5) < HoldLoopSeconds(3))
+            m.assertTrue(HoldLoopSeconds(10) < HoldLoopSeconds(5))
+            m.assertTrue(HoldLoopSeconds(10) >= 0.3)
+        end sub
+
+        @it("puts the sweep under the speed, inside the pill")
+        sub sweepSitsInThePill()
+            pill = HoldSpeedLayout(200, 32)
+
+            m.assertTrue(pill.barY >= pill.lineHeight)
+            m.assertTrue(pill.barX > 0)
+            m.assertEqual(pill.barX * 2 + pill.barWidth, 200)
+            m.assertTrue(pill.barY + pill.barHeight < pill.height)
+            m.assertTrue(pill.barHeight > 0)
+        end sub
+
+        @it("slides a third of the bar across it the way the hold moves, entering and leaving at the edges")
+        sub sweepGoesTheWayOfTheHold()
+            pill = HoldSpeedLayout(200, 32)
+            seg = Int(pill.barWidth / 3)
+            far = pill.barX + pill.barWidth
+            right = HoldLoopFrames(pill, "right")
+            left = HoldLoopFrames(pill, "left")
+
+            m.assertEqual(right.keys, [0.0, 0.25, 0.75, 1.0])
+            m.assertEqual(right.widths, [0.0, seg * 1.0, seg * 1.0, 0.0])
+            m.assertEqual(right.places, [[pill.barX, pill.barY], [pill.barX, pill.barY], [far - seg, pill.barY], [far, pill.barY]])
+            m.assertEqual(left.widths, [0.0, seg * 1.0, seg * 1.0, 0.0])
+            m.assertEqual(left.places, [[far, pill.barY], [far - seg, pill.barY], [pill.barX, pill.barY], [pill.barX, pill.barY]])
+        end sub
+
+        @it("keeps the sliding segment on the bar")
+        sub sweepStaysOnTheBar()
+            pill = HoldSpeedLayout(200, 32)
+            for each key in ["left", "right"]
+                frames = HoldLoopFrames(pill, key)
+                for index = 0 to frames.keys.Count() - 1
+                    m.assertTrue(frames.places[index][0] >= pill.barX)
+                    m.assertTrue(frames.places[index][0] + frames.widths[index] <= pill.barX + pill.barWidth)
+                end for
+            end for
         end sub
 
         @describe("HoldBadge")
 
         @it("shows nothing until a hold's first tick, so a single press keeps the badge it had")
         sub holdBadgeWaitsForATick()
-            m.assertEqual(HoldBadge("right", 0), { glyph: "", speed: "" })
-            m.assertEqual(HoldBadge("", 5), { glyph: "", speed: "" })
+            m.assertEqual(HoldBadge("right", 0), { glyph: "", speed: "", rate: 0 })
+            m.assertEqual(HoldBadge("", 5), { glyph: "", speed: "", rate: 0 })
         end sub
 
         @it("points the way the hold moves")
@@ -361,11 +409,13 @@ namespace tests
             m.assertEqual(HoldBadge("right", 1).glyph, "icon-forward-large")
         end sub
 
-        @it("names the speed of the last step once it is past 1x")
+        @it("names the speed of the last step from the first tick, 1x included")
         sub holdBadgeNamesTheSpeed()
-            m.assertEqual(HoldBadge("right", 1).speed, "")
-            m.assertEqual(HoldBadge("right", 4).speed, "")
+            m.assertEqual(HoldBadge("right", 1).speed, "1×")
+            m.assertEqual(HoldBadge("right", 1).rate, 1)
+            m.assertEqual(HoldBadge("right", 4).speed, "1×")
             m.assertEqual(HoldBadge("right", 5).speed, "3×")
+            m.assertEqual(HoldBadge("right", 5).rate, 3)
             m.assertEqual(HoldBadge("left", 12).speed, "3×")
             m.assertEqual(HoldBadge("left", 13).speed, "5×")
             m.assertEqual(HoldBadge("left", 24).speed, "5×")
@@ -496,7 +546,7 @@ namespace tests
             m.assertEqual(PlaybackNote(loaded, "Loading Alien…").kind, "loading")
             m.assertEqual(PlaybackNote(loaded, "Loading Alien…").message, "Loading Alien…")
 
-            paused = PlaybackStep(loaded, { kind: "toggle" }).state
+            paused = PlaybackStep(loaded, { kind: "holdPauses" }).state
             m.assertEqual(PlaybackNote(paused, "Loading Alien…").kind, "empty")
         end sub
 
@@ -506,7 +556,7 @@ namespace tests
             m.assertEqual(PlaybackNote(watching, "Loading Alien…").kind, "empty")
             m.assertEqual(PlaybackNote(watching, "Loading Alien…").message, "")
 
-            ended = PlaybackStep(watching, { kind: "reads", reading: { positionMs: 600000, durationMs: 600000, bufferedAheadMs: 0, playing: false, ended: true } }).state
+            ended = m.reported(watching, "finished", 600000)
             m.assertEqual(PlaybackNote(ended, "Loading Alien…").kind, "empty")
 
             refused = PlaybackStep(m.startingState(), { kind: "refusedStart", id: 1, message: "Could not play (gone)." }).state
@@ -517,16 +567,24 @@ namespace tests
 
         @describe("PausedGlyph")
 
-        @it("marks a paused stream with play")
+        @it("marks a stream with play once the player has paused")
         sub pausedMarkWhilePaused()
-            paused = PlaybackStep(m.watchingState(), { kind: "toggle" }).state
+            asked = PlaybackStep(m.placedState(), { kind: "toggle" }).state
+            m.assertEqual(PausedGlyph(asked), "")
+
+            m.assertEqual(PausedGlyph(m.reported(asked, "paused", 0)), "icon-play-large")
+        end sub
+
+        @it("marks a stream paused before the player reports with play")
+        sub pausedMarkLoadedPaused()
+            paused = PlaybackStep(m.watchingState(), { kind: "holdPauses" }).state
 
             m.assertEqual(PausedGlyph(paused), "icon-play-large")
         end sub
 
         @it("marks the end with replay")
         sub pausedMarkAtTheEnd()
-            ended = PlaybackStep(m.watchingState(), { kind: "reads", reading: { positionMs: 600000, durationMs: 600000, bufferedAheadMs: 0, playing: false, ended: true } }).state
+            ended = m.reported(m.placedState(), "finished", 600000)
 
             m.assertEqual(PausedGlyph(ended), "icon-replay-large")
         end sub
@@ -1306,6 +1364,14 @@ namespace tests
             m.assertEqual(ProgressMark(invalid, invalid), 0)
         end sub
 
+        @it("marks progress from the state's position and the player's buffered figure")
+        sub marksFromTheState()
+            s = m.placedState()
+            buffered = PlaybackStep(s, { kind: "reads", id: s.player.attachId, reading: { positionMs: 0, durationMs: 600000, bufferedAheadMs: 0, bufferedPercent: 35 } }).state
+
+            m.assertEqual(PlaybackProgressMark(buffered), buffered.timeline.positionMs + 35)
+        end sub
+
         @it("gives the stream twenty seconds before it says anything")
         sub waitsTwentySeconds()
             m.assertEqual(StallSeconds(), 20)
@@ -1424,12 +1490,92 @@ namespace tests
             m.assertEqual(ClockText(21, 30, false), "9:30 PM")
         end sub
 
-        @describe("DoubleBackMs")
+        @describe("ExitHintSeconds")
 
-        @it("measures a gesture, not a pause for thought")
-        sub measuresAGesture()
-            m.assertEqual(DoubleBackMs(), 750)
-            m.assertTrue(DoubleBackMs() * 4 <= ControlsHideSeconds() * 1000)
+        @it("keeps the exit window open for a second and a half, inside the bar's own time")
+        sub exitHintFitsTheBar()
+            m.assertEqual(ExitHintSeconds(), 1.5)
+            m.assertTrue(ExitHintSeconds() < ControlsHideSeconds())
+        end sub
+
+        @describe("ExitHintSecondsFor")
+
+        @it("keeps the exit window open long enough to be read aloud, inside the spoken bar's time")
+        sub exitHintWaitsForSpeech()
+            m.assertEqual(ExitHintSecondsFor(false), ExitHintSeconds())
+            m.assertEqual(ExitHintSecondsFor(true), 4.0)
+            m.assertTrue(ExitHintSecondsFor(true) < SpokenControlsHideSeconds())
+        end sub
+
+        @describe("KeyKeepsExitHint")
+
+        @it("keeps the hint only for a second Back")
+        sub onlyBackKeepsTheHint()
+            m.assertTrue(KeyKeepsExitHint("back"))
+            for each key in ["OK", "up", "down", "left", "right", "play", "rewind", "fastforward", "options", "replay"]
+                m.assertFalse(KeyKeepsExitHint(key))
+            end for
+        end sub
+
+        @describe("ExitHintLayout")
+
+        @it("puts the countdown under the text, inside the pill")
+        sub countdownSitsInsideThePill()
+            layout = ExitHintLayout(300, 28)
+
+            m.assertTrue(layout.barY >= layout.lineHeight)
+            m.assertTrue(layout.barX > 0)
+            m.assertEqual(layout.barX * 2 + layout.barWidth, layout.width)
+            m.assertTrue(layout.barY + layout.barHeight < layout.height)
+            m.assertTrue(layout.barHeight > 0)
+            m.assertTrue(layout.width > 300)
+        end sub
+
+        @it("runs the countdown from a full bar to an empty one")
+        sub countdownEmpties()
+            layout = ExitHintLayout(300, 28)
+
+            m.assertEqual(ExitHintCountdown(layout), [300.0, 0.0])
+        end sub
+
+        @describe("PlayerBackAction")
+
+        @it("dismisses the Up next countdown before anything else")
+        sub backDismissesUpNext()
+            m.assertEqual(PlayerBackAction(true, false, false, false, false), "upNext")
+            m.assertEqual(PlayerBackAction(true, true, true, true, true), "upNext")
+        end sub
+
+        @it("leaves at once from an error")
+        sub backLeavesAnError()
+            m.assertEqual(PlayerBackAction(false, true, false, false, false), "exit")
+            m.assertEqual(PlayerBackAction(false, true, false, false, true), "exit")
+        end sub
+
+        @it("leaves at once once the title has ended")
+        sub backLeavesAtTheEnd()
+            m.assertEqual(PlayerBackAction(false, false, true, false, true), "exit")
+            m.assertEqual(PlayerBackAction(false, false, true, false, false), "exit")
+        end sub
+
+        @it("shows the bar and asks for a second Back when the bar is hidden")
+        sub backShowsTheHint()
+            m.assertEqual(PlayerBackAction(false, false, false, false, false), "hint")
+        end sub
+
+        @it("leaves on a second Back while the hint shows")
+        sub backLeavesWhileArmed()
+            m.assertEqual(PlayerBackAction(false, false, false, true, true), "exit")
+        end sub
+
+        @it("closes the bar when it shows without the hint")
+        sub backClosesTheBar()
+            m.assertEqual(PlayerBackAction(false, false, false, false, true), "close")
+        end sub
+
+        @it("tells the viewer how to leave")
+        sub exitHintText()
+            m.assertEqual(Phrase("player.backToExit"), "Press Back again to exit")
         end sub
 
         @it("gives every row an id the screen can act on")

@@ -1,11 +1,11 @@
 use std::collections::HashSet;
 
-use domain::catalog::{EpisodeId, TitleId, TitleListFilter};
+use domain::catalog::{EpisodeId, MovieId, TitleId, TitleListFilter};
 use domain::discovery::Audience;
 use domain::error::{PlaylistError, RepositoryError};
 use domain::playback::{
-    Playlist, PlaylistCard, PlaylistDetail, PlaylistId, PlaylistSummary, QueueCard, QueueEntryId,
-    WatchTarget,
+    Playlist, PlaylistCard, PlaylistDetail, PlaylistId, PlaylistSummary, PlaylistTarget, QueueCard,
+    QueueEntryId, WatchTarget,
 };
 use domain::repository::{CatalogRepository, PreferencesRepository, UserRepository};
 use domain::service::PlaylistService;
@@ -63,29 +63,47 @@ where
         Ok(ids.into_iter().filter(|id| shown.contains(id)).map(TitleId::Episode).collect())
     }
 
+    async fn movies(
+        &self,
+        ids: Vec<MovieId>,
+        filter: &TitleListFilter,
+    ) -> Result<Vec<TitleId>, RepositoryError> {
+        let shown: HashSet<MovieId> = self
+            .catalog
+            .visible_movies(&ids, filter)
+            .await?
+            .into_iter()
+            .map(|movie| movie.id)
+            .collect();
+        Ok(ids.into_iter().filter(|id| shown.contains(id)).map(TitleId::Movie).collect())
+    }
+
     async fn expand(
         &self,
-        target: &WatchTarget,
+        target: &PlaylistTarget,
         filter: &TitleListFilter,
     ) -> Result<Vec<TitleId>, RepositoryError> {
         match target {
-            WatchTarget::Movie(id) => Ok(self
-                .catalog
-                .visible_movies(std::slice::from_ref(id), filter)
-                .await?
-                .into_iter()
-                .map(|movie| TitleId::Movie(movie.id))
-                .collect()),
-            WatchTarget::Episode(id) => self.episodes(vec![id.clone()], filter, false).await,
-            WatchTarget::Season(id) => {
+            PlaylistTarget::Title(WatchTarget::Movie(id)) => {
+                self.movies(vec![id.clone()], filter).await
+            }
+            PlaylistTarget::Title(WatchTarget::Episode(id)) => {
+                self.episodes(vec![id.clone()], filter, false).await
+            }
+            PlaylistTarget::Title(WatchTarget::Season(id)) => {
                 let mut found =
                     self.catalog.episode_ids_for_seasons(std::slice::from_ref(id)).await?;
                 self.episodes(found.remove(id).unwrap_or_default(), filter, false).await
             }
-            WatchTarget::Series(id) => {
+            PlaylistTarget::Title(WatchTarget::Series(id)) => {
                 let mut found =
                     self.catalog.episode_ids_for_series(std::slice::from_ref(id)).await?;
                 self.episodes(found.remove(id).unwrap_or_default(), filter, true).await
+            }
+            PlaylistTarget::Collection(id) => {
+                let found = self.catalog.get_collection(id).await?;
+                self.movies(found.map(|collection| collection.movies).unwrap_or_default(), filter)
+                    .await
             }
         }
     }
@@ -175,7 +193,7 @@ where
         &self,
         audience: &Audience,
         id: &PlaylistId,
-        target: &WatchTarget,
+        target: &PlaylistTarget,
     ) -> Result<usize, PlaylistError> {
         self.existing(&audience.user, id).await?;
         let filter = acl::audience_filter(&self.users, audience).await?;
@@ -270,7 +288,8 @@ where
 mod tests {
     use super::*;
     use domain::catalog::{
-        Episode, Movie, MovieId, Season, SeasonId, Series, SeriesId, TitleCard, Version, VersionId,
+        Collection, CollectionId, Episode, Movie, MovieId, Season, SeasonId, Series, SeriesId,
+        TitleCard, Version, VersionId,
     };
     use domain::common::Quality;
     use domain::library::LibraryId;
@@ -354,6 +373,18 @@ mod tests {
         }
     }
 
+    fn collection(id: &str, movies: &[&str]) -> Collection {
+        Collection {
+            id: CollectionId(id.into()),
+            name: id.into(),
+            overview: None,
+            movies: movies.iter().map(|movie| MovieId((*movie).into())).collect(),
+            added_at: Timestamp::UNIX_EPOCH,
+            updated_at: Timestamp::UNIX_EPOCH,
+            artwork: Vec::new(),
+        }
+    }
+
     fn version(title: TitleId, library: &str) -> Version {
         Version {
             id: VersionId(format!("v-{}", title.id())),
@@ -399,6 +430,8 @@ mod tests {
             catalog.add_version(version(TitleId::Movie(MovieId(id.into())), "lib1"));
         }
         catalog.add_version(version(TitleId::Movie(MovieId("m3".into())), "lib2"));
+        catalog.add_collection(collection("c1", &["m2", "m3", "m1"]));
+        catalog.add_collection(collection("c2", &["m2", "m3"]));
         for id in ["sp1", "e11", "e12", "e21"] {
             catalog.add_version(version(TitleId::Episode(EpisodeId(id.into())), "lib1"));
         }
@@ -429,8 +462,16 @@ mod tests {
         queue.iter().map(|entry| card_id(&entry.card).to_owned()).collect()
     }
 
-    fn movie_target(id: &str) -> WatchTarget {
-        WatchTarget::Movie(MovieId(id.into()))
+    fn title(target: WatchTarget) -> PlaylistTarget {
+        PlaylistTarget::Title(target)
+    }
+
+    fn movie_target(id: &str) -> PlaylistTarget {
+        title(WatchTarget::Movie(MovieId(id.into())))
+    }
+
+    fn collection_target(id: &str) -> PlaylistTarget {
+        PlaylistTarget::Collection(CollectionId(id.into()))
     }
 
     #[tokio::test]
@@ -438,15 +479,15 @@ mod tests {
         let preferences = MockPreferencesRepo::new();
         let svc = svc(&preferences, None);
         let id = svc.create_playlist(&user(), "Binge").await.unwrap().id;
-        let series = WatchTarget::Series(SeriesId("s1".into()));
+        let series = title(WatchTarget::Series(SeriesId("s1".into())));
 
         assert_eq!(svc.add_to_playlist(&audience(), &id, &series).await.unwrap(), 3);
         assert_eq!(shown(&svc, &id).await, ["e11", "e12", "e21"]);
 
-        let specials = WatchTarget::Season(SeasonId("sp".into()));
+        let specials = title(WatchTarget::Season(SeasonId("sp".into())));
         assert_eq!(svc.add_to_playlist(&audience(), &id, &specials).await.unwrap(), 1);
         assert_eq!(svc.add_to_playlist(&audience(), &id, &series).await.unwrap(), 0);
-        let episode = WatchTarget::Episode(EpisodeId("e12".into()));
+        let episode = title(WatchTarget::Episode(EpisodeId("e12".into())));
         assert_eq!(svc.add_to_playlist(&audience(), &id, &episode).await.unwrap(), 0);
         assert_eq!(shown(&svc, &id).await, ["e11", "e12", "e21", "sp1"]);
         let positions: Vec<u32> = svc
@@ -458,6 +499,23 @@ mod tests {
             .map(|item| item.item.position)
             .collect();
         assert_eq!(positions, [0, 1, 2, 3]);
+    }
+
+    #[tokio::test]
+    async fn adding_a_collection_takes_the_movies_the_viewer_sees_in_collection_order() {
+        let preferences = MockPreferencesRepo::new();
+        let open = svc(&preferences, None);
+        let id = open.create_playlist(&user(), "Saga").await.unwrap().id;
+        let saga = collection_target("c1");
+
+        assert_eq!(open.add_to_playlist(&audience(), &id, &saga).await.unwrap(), 2);
+        assert_eq!(shown(&open, &id).await, ["m2", "m1"]);
+        assert_eq!(open.add_to_playlist(&audience(), &id, &saga).await.unwrap(), 0);
+
+        let capped = svc(&preferences, Some("pg-13"));
+        let other = capped.create_playlist(&user(), "Capped").await.unwrap().id;
+        assert_eq!(capped.add_to_playlist(&audience(), &other, &saga).await.unwrap(), 1);
+        assert_eq!(shown(&capped, &other).await, ["m1"]);
     }
 
     #[tokio::test]
@@ -489,8 +547,10 @@ mod tests {
             movie_target("m2"),
             movie_target("m3"),
             movie_target("ghost"),
-            WatchTarget::Season(SeasonId("se9".into())),
-            WatchTarget::Series(SeriesId("ghost".into())),
+            title(WatchTarget::Season(SeasonId("se9".into()))),
+            title(WatchTarget::Series(SeriesId("ghost".into()))),
+            collection_target("c2"),
+            collection_target("ghost"),
         ] {
             let refused = svc.add_to_playlist(&audience(), &id, &target).await;
             assert!(matches!(refused, Err(PlaylistError::TitleNotFound)), "{target:?}");
@@ -537,7 +597,7 @@ mod tests {
         let preferences = MockPreferencesRepo::new();
         let svc = svc(&preferences, None);
         let id = svc.create_playlist(&user(), "Order").await.unwrap().id;
-        let series = WatchTarget::Series(SeriesId("s1".into()));
+        let series = title(WatchTarget::Series(SeriesId("s1".into())));
         svc.add_to_playlist(&audience(), &id, &series).await.unwrap();
 
         svc.move_in_playlist(&audience(), &id, "e21", 0).await.unwrap();
@@ -557,9 +617,11 @@ mod tests {
         let preferences = MockPreferencesRepo::new();
         let open = svc(&preferences, None);
         let id = open.create_playlist(&user(), "Mixed").await.unwrap().id;
-        for target in
-            [movie_target("m1"), movie_target("m2"), WatchTarget::Season(SeasonId("se1".into()))]
-        {
+        for target in [
+            movie_target("m1"),
+            movie_target("m2"),
+            title(WatchTarget::Season(SeasonId("se1".into()))),
+        ] {
             open.add_to_playlist(&audience(), &id, &target).await.unwrap();
         }
         let capped = svc(&preferences, Some("pg-13"));

@@ -8,6 +8,7 @@ import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/api/catalog_api.dart';
 import 'package:shadowmask/api/play_on_api.dart';
 import 'package:shadowmask/api/playback_api.dart';
+import 'package:shadowmask/api/playlist_api.dart';
 import 'package:shadowmask/components/admin/confirm_dialog.dart';
 import 'package:shadowmask/components/admin/edit_metadata_dialog.dart';
 import 'package:shadowmask/components/backdrop_scope.dart';
@@ -43,6 +44,7 @@ import 'package:shadowmask/model/catalog/version.dart';
 import 'package:shadowmask/nav/routes.dart';
 import 'package:shadowmask/util/format.dart';
 import 'package:shadowmask/view/play_target.dart';
+import 'package:shadowmask/view/queue_next.dart';
 import 'package:shadowmask/view/version_order.dart';
 import 'package:shadowmask/pages/default/mutations.dart';
 import 'package:shadowmask/view/title_actions.dart';
@@ -56,12 +58,14 @@ class EpisodePage extends StatelessWidget {
     required this.id,
     this.series,
     this.season,
+    this.queueEntryId,
   });
 
   final ApiClient api;
   final String id;
   final String? series;
   final String? season;
+  final String? queueEntryId;
 
   @override
   Widget build(BuildContext context) {
@@ -79,6 +83,7 @@ class EpisodePage extends StatelessWidget {
         id: id,
         series: series,
         season: season,
+        queueEntryId: queueEntryId,
       ),
     );
   }
@@ -100,6 +105,7 @@ class _EpisodeBody extends StatefulWidget {
     required this.id,
     this.series,
     this.season,
+    this.queueEntryId,
   });
 
   final ApiClient api;
@@ -107,6 +113,7 @@ class _EpisodeBody extends StatefulWidget {
   final String id;
   final String? series;
   final String? season;
+  final String? queueEntryId;
 
   @override
   State<_EpisodeBody> createState() => _EpisodeBodyState();
@@ -119,8 +126,15 @@ class _EpisodeBodyState extends State<_EpisodeBody>
   late final TitleRef _ref = TitleRef(type: TitleKind.episode, id: widget.id);
   final GlobalKey<PlayButtonState> _play = GlobalKey<PlayButtonState>();
   late Future<_EpisodeData> _future = _load();
+  late String? _queueEntryId = widget.queueEntryId;
   int _generation = 0;
   int _refreshes = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_checkQueue());
+  }
 
   void _reload() {
     setState(() {
@@ -128,8 +142,20 @@ class _EpisodeBodyState extends State<_EpisodeBody>
     });
   }
 
+  Future<void> _checkQueue() async {
+    final String? held = await stillQueued(
+      PlaylistApi(widget.api),
+      widget.user.id,
+      _queueEntryId,
+    );
+    if (mounted && held == null && _queueEntryId != null) {
+      setState(() => _queueEntryId = null);
+    }
+  }
+
   @override
   Future<void> refreshOnReturn() async {
+    unawaited(_checkQueue());
     final Future<_EpisodeData> before = _future;
     final int asked = ++_refreshes;
     final _EpisodeData data;
@@ -376,6 +402,7 @@ class _EpisodeBodyState extends State<_EpisodeBody>
                       playback: PlaybackApi(widget.api),
                       onProgressCleared: _reload,
                       playOn: _playOn,
+                      queueEntryId: _queueEntryId,
                     ),
                   ),
                   if (available.isEmpty) ...<Widget>[

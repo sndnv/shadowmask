@@ -245,6 +245,11 @@ function EpisodeByIdRequest(base as string, token as string, episodeId as dynami
     return EpisodeRequest(base, token, AnyIdMark(), AnyIdMark(), episodeId)
 end function
 
+function EpisodePathParents(seriesId as dynamic, seasonId as dynamic) as object
+    if IsBlank(TextOrBlank(seriesId)) or IsBlank(TextOrBlank(seasonId)) then return { seriesId: AnyIdMark(), seasonId: AnyIdMark() }
+    return { seriesId: TextOrBlank(seriesId), seasonId: TextOrBlank(seasonId) }
+end function
+
 function EpisodeVersionsRequest(base as string, token as string, seriesId as dynamic, seasonId as dynamic, episodeId as dynamic) as object
     path = PathWithQuery(EpisodePath(seriesId, seasonId, episodeId) + "/versions", VersionPagePairs())
     return BuildRequest(base, path, "GET", invalid, token)

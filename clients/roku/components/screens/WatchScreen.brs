@@ -8,8 +8,23 @@ sub init()
     m.holdSpeed = m.top.FindNode("holdSpeed")
     m.holdSpeedPlate = m.top.FindNode("holdSpeedPlate")
     m.holdSpeedLabel = m.top.FindNode("holdSpeedLabel")
+    m.holdTrack = m.top.FindNode("holdTrack")
+    m.holdFill = m.top.FindNode("holdFill")
+    m.holdLoop = m.top.FindNode("holdLoop")
+    m.holdLoopWidth = m.top.FindNode("holdLoopWidth")
+    m.holdLoopPlace = m.top.FindNode("holdLoopPlace")
+    m.holdLoopRate = 0
+    m.holdPill = invalid
     m.beat = m.top.FindNode("heartbeat")
     m.hide = m.top.FindNode("hide")
+    m.exitHint = m.top.FindNode("exitHint")
+    m.exitHintPlate = m.top.FindNode("exitHintPlate")
+    m.exitHintLabel = m.top.FindNode("exitHintLabel")
+    m.exitHintTrack = m.top.FindNode("exitHintTrack")
+    m.exitHintFill = m.top.FindNode("exitHintFill")
+    m.exitHintRun = m.top.FindNode("exitHintRun")
+    m.exitHintShrink = m.top.FindNode("exitHintShrink")
+    m.exitHintTimer = m.top.FindNode("exitHintTimer")
 
     m.bar = m.top.FindNode("bar")
     m.scrim = m.top.FindNode("scrim")
@@ -52,15 +67,12 @@ sub init()
     m.holdKey = ""
     m.holdTicks = 0
     m.holdTargetMs = -1
-    m.holdPaused = false
     m.choiceOptions = []
     m.settingRows = []
     m.remaining = 0
     m.gatherError = ""
     m.revealed = false
     m.barVisible = false
-    m.barCommitted = false
-    m.barOpened = invalid
     m.busyFocus = -1
     m.stallTicks = 0
     m.stallMark = -1
@@ -91,6 +103,7 @@ sub init()
     m.video.enableTrickPlay = false
     m.video.enableUI = false
     m.hide.ObserveField("fire", "onHideFired")
+    m.exitHintTimer.ObserveField("fire", "onExitHintFired")
     m.actions.ObserveField("activated", "onAction")
     m.actions.ObserveField("focusIndex", "onBarStepped")
     m.countdown.ObserveField("fire", "onCountdownFired")
@@ -127,6 +140,7 @@ sub render()
     m.note.translation = [ContentLeft(), ContentTop()]
 
     DrawBar(theme)
+    DrawExitHint(theme)
     DrawPausedMark(theme)
     DrawDiagnostics(theme)
     DrawUpNext(theme)
@@ -173,6 +187,34 @@ sub DrawBar(theme as object)
     RefreshProgress()
 end sub
 
+sub DrawExitHint(theme as object)
+    space = SpacingScale()
+    size = TypeScale().textBase
+    text = Phrase("player.backToExit")
+    layout = ExitHintLayout(TextWidth(text, size, true), size)
+
+    m.exitHintPlate.boxWidth = layout.width
+    m.exitHintPlate.boxHeight = layout.height
+    m.exitHintPlate.fillColor = WithAlpha(theme.bg, "B3")
+    m.exitHintLabel.text = text
+    m.exitHintLabel.font = SizedBoldFont(size)
+    m.exitHintLabel.color = theme.text
+    m.exitHintLabel.width = layout.width
+    m.exitHintLabel.height = layout.lineHeight
+    m.exitHintLabel.horizAlign = "center"
+    m.exitHintLabel.vertAlign = "center"
+    m.exitHintTrack.color = theme.border
+    m.exitHintTrack.width = layout.barWidth
+    m.exitHintTrack.height = layout.barHeight
+    m.exitHintTrack.translation = [layout.barX, layout.barY]
+    m.exitHintFill.color = theme.accent
+    m.exitHintFill.width = layout.barWidth
+    m.exitHintFill.height = layout.barHeight
+    m.exitHintFill.translation = [layout.barX, layout.barY]
+    m.exitHintShrink.keyValue = ExitHintCountdown(layout)
+    m.exitHint.translation = [Int((CanvasWidth() - layout.width) / 2), Int(m.bar.translation[1]) - space.s6 - space.s3 - layout.height]
+end sub
+
 sub DrawPausedMark(theme as object)
     size = PausedMarkSize()
     glyph = PausedGlyphSize()
@@ -189,16 +231,25 @@ sub DrawPausedMark(theme as object)
     m.pausedGlyph.blendColor = theme.text
     m.pausedGlyph.translation = [Int((size - glyph) / 2), Int((size - glyph) / 2)]
 
-    pill = Int(TypeScale().textLg * 1.6)
-    m.holdSpeedPlate.boxWidth = size
-    m.holdSpeedPlate.boxHeight = pill
+    pill = HoldSpeedLayout(size, TypeScale().textLg)
+    m.holdPill = pill
+    m.holdSpeedPlate.boxWidth = pill.width
+    m.holdSpeedPlate.boxHeight = pill.height
     m.holdSpeedPlate.fillColor = WithAlpha(theme.bg, "B3")
     m.holdSpeedLabel.font = SizedBoldFont(TypeScale().textLg)
     m.holdSpeedLabel.color = theme.text
-    m.holdSpeedLabel.width = size
-    m.holdSpeedLabel.height = pill
+    m.holdSpeedLabel.width = pill.width
+    m.holdSpeedLabel.height = pill.lineHeight
     m.holdSpeedLabel.horizAlign = "center"
     m.holdSpeedLabel.vertAlign = "center"
+    m.holdTrack.color = theme.border
+    m.holdTrack.width = pill.barWidth
+    m.holdTrack.height = pill.barHeight
+    m.holdTrack.translation = [pill.barX, pill.barY]
+    m.holdFill.color = theme.accent
+    m.holdFill.width = 0
+    m.holdFill.height = pill.barHeight
+    m.holdFill.translation = [pill.barX, pill.barY]
     m.holdSpeed.translation = [0, size + SpacingScale().s2]
 
     m.pausedMark.translation = [Int((CanvasWidth() - size) / 2), Int((CanvasHeight() - size) / 2)]
@@ -212,6 +263,24 @@ sub RefreshPausedMark()
     if m.pausedMark.visible then m.pausedGlyph.uri = GlyphUri(glyph)
     m.holdSpeedLabel.text = badge.speed
     m.holdSpeed.visible = not IsBlank(badge.speed)
+    FollowHoldLoop(badge.rate)
+end sub
+
+sub FollowHoldLoop(rate as integer)
+    if rate = m.holdLoopRate or m.holdPill = invalid then return
+
+    m.holdLoopRate = rate
+    m.holdLoop.control = "stop"
+    m.holdFill.width = 0
+    if rate <= 0 then return
+
+    frames = HoldLoopFrames(m.holdPill, m.holdKey)
+    m.holdLoopWidth.key = frames.keys
+    m.holdLoopWidth.keyValue = frames.widths
+    m.holdLoopPlace.key = frames.keys
+    m.holdLoopPlace.keyValue = frames.places
+    m.holdLoop.duration = HoldLoopSeconds(rate)
+    m.holdLoop.control = "start"
 end sub
 
 sub DrawHeader(theme as object)
@@ -286,7 +355,7 @@ sub BuildBarButtons()
     end if
 
     timeline = m.playback.timeline
-    m.actions.buttons = PlayerButtons(timeline.playing, timeline.ended, EpisodeContext() <> invalid, m.previousTarget <> invalid, m.nextTarget <> invalid, m.playback.status.sent <> invalid, InQueueMode())
+    m.actions.buttons = PlayerButtons(m.playback.player.playing, timeline.ended, EpisodeContext() <> invalid, m.previousTarget <> invalid, m.nextTarget <> invalid, m.playback.status.sent <> invalid, InQueueMode())
 end sub
 
 function QueueEntryId() as string
@@ -299,9 +368,9 @@ end function
 
 function FullDurationMs() as integer
     total = Int(ValueAt(m.version, "duration_ms", 0))
-    if total > 0 then return total
+    if total > 0 or m.playback = invalid then return total
 
-    return Int(m.video.duration * 1000.0)
+    return m.playback.durationMs
 end function
 
 sub RefreshProgress()
@@ -345,10 +414,9 @@ sub ComposeBar(seeking = false as boolean)
 end sub
 
 sub onFocus()
-    lost = HoldAfterFocusLoss(m.holdKey, m.holdPaused, KeysAreOurs())
-    if not IsBlank(lost)
+    if HoldLosesKeys(m.holdKey, KeysAreOurs())
         ClearHold()
-        if lost = "resume" then PostPlayback({ kind: "plays", playing: true })
+        PostPlayback({ kind: "holdDropped" })
     end if
 
     if not m.top.hasFocus() then return
@@ -376,34 +444,34 @@ sub HideBar()
     if not m.barVisible then return
 
     m.barVisible = false
-    m.barCommitted = false
-    m.barOpened = invalid
     m.hide.control = "stop"
+    HideExitHint()
     TakeFocus(m.stage)
     m.bar.visible = false
     m.header.visible = false
 end sub
 
-sub MarkBarOpenedByBack()
-    m.barOpened = CreateObject("roTimespan")
+sub ShowExitHint()
+    m.exitHint.visible = true
+    m.exitHintTimer.control = "stop"
+    m.exitHintTimer.duration = ExitHintSecondsFor(m.audioGuideOn)
+    m.exitHintTimer.control = "start"
+    m.exitHintRun.control = "stop"
+    m.exitHintRun.duration = ExitHintSecondsFor(m.audioGuideOn)
+    m.exitHintRun.control = "start"
+    if m.audioGuideOn then SpeakAgain(Phrase("player.backToExit"))
 end sub
 
-sub MarkBarCommitted()
-    m.barCommitted = true
+sub HideExitHint()
+    m.exitHintTimer.control = "stop"
+    m.exitHintRun.control = "stop"
+    m.exitHint.visible = false
 end sub
 
-function HandledBarBack() as boolean
-    if not PlaybackPlaying(m.playback) then return false
-    if m.barCommitted
-        HideBar()
-        return true
-    end if
-
-    if m.barOpened <> invalid and m.barOpened.TotalMilliseconds() <= DoubleBackMs() then return false
-
-    HideBar()
-    return true
-end function
+sub onExitHintFired()
+    m.exitHintRun.control = "stop"
+    m.exitHint.visible = false
+end sub
 
 sub RestartHide()
     m.hide.control = "stop"
@@ -747,7 +815,6 @@ sub RunChoice(field as string, chosen as object)
 
     if field = "autoplay"
         StoreAutoplay(Int(ValueAt(chosen, "value", DefaultCountdownSeconds())))
-        MarkBarCommitted()
         return
     end if
 
@@ -1093,8 +1160,6 @@ sub RunSetting(id as string)
         return
     end if
 
-    MarkBarCommitted()
-
     if id = "autoplay"
         OpenAutoplay()
         return
@@ -1138,7 +1203,7 @@ function PlaybackBurned() as boolean
 end function
 
 function PlaybackPlaying(s as object) as boolean
-    return IsWatching(s) and s.timeline.playing
+    return IsWatching(s) and s.player.playing
 end function
 
 function Errored() as boolean
@@ -1146,7 +1211,6 @@ function Errored() as boolean
 end function
 
 sub ApplyControls(wanted as object)
-    if IsWatching(m.playback) then MarkBarCommitted()
     NoteHistory("chose", { controls: ControlsUpdateBody(wanted) })
     PostPlayback({ kind: "changeRemote", controls: ControlsCopy(wanted) })
 end sub
@@ -1538,7 +1602,7 @@ sub DrawNote(before as object, after as object)
 end sub
 
 function BarChanged(before as object, after as object) as boolean
-    if before.timeline.playing <> after.timeline.playing then return true
+    if before.player.playing <> after.player.playing then return true
     if before.timeline.ended <> after.timeline.ended then return true
     if IsBlank(before.status.error) <> IsBlank(after.status.error) then return true
 
@@ -1564,8 +1628,8 @@ sub RevealStage()
 end sub
 
 sub FollowWatchdog(before as object, after as object)
-    playing = PlaybackPlaying(after)
-    if playing = PlaybackPlaying(before) then return
+    playing = PlaybackWantsPlaying(after)
+    if playing = PlaybackWantsPlaying(before) then return
 
     if playing
         StartWatchdog()
@@ -1823,13 +1887,9 @@ sub StopWatchdog()
 end sub
 
 sub onWatchdogFired()
-    if not PlaybackPlaying(m.playback) or m.stallWarned then return
+    if not PlaybackWantsPlaying(m.playback) or m.stallWarned then return
 
-    status = m.video.bufferingStatus
-    buffered = 0
-    if type(status) = "roAssociativeArray" then buffered = Int(ValueAt(status, "percentage", 0))
-
-    mark = ProgressMark(Int(m.video.position * 1000.0), buffered)
+    mark = PlaybackProgressMark(m.playback)
     m.stallTicks = StallTicks(m.stallTicks, m.stallMark, mark)
     m.stallMark = mark
 
@@ -1869,15 +1929,7 @@ sub SeekBy(deltaMs as integer)
     ShowBar(true)
     if not IsWatching(m.playback) then return
 
-    MarkBarCommitted()
     PostPlayback({ kind: "seekBy", deltaMs: deltaMs })
-end sub
-
-sub SeekTo(atMs as integer)
-    if not IsWatching(m.playback) then return
-
-    MarkBarCommitted()
-    PostPlayback({ kind: "seek", positionMs: atMs })
 end sub
 
 sub StartHold(key as string)
@@ -1887,7 +1939,6 @@ sub StartHold(key as string)
     m.holdKey = key
     m.holdTicks = 0
     m.holdTargetMs = -1
-    m.holdPaused = false
 
     MoveGhost(HoldStepMs(0))
 
@@ -1899,49 +1950,26 @@ end sub
 sub onHoldFired()
     if IsBlank(m.holdKey) then return
 
-    if m.holdTicks = 0 then PauseForHold()
+    if m.holdTicks = 0 then PostPlayback({ kind: "holdPauses" })
     MoveGhost(HoldTickStepMs(m.holdTicks))
     m.holdTicks = m.holdTicks + 1
     RefreshPausedMark()
-end sub
-
-sub PauseForHold()
-    if not IsWatching(m.playback) or not m.playback.timeline.playing then return
-
-    m.holdPaused = true
-    PostPlayback({ kind: "plays", playing: false })
 end sub
 
 function EndHold() as boolean
     if IsBlank(m.holdKey) then return false
 
     at = m.holdTargetMs
-    resume = m.holdPaused
     ClearHold()
-
-    if at >= 0 and resume
-        SeekResumes(at)
-    else if at >= 0
-        SeekTo(at)
-    else if resume
-        PostPlayback({ kind: "plays", playing: true })
-    end if
+    PostPlayback({ kind: "holdEnds", targetMs: at })
     RestartHide()
     return true
 end function
-
-sub SeekResumes(atMs as integer)
-    if not IsWatching(m.playback) then return
-
-    MarkBarCommitted()
-    PostPlayback({ kind: "seekResumes", positionMs: atMs })
-end sub
 
 sub ClearHold()
     m.holdKey = ""
     m.holdTicks = 0
     m.holdTargetMs = -1
-    m.holdPaused = false
     m.hold.control = "stop"
     m.timeline.scrubMs = -1
     RefreshPausedMark()
@@ -2009,6 +2037,7 @@ sub onRelease()
     m.released = true
     m.countdown.control = "stop"
     m.hold.control = "stop"
+    m.holdLoop.control = "stop"
     m.watchdog.control = "stop"
     m.jobsTimer.control = "stop"
     SubtitlesClear()
@@ -2023,6 +2052,7 @@ end sub
 function onKeyEvent(key as string, press as boolean) as boolean
     if m.released or not KeysAreOurs() then return false
 
+    if not KeyKeepsExitHint(key) then HideExitHint()
     if not press
         if key = "left" or key = "right" then return EndHold()
         return false
@@ -2036,27 +2066,33 @@ function onKeyEvent(key as string, press as boolean) as boolean
         return true
     end if
 
-    if m.upNext.visible
-        if key = "back"
+    if key = "back"
+        action = PlayerBackAction(m.upNext.visible, Errored(), WatchingTheEnd(m.playback), m.exitHint.visible, m.barVisible)
+        if action = "upNext"
             StopCountdown()
             ShowNote(Phrase("player.replay"), "empty")
             return true
         end if
-        return false
+        if action = "exit"
+            HideExitHint()
+            return false
+        end if
+        if action = "close"
+            HideBar()
+            return true
+        end if
+
+        ShowBar()
+        ShowExitHint()
+        return true
     end if
 
+    if m.upNext.visible then return false
     if Errored() then return false
 
     if m.barVisible
         RestartHide()
-        if key = "back" then return HandledBarBack()
         if HandledStepKey(key, [m.timeline, m.actions]) then return true
-    end if
-
-    if key = "back"
-        MarkBarOpenedByBack()
-        ShowBar()
-        return true
     end if
 
     if key = "up" or key = "down"

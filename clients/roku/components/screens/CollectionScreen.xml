@@ -45,6 +45,7 @@
         <ActionBar id="crumbs" />
         <Label id="heading" />
         <Label id="overview" />
+        <ActionBar id="actions" visible="false" />
         <TabHeading id="moviesHeading" visible="false" />
         <CardGrid id="grid" visible="false" />
         <ScrollBar id="scrollBar" />

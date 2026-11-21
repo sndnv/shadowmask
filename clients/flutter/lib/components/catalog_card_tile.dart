@@ -126,9 +126,14 @@ class _CatalogCardTileState extends State<CatalogCardTile> {
   Widget _frame(BuildContext context, bool lit) {
     final Tokens t = context.tokens;
     final CatalogCard card = widget.card;
+    final CardMenuHost? host = CardMenuHost.maybeOf(context);
     final bool menued =
-        CardMenuHost.maybeOf(context) != null &&
-        hasCardMenu(card.ref.type, dismissible: _dropsResume);
+        host != null &&
+        hasCardMenu(
+          card.ref.type,
+          dismissible: _dropsResume,
+          playlists: host.playlists != null,
+        );
     final String? line2 = widget.subtitle ?? card.subtitle;
     final String? line3 = widget.caption ?? card.caption;
     final double inset = context.shapes.cut ? Space.s1 : 0;

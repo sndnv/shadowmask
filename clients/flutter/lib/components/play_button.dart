@@ -31,6 +31,7 @@ class PlayButton extends StatefulWidget {
     this.playback,
     this.onProgressCleared,
     this.playOn,
+    this.queueEntryId,
   });
 
   final CatalogApi catalog;
@@ -40,6 +41,7 @@ class PlayButton extends StatefulWidget {
   final PlaybackApi? playback;
   final VoidCallback? onProgressCleared;
   final PlayOnApi? playOn;
+  final String? queueEntryId;
 
   @override
   State<PlayButton> createState() => PlayButtonState();
@@ -112,7 +114,9 @@ class PlayButtonState extends State<PlayButton> with PlayOnTargets<PlayButton> {
     }
   }
 
-  void _play(Version v) => Navigator.of(context).pushNamed(watchRoute(v.id));
+  void _play(Version v) => Navigator.of(
+    context,
+  ).pushNamed(watchRoute(v.id, queue: widget.queueEntryId));
 
   Future<Map<String, int>> _latest() async {
     if (_playable.length < 2) {

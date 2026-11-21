@@ -297,6 +297,17 @@ void main() {
       expect(opened, <String>[queuePlayRoute('q1')]);
     });
 
+    testWidgets('a queue row opens its title\'s page, carrying the entry', (
+      WidgetTester tester,
+    ) async {
+      final List<String> opened = await _pump(tester, _Server());
+
+      await tester.tap(find.text('One'));
+      await tester.pumpAndSettle();
+
+      expect(opened, <String>[queuedRoute(movieRoute('m1'), 'q1')]);
+    });
+
     testWidgets('Clear asks first, then empties the queue', (
       WidgetTester tester,
     ) async {

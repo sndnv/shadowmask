@@ -72,7 +72,7 @@ void main() {
     expect(feed.isEmpty, isTrue);
   });
 
-  test('the queue\'s next title leads Up next and plays in queue mode', () {
+  test('the queue\'s next title leads Up next and opens its page queued', () {
     final ContinueFeed feed = ContinueFeed.fromJson(<String, dynamic>{
       'next_episodes': <dynamic>[
         <String, dynamic>{
@@ -94,7 +94,7 @@ void main() {
 
     expect(feed.queueNext?.id, 'q7');
     expect(feed.upNext.map((CatalogCard c) => c.ref.id), <String>['m5', 'e2']);
-    expect(feed.upNext.first.route, queuePlayRoute('q7'));
+    expect(feed.upNext.first.route, queuedRoute(movieRoute('m5'), 'q7'));
     expect(feed.upNext.last.route, startsWith('/episode'));
   });
 
@@ -126,7 +126,7 @@ void main() {
     });
 
     expect(feed.upNext.map((CatalogCard c) => c.route), <String>[
-      queuePlayRoute('q7'),
+      queuedRoute(movieRoute('m5'), 'q7'),
     ]);
   });
 
@@ -162,7 +162,9 @@ void main() {
     });
 
     expect(feed.upNext.map((CatalogCard c) => c.ref.id), <String>['e5', 'e9']);
-    expect(feed.upNext.first.route, queuePlayRoute('q7'));
+    final Uri queued = Uri.parse(feed.upNext.first.route);
+    expect(queued.path, '/episode');
+    expect(queued.queryParameters['queue'], 'q7');
   });
 
   test('a movie next in two collections shows once', () {

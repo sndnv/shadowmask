@@ -41,6 +41,8 @@ extension TitleKindApi on TitleKind {
 
   bool get isWatchTarget =>
       isLeaf || this == TitleKind.season || this == TitleKind.series;
+
+  bool get isPlaylistTarget => isWatchTarget || this == TitleKind.collection;
 }
 
 extension TitleRefKey on TitleRef {

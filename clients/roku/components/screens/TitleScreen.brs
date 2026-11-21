@@ -32,6 +32,7 @@ sub init()
 
     m.kind = ""
     m.id = ""
+    m.queueEntryId = ""
     m.detail = invalid
     m.ordered = []
     m.available = []
@@ -92,6 +93,7 @@ sub render()
     if IsBlank(m.id)
         m.kind = TextOrBlank(ValueAt(target, "kind", "movie"))
         m.id = TextOrBlank(ValueAt(target, "id", ""))
+        m.queueEntryId = TextOrBlank(ValueAt(target, "queueEntryId", ""))
         m.top.section = TitleSection(m.kind)
     end if
 
@@ -748,6 +750,7 @@ end sub
 sub onRevealed()
     if m.released then return
     ReloadViewing()
+    CheckQueueEntry()
 end sub
 
 sub ReloadViewing()
@@ -795,7 +798,7 @@ sub OpenWatch(versionId as dynamic)
     id = TextOrBlank(versionId)
     if IsBlank(id) then return
 
-    m.top.advanceTarget = { versionId: id, title: TitleText(), year: ValueAt(m.detail, "year", invalid), percent: ResumePercentFor(m.resumable, id) }
+    m.top.advanceTarget = WithQueueEntry({ versionId: id, title: TitleText(), year: ValueAt(m.detail, "year", invalid), percent: ResumePercentFor(m.resumable, id) }, m.queueEntryId)
     m.top.advance = "WatchScreen"
 end sub
 

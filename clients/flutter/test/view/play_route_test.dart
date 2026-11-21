@@ -102,17 +102,20 @@ void main() {
     );
   });
 
-  test('a movie with nothing to play opens its page', () async {
-    final String route = await playRouteFor(
-      _catalog(
-        versions: <Map<String, dynamic>>[_version('v1', available: false)],
-      ),
-      'u1',
-      _movie,
-    );
+  test(
+    'a queued movie with nothing to play opens its page, still queued',
+    () async {
+      final String route = await playRouteFor(
+        _catalog(
+          versions: <Map<String, dynamic>>[_version('v1', available: false)],
+        ),
+        'u1',
+        _movie,
+      );
 
-    expect(route, movieRoute('m1'));
-  });
+      expect(route, queuedRoute(movieRoute('m1'), 'q4'));
+    },
+  );
 
   test('an episode it cannot settle on opens the episode page', () async {
     final List<String> seen = <String>[];

@@ -54,7 +54,7 @@ end sub
 
 sub onSubtitlesFetched(event as object)
     result = event.GetData()
-    if Int(ValueAt(result, "attachId", -1)) <> m.attachId then return
+    if m.playback = invalid or Int(ValueAt(result, "attachId", -1)) <> m.playback.player.attachId then return
 
     event.GetRoSGNode().UnobserveField("result")
     m.subtitleTask = invalid
@@ -89,7 +89,7 @@ sub ShowSubtitlesNow()
     if m.subtitleCues.Count() = 0 then return
 
     shown = []
-    if SubtitlesOnScreen(m.painted, TextOrBlank(m.video.state)) then shown = ActiveCues(m.subtitleCues, SubtitleClockAt(m.subtitleClock, SubtitleNowMs()))
+    if m.playback <> invalid and SubtitlesOnScreen(m.playback.player.painted, TextOrBlank(m.video.state)) then shown = ActiveCues(m.subtitleCues, SubtitleClockAt(m.subtitleClock, SubtitleNowMs()))
     ShowSubtitleCues(shown)
 end sub
 

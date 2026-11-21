@@ -6,6 +6,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:shadowmask/api/api_client.dart';
 import 'package:shadowmask/api/catalog_api.dart';
 import 'package:shadowmask/api/play_on_api.dart';
+import 'package:shadowmask/api/playlist_api.dart';
 import 'package:shadowmask/api/playback_api.dart';
 import 'package:shadowmask/components/all_versions_dialog.dart';
 import 'package:shadowmask/components/backdrop_scope.dart';
@@ -67,6 +68,7 @@ import 'package:shadowmask/util/format.dart';
 import 'package:shadowmask/view/next_episode.dart';
 import 'package:shadowmask/view/cast_order.dart';
 import 'package:shadowmask/view/play_target.dart';
+import 'package:shadowmask/view/queue_next.dart';
 import 'package:shadowmask/view/title_actions.dart';
 import 'package:shadowmask/view/version_order.dart';
 import 'package:shadowmask/pages/default/lazy_block.dart';
@@ -80,11 +82,13 @@ class TitlePage extends StatelessWidget {
     required this.api,
     required this.kind,
     required this.id,
+    this.queueEntryId,
   });
 
   final ApiClient api;
   final String kind;
   final String id;
+  final String? queueEntryId;
 
   @override
   Widget build(BuildContext context) {
@@ -97,7 +101,12 @@ class TitlePage extends StatelessWidget {
       loading: const SkeletonPage(child: SkeletonDetail()),
       bodyBuilder: (BuildContext context, SelfUser user) => isSeries
           ? _SeriesDetailBody(api: api, id: id, user: user)
-          : _MovieDetailBody(api: api, id: id, user: user),
+          : _MovieDetailBody(
+              api: api,
+              id: id,
+              user: user,
+              queueEntryId: queueEntryId,
+            ),
     );
   }
 }
@@ -112,11 +121,13 @@ class _MovieDetailBody extends StatefulWidget {
     required this.api,
     required this.id,
     required this.user,
+    this.queueEntryId,
   });
 
   final ApiClient api;
   final String id;
   final SelfUser user;
+  final String? queueEntryId;
 
   @override
   State<_MovieDetailBody> createState() => _MovieDetailBodyState();
@@ -140,8 +151,15 @@ class _MovieDetailBodyState extends State<_MovieDetailBody>
   late final TitleRef _ref = TitleRef(type: TitleKind.movie, id: widget.id);
   final GlobalKey<PlayButtonState> _play = GlobalKey<PlayButtonState>();
   late Future<_MovieData> _future = _load();
+  late String? _queueEntryId = widget.queueEntryId;
   int _generation = 0;
   int _refreshes = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_checkQueue());
+  }
 
   void _reload() {
     setState(() {
@@ -149,8 +167,20 @@ class _MovieDetailBodyState extends State<_MovieDetailBody>
     });
   }
 
+  Future<void> _checkQueue() async {
+    final String? held = await stillQueued(
+      PlaylistApi(widget.api),
+      widget.user.id,
+      _queueEntryId,
+    );
+    if (mounted && held == null && _queueEntryId != null) {
+      setState(() => _queueEntryId = null);
+    }
+  }
+
   @override
   Future<void> refreshOnReturn() async {
+    unawaited(_checkQueue());
     final Future<_MovieData> before = _future;
     final int asked = ++_refreshes;
     final _MovieData data;
@@ -395,6 +425,7 @@ class _MovieDetailBodyState extends State<_MovieDetailBody>
                       playback: PlaybackApi(widget.api),
                       onProgressCleared: _reload,
                       playOn: _playOn,
+                      queueEntryId: _queueEntryId,
                     ),
                   ),
                   if (available.isEmpty) ...<Widget>[

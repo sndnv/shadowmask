@@ -1,10 +1,12 @@
 sub init()
     m.heading = m.top.FindNode("heading")
     m.overview = m.top.FindNode("overview")
+    m.actions = m.top.FindNode("actions")
     m.moviesHeading = m.top.FindNode("moviesHeading")
     m.grid = m.top.FindNode("grid")
     m.note = m.top.FindNode("note")
 
+    m.actions.ObserveField("activated", "onAction")
     m.grid.ObserveField("selected", "onCardSelected")
     m.grid.ObserveField("focused", "onCardFocused")
 
@@ -52,6 +54,15 @@ sub render()
 
     gridTop = headingBottom + space.s5
     if lines > 0 then gridTop = headingBottom + space.s2 + Int(sizes.textSm * 1.3) * lines + space.s5
+
+    m.actions.visible = m.cards.Count() > 0
+    if m.actions.visible
+        m.actions.theme = theme
+        m.actions.barWidth = ContentWidth()
+        m.actions.buttons = CollectionPageButtons()
+        m.actions.translation = [left, gridTop]
+        gridTop = gridTop + Int(m.actions.barHeight) + space.s5
+    end if
 
     m.moviesHeading.visible = m.loaded
     if m.moviesHeading.visible
@@ -179,6 +190,11 @@ sub onCardSelected()
     m.top.advance = screen
 end sub
 
+sub onAction(event as object)
+    m.menuCard = { kind: "collection", id: TextOrBlank(ValueAt(m.top.target, "id", "")), title: m.heading.text }
+    RunCardMenuAction(TextOrBlank(event.GetData()))
+end sub
+
 sub onChoice()
     HandledCardMenuChoice(m.top.choiceResult)
 end sub
@@ -198,8 +214,19 @@ end sub
 
 function onKeyEvent(key as string, press as boolean) as boolean
     if not KeysAreOurs() then return false
-    if not press or key <> "options" then return false
-    if not m.grid.visible then return false
+    if not press then return false
 
-    return OpenedCardMenu(m.grid.focusedCard)
+    if key = "options" and m.grid.visible and m.grid.isInFocusChain() then return OpenedCardMenu(m.grid.focusedCard)
+
+    if key = "up" and m.grid.isInFocusChain() and m.actions.visible
+        m.actions.SetFocus(true)
+        return true
+    end if
+
+    if key = "down" and m.actions.isInFocusChain() and m.grid.visible
+        m.grid.SetFocus(true)
+        return true
+    end if
+
+    return false
 end function

@@ -26,11 +26,17 @@ function PlaybackOpens(versionId as string, remote as dynamic, lastChangeId = 0 
     return {
         versionId: versionId,
         durationMs: 0,
-        timeline: { positionMs: 0, seekingToMs: -1, reachMs: 0, playing: true, ended: false, placed: false },
+        timeline: { positionMs: 0, seekingToMs: -1, reachMs: 0, ended: false, placed: false },
+        wanted: { playing: true, resumeAfterHold: false },
+        player: FreshPlayer(-1),
         remote: ControlsCopy(remote),
         stream: invalid,
         status: { life: "open", gathered: false, sent: invalid, lastChangeId: lastChangeId, slow: false, error: "", notice: "" }
     }
+end function
+
+function FreshPlayer(attachId as integer) as object
+    return { attachId: attachId, loaded: false, started: false, painted: false, state: "none", playing: false, asked: "", buffered: 0 }
 end function
 
 function IsWatching(s as object) as boolean
@@ -38,7 +44,44 @@ function IsWatching(s as object) as boolean
 end function
 
 function ReportsPlaying(s as object) as boolean
-    return s.timeline.playing and s.status.sent = invalid
+    return s.player.playing and s.status.sent = invalid
+end function
+
+function PlaybackWantsPlaying(s as object) as boolean
+    return IsWatching(s) and s.wanted.playing
+end function
+
+function PlaybackWanting(s as object, playing as boolean) as object
+    return PlaybackCopy(s, { wanted: PlaybackCopy(s.wanted, { playing: playing }) })
+end function
+
+function PlaybackGap(s as object) as string
+    p = s.player
+    if not IsWatching(s) or not p.loaded or s.timeline.ended then return ""
+    if s.wanted.playing and (not p.started or p.state = "paused") then return "play"
+    if not s.wanted.playing and p.state = "playing" then return "pause"
+    return ""
+end function
+
+function PlaybackReconciled(s as object) as object
+    gap = PlaybackGap(s)
+    if gap = "" or gap = s.player.asked then return PlaybackSame(s)
+
+    if gap = "play"
+        asked = PlaybackCopy(s.player, { started: true, asked: gap, painted: s.player.painted or s.player.state = "playing" })
+        return PlaybackStepOf(PlaybackCopy(s, { player: asked }), [{ kind: "playPlayer", resume: s.player.started }])
+    end if
+    asked = PlaybackCopy(s.player, { asked: gap })
+    return PlaybackStepOf(PlaybackCopy(s, { player: asked }), [{ kind: "pausePlayer" }])
+end function
+
+function PlaybackFollowsCommands(s as object, commands as object) as object
+    after = s
+    for each command in commands
+        if command.kind = "loadStream" then after = PlaybackCopy(after, { player: FreshPlayer(command.id) })
+        if command.kind = "stopPlayer" or command.kind = "unloadPlayer" then after = PlaybackCopy(after, { player: FreshPlayer(-1) })
+    end for
+    return after
 end function
 
 function SameUpdate(left as dynamic, right as dynamic) as boolean
@@ -128,7 +171,7 @@ end function
 function PlaybackPutBack(s as object) as object
     change = s.status.sent
     if change.kind = "controls" then return PlaybackCopy(s, { remote: change.previous })
-    return PlaybackWithTimeline(s, { positionMs: change.previousMs, playing: change.previousPlaying })
+    return PlaybackWanting(PlaybackWithTimeline(s, { positionMs: change.previousMs }), change.previousPlaying)
 end function
 
 function SubtitleDeliveryOf(json as dynamic) as string
@@ -177,7 +220,7 @@ function PlaybackLoad(s as object, stream as object, id as integer, atMs as inte
 end function
 
 function ServerSeek(s as object, targetMs as integer) as object
-    change = { kind: "seek", id: s.status.lastChangeId + 1, positionMs: targetMs, previousMs: s.timeline.positionMs, previousPlaying: s.timeline.playing }
+    change = { kind: "seek", id: s.status.lastChangeId + 1, positionMs: targetMs, previousMs: s.timeline.positionMs, previousPlaying: s.wanted.playing }
     sought = PlaybackCopy(PlaybackWithTimeline(s, { positionMs: targetMs, seekingToMs: -1, ended: false }), { status: PlaybackChanging(s, change) })
     return PlaybackStepOf(sought, [
         { kind: "stopPlayer" },
@@ -218,39 +261,44 @@ end function
 
 function ViewerPlays(s as object, playing as boolean) as object
     if not IsWatching(s) then return PlaybackSame(s)
-
-    kind = "pausePlayer"
-    if playing then kind = "playPlayer"
-    return PlaybackWithProgress(s, PlaybackStepOf(PlaybackWithTimeline(s, { playing: playing }), [{ kind: kind }]))
+    return PlaybackSame(PlaybackWanting(s, playing))
 end function
 
 function ViewerReplays(s as object) as object
     if not IsWatching(s) then return PlaybackSame(s)
 
     sought = PlaybackSeeksTo(s, 0)
-    return PlaybackStepOf(PlaybackWithTimeline(sought.state, { playing: true }), sought.commands)
+    return PlaybackStepOf(PlaybackWanting(sought.state, true), sought.commands)
 end function
 
 function ViewerToggles(s as object) as object
     if s.timeline.ended then return ViewerReplays(s)
-    return ViewerPlays(s, not s.timeline.playing)
+    return ViewerPlays(s, not s.player.playing)
 end function
 
-function ViewerSetsPlaying(s as object, playing as boolean) as object
-    if s.timeline.playing = playing then return PlaybackSame(s)
-    return ViewerPlays(s, playing)
+function PlaybackHolding(s as object, resume as boolean) as object
+    return PlaybackCopy(s, { wanted: PlaybackCopy(s.wanted, { resumeAfterHold: resume }) })
 end function
 
-function ViewerSeeksAndResumes(s as object, positionMs as integer) as object
-    if not IsWatching(s) or s.timeline.playing then return ViewerSeeks(s, positionMs)
+function ViewerPausesForHold(s as object) as object
+    if not PlaybackWantsPlaying(s) then return PlaybackSame(s)
+    return PlaybackSame(PlaybackWanting(PlaybackHolding(s, true), false))
+end function
 
-    sought = ViewerSeeks(PlaybackWithTimeline(s, { playing: true }), positionMs)
-    if sought.commands.Count() = 0 then return ViewerPlays(s, true)
+function ViewerEndsHold(s as object, targetMs as integer) as object
+    resume = s.wanted.resumeAfterHold
+    released = PlaybackHolding(s, false)
+    if not IsWatching(released) then return PlaybackSame(released)
 
-    commands = []
-    commands.Append(sought.commands)
-    if commands[0].kind = "seekPlayer" then commands.Push({ kind: "playPlayer" })
-    return PlaybackWithProgress(s, PlaybackStepOf(sought.state, commands))
+    if resume then released = PlaybackWanting(released, true)
+    if targetMs < 0 then return PlaybackSame(released)
+    return ViewerSeeks(released, targetMs)
+end function
+
+function ViewerDropsHold(s as object) as object
+    released = PlaybackHolding(s, false)
+    if not s.wanted.resumeAfterHold or not IsWatching(released) then return PlaybackSame(released)
+    return PlaybackSame(PlaybackWanting(released, true))
 end function
 
 function ViewerChangesRemote(s as object, controls as dynamic) as object
@@ -310,27 +358,43 @@ function ServerFailed(s as object, id as integer) as object
     return PlaybackLoadAgain(back, id, back.timeline.positionMs)
 end function
 
-function PlayerReads(s as object, reading as object) as object
-    if not IsWatching(s) then return PlaybackSame(s)
+function PlayerStates(s as object, id as integer, state as string, reading as object) as object
+    if s.status.life <> "open" or id < 0 or id <> s.player.attachId then return PlaybackSame(s)
+
+    changes = { state: state, asked: "" }
+    if state = "playing"
+        changes.playing = true
+        changes.painted = s.player.painted or s.player.started
+    else if state <> "buffering"
+        changes.playing = false
+    end if
+    return PlayerReads(PlaybackCopy(s, { player: PlaybackCopy(s.player, changes) }), id, reading)
+end function
+
+function PlayerReads(s as object, id as integer, reading as object) as object
+    if id <> s.player.attachId or not IsWatching(s) then return PlaybackSame(s)
 
     origin = s.stream.originMs
     durationMs = s.durationMs
     if durationMs <= 0 and reading.durationMs > 0 then durationMs = origin + reading.durationMs
 
-    changes = { playing: reading.playing }
-    if reading.ended
+    positionMs = -1
+    if s.player.painted then positionMs = reading.positionMs
+
+    changes = {}
+    if s.player.state = "finished"
         changes.seekingToMs = -1
         changes.ended = true
         changes.placed = false
-        if reading.positionMs >= 0
-            endMs = origin + reading.positionMs
+        if positionMs >= 0
+            endMs = origin + positionMs
             if durationMs > 0 and endMs > durationMs then endMs = durationMs
             changes.positionMs = endMs
             changes.reachMs = endMs + reading.bufferedAheadMs
         end if
-    else if reading.positionMs >= 0
+    else if positionMs >= 0
         changes.placed = true
-        atMs = origin + reading.positionMs
+        atMs = origin + positionMs
         target = s.timeline.seekingToMs
         if target < 0 or Abs(atMs - target) <= SeekSettleMs()
             changes.positionMs = atMs
@@ -340,15 +404,21 @@ function PlayerReads(s as object, reading as object) as object
         end if
     end if
 
-    return PlaybackWithProgress(s, PlaybackSame(PlaybackCopy(PlaybackWithTimeline(s, changes), { durationMs: durationMs })))
+    return PlaybackSame(PlaybackCopy(PlaybackWithTimeline(s, changes), { durationMs: durationMs, player: PlaybackCopy(s.player, { buffered: reading.bufferedPercent }) }))
 end function
 
 function PlayerLoaded(s as object, id as integer) as object
     if not PlaybackAwaitsKind(s, id, "load") then return PlaybackSame(s)
 
-    commands = []
-    if s.timeline.playing then commands.Push({ kind: "playPlayer" })
-    return PlaybackWithProgress(s, PlaybackStepOf(PlaybackWithStatus(s, { sent: invalid, slow: false }), commands))
+    loaded = PlaybackWithStatus(s, { sent: invalid, slow: false })
+    if s.player.attachId = id then loaded = PlaybackCopy(loaded, { player: PlaybackCopy(s.player, { loaded: true }) })
+    return PlaybackSame(loaded)
+end function
+
+function PlayerFails(s as object, id as integer, message as string) as object
+    if PlaybackAwaitsKind(s, id, "load") then return PlayerFailedToLoad(s, id, message)
+    if id < 0 or id <> s.player.attachId then return PlaybackSame(s)
+    return PlayerErrs(s, message)
 end function
 
 function PlayerFailedToLoad(s as object, id as integer, message as string) as object
@@ -412,14 +482,68 @@ function SeekSettled(s as object, targetMs as integer) as object
 end function
 
 function PlaybackStep(s as object, event as object) as object
+    taken = PlaybackHandled(s, event)
+    handled = taken.state
+    if handled.timeline.ended then handled = PlaybackWanting(handled, false)
+    if handled.wanted.resumeAfterHold and not IsWatching(handled) then handled = PlaybackHolding(handled, false)
+    reconciled = PlaybackReconciled(PlaybackFollowsCommands(handled, taken.commands))
+
+    after = reconciled.state
+    said = reconciled.commands
+    told = []
+    told.Append(taken.commands)
+    playFirst = PlaybackSeeks(told) and after.wanted.playing
+    if said.Count() = 0 and playFirst
+        said = [{ kind: "playPlayer", resume: true }]
+        after = PlaybackCopy(after, { player: PlaybackCopy(after.player, { asked: "play" }) })
+    end if
+    if not playFirst and PlaybackResumesDuringASeek(after, said)
+        told.Push({ kind: "seekPlayer", offsetMs: after.timeline.seekingToMs - after.stream.originMs })
+        playFirst = true
+    end if
+    if said.Count() = 0 and PlaybackLandsPaused(s, after) then said = [{ kind: "pausePlayer" }]
+    commands = PlaybackOrdered(told, said, playFirst)
+    return PlaybackWithProgress(s, PlaybackStepOf(after, commands))
+end function
+
+function PlaybackSeeks(commands as object) as boolean
+    for each command in commands
+        if command.kind = "seekPlayer" then return true
+    end for
+    return false
+end function
+
+function PlaybackResumesDuringASeek(s as object, said as object) as boolean
+    if s.timeline.seekingToMs < 0 then return false
+    for each command in said
+        if command.kind = "playPlayer" and command.resume = true then return true
+    end for
+    return false
+end function
+
+function PlaybackLandsPaused(before as object, after as object) as boolean
+    if not IsWatching(after) or after.wanted.playing or not after.player.started or after.timeline.ended then return false
+    return before.timeline.seekingToMs >= 0 and after.timeline.seekingToMs < 0
+end function
+
+function PlaybackOrdered(handled as object, said as object, playFirst as boolean) as object
+    commands = []
+    if playFirst then commands.Append(said)
+    commands.Append(handled)
+    if not playFirst then commands.Append(said)
+    return commands
+end function
+
+function PlaybackHandled(s as object, event as object) as object
     kind = event.kind
     if kind = "open" then return LifecycleOpens(s, event.versionId, event.remote)
     if kind = "opened" then return LifecycleOpened(s, event.durationMs, event.resumeMs, event.remote)
     if kind = "seek" then return ViewerSeeks(s, event.positionMs)
     if kind = "seekBy" then return ViewerSeeksBy(s, event.deltaMs)
     if kind = "toggle" then return ViewerToggles(s)
-    if kind = "plays" then return ViewerSetsPlaying(s, event.playing = true)
-    if kind = "seekResumes" then return ViewerSeeksAndResumes(s, event.positionMs)
+    if kind = "holdPauses" then return ViewerPausesForHold(s)
+    if kind = "holdEnds" then return ViewerEndsHold(s, event.targetMs)
+    if kind = "holdDropped" then return ViewerDropsHold(s)
     if kind = "changeRemote" then return ViewerChangesRemote(s, event.controls)
     if kind = "retry" then return ViewerRetries(s)
     if kind = "leave" then return LifecycleLeaves(s)
@@ -429,9 +553,9 @@ function PlaybackStep(s as object, event as object) as object
     if kind = "seeked" then return ServerSeeked(s, event.id, event.json)
     if kind = "failed" then return ServerFailed(s, event.id)
     if kind = "loaded" then return PlayerLoaded(s, event.id)
-    if kind = "failedToLoad" then return PlayerFailedToLoad(s, event.id, event.message)
-    if kind = "reads" then return PlayerReads(s, event.reading)
-    if kind = "errs" then return PlayerErrs(s, event.message)
+    if kind = "videoState" then return PlayerStates(s, event.id, event.state, event.reading)
+    if kind = "reads" then return PlayerReads(s, event.id, event.reading)
+    if kind = "videoFailed" then return PlayerFails(s, event.id, event.message)
     if kind = "heartbeatDue" then return HeartbeatDue(s)
     if kind = "changeSlow" then return ChangeSlow(s, event.id)
     if kind = "changeTimedOut" then return ChangeTimedOut(s, event.id, event.changeKind, event.message)

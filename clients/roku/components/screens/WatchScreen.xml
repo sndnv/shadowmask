@@ -52,6 +52,8 @@
             <Group id="holdSpeed" visible="false">
                 <RoundedBox id="holdSpeedPlate" />
                 <Label id="holdSpeedLabel" />
+                <Rectangle id="holdTrack" />
+                <Rectangle id="holdFill" />
             </Group>
         </Group>
         <SubtitleView id="subtitles" />
@@ -68,6 +70,19 @@
             <Label id="total" />
             <ActionBar id="actions" />
         </Group>
+        <Group id="exitHint" visible="false">
+            <RoundedBox id="exitHintPlate" />
+            <Label id="exitHintLabel" />
+            <Rectangle id="exitHintTrack" />
+            <Rectangle id="exitHintFill" />
+        </Group>
+        <Animation id="exitHintRun" repeat="false" easeFunction="linear">
+            <FloatFieldInterpolator id="exitHintShrink" key="[0.0, 1.0]" fieldToInterp="exitHintFill.width" />
+        </Animation>
+        <Animation id="holdLoop" repeat="true" easeFunction="linear">
+            <FloatFieldInterpolator id="holdLoopWidth" key="[0.0, 1.0]" fieldToInterp="holdFill.width" />
+            <Vector2DFieldInterpolator id="holdLoopPlace" key="[0.0, 1.0]" fieldToInterp="holdFill.translation" />
+        </Animation>
         <Group id="diagnosticsPanel" visible="false">
             <Rectangle id="diagnosticsScrim" />
             <FactList id="diagnostics" />
@@ -80,6 +95,7 @@
         </Group>
         <Timer id="heartbeat" repeat="true" />
         <Timer id="hide" repeat="false" />
+        <Timer id="exitHintTimer" repeat="false" />
         <Timer id="countdown" repeat="true" />
         <Timer id="hold" repeat="true" />
         <Timer id="watchdog" repeat="true" />

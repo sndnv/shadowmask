@@ -20,6 +20,17 @@ void main() {
     expect(startAtArg(<String, String>{}), isNull);
   });
 
+  test('a queued route keeps its page and adds the queue entry', () {
+    expect(
+      queuedRoute(movieRoute('m1'), 'q3'),
+      '/title?type=movie&id=m1&queue=q3',
+    );
+    expect(
+      queuedRoute(episodeRoute('e1', series: 's1', season: 'se1'), 'q4'),
+      '/episode?id=e1&season=se1&series=s1&queue=q4',
+    );
+  });
+
   test('withQuery omits null and empty values', () {
     expect(
       withQuery('/movies', <String, String?>{

@@ -52,7 +52,7 @@ where
             _ => None,
         });
         for (cue, text) in cues.zip(translated) {
-            cue.payload = split_lines(&text);
+            cue.payload = split_lines(&unescaped(&text, &MODEL_ESCAPES));
         }
         vtt.blocks.retain(|block| match block {
             VttBlock::Que(cue) => {
@@ -72,7 +72,7 @@ where
         let texts: Vec<String> = srt.subtitles.iter().map(|s| s.text.join("\n")).collect();
         let translated = self.translate_texts(texts, request).await?;
         for (subtitle, text) in srt.subtitles.iter_mut().zip(translated) {
-            subtitle.text = split_lines(&text);
+            subtitle.text = split_lines(&unescaped(&text, &MODEL_ESCAPES));
         }
         srt.subtitles.retain(|subtitle| {
             !subtitle.text.is_empty() && !self.filter.is_hallucinated(&subtitle.text.join(" "))
@@ -97,6 +97,24 @@ where
             ))),
         }
     }
+}
+
+const MODEL_ESCAPES: [(&str, &str); 7] = [
+    ("&apos;", "'"),
+    ("&#39;", "'"),
+    ("&quot;", "\""),
+    ("&#34;", "\""),
+    ("&#124;", "|"),
+    ("&#91;", "["),
+    ("&#93;", "]"),
+];
+
+fn unescaped(text: &str, escapes: &[(&str, &str)]) -> String {
+    let mut text = text.to_owned();
+    for &(code, character) in escapes {
+        text = text.replace(code, character);
+    }
+    text
 }
 
 fn split_lines(text: &str) -> Vec<String> {
@@ -264,6 +282,59 @@ mod tests {
 
         assert!(!subtitle.content.contains("Subtitle volunteer"), "{}", subtitle.content);
         assert!(subtitle.content.contains("It's beautiful."), "{}", subtitle.content);
+    }
+
+    fn escaped_answers() -> MtProvider<MockEngine> {
+        provider(MockEngine {
+            mode: EngineMode::Answers(vec![
+                "It&apos;s &quot;fine&quot;, &#39;ok&#39; &#34;so&#34; &#124; &#91;sighs&#93;",
+                "Tom &amp; Jerry &lt;3 &gt; &amp;apos;",
+            ]),
+        })
+    }
+
+    #[tokio::test]
+    async fn a_translated_vtt_cue_has_the_model_escapes_undone_and_keeps_its_own() {
+        let content = "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\none\n\n\
+                       00:00:01.000 --> 00:00:02.000\ntwo\n";
+
+        let subtitle = escaped_answers()
+            .translate(&request(content, SubtitleFormat::Vtt, Some("de")))
+            .await
+            .unwrap();
+
+        assert!(
+            subtitle.content.contains("It's \"fine\", 'ok' \"so\" | [sighs]"),
+            "{}",
+            subtitle.content
+        );
+        assert!(
+            subtitle.content.contains("Tom &amp; Jerry &lt;3 &gt; &amp;apos;"),
+            "{}",
+            subtitle.content
+        );
+    }
+
+    #[tokio::test]
+    async fn a_translated_srt_cue_has_the_model_escapes_undone_and_keeps_the_webvtt_ones() {
+        let content = "1\n00:00:00,000 --> 00:00:01,000\none\n\n\
+                       2\n00:00:01,000 --> 00:00:02,000\ntwo\n";
+
+        let subtitle = escaped_answers()
+            .translate(&request(content, SubtitleFormat::Srt, Some("de")))
+            .await
+            .unwrap();
+
+        assert!(
+            subtitle.content.contains("It's \"fine\", 'ok' \"so\" | [sighs]"),
+            "{}",
+            subtitle.content
+        );
+        assert!(
+            subtitle.content.contains("Tom &amp; Jerry &lt;3 &gt; &amp;apos;"),
+            "{}",
+            subtitle.content
+        );
     }
 
     fn blank_answers() -> MockEngine {

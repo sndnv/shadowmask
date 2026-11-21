@@ -51,7 +51,7 @@ class CatalogCard {
 
   CatalogCard queued(String entryId) => CatalogCard(
     ref: ref,
-    route: queuePlayRoute(entryId),
+    route: queuedRoute(route, entryId),
     title: title,
     subtitle: subtitle,
     caption: caption,

@@ -53,7 +53,7 @@ Map<String, dynamic> _inProgress(String versionId) => <String, dynamic>{
   'progress': <String, dynamic>{'version_id': versionId},
 };
 
-Future<void> _pump(WidgetTester tester, ApiClient api) async {
+Future<void> _pump(WidgetTester tester, ApiClient api, {String? queue}) async {
   tester.view.physicalSize = const Size(1600, 1400);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
@@ -70,7 +70,7 @@ Future<void> _pump(WidgetTester tester, ApiClient api) async {
         navigatorObservers: <NavigatorObserver>[appRouteObserver],
         onGenerateRoute: (RouteSettings settings) => MaterialPageRoute<void>(
           builder: (_) => settings.name == null || settings.name == '/'
-              ? EpisodePage(api: api, id: 'e1')
+              ? EpisodePage(api: api, id: 'e1', queueEntryId: queue)
               : Text('went to ${settings.name}'),
         ),
       ),
@@ -85,6 +85,7 @@ ApiClient _api(
   List<Map<String, dynamic>> resuming = const <Map<String, dynamic>>[],
   bool admin = false,
   List<Completer<void>> holds = const <Completer<void>>[],
+  List<String> queued = const <String>[],
 }) => ApiClient(
   baseUrl: 'http://test',
   httpClient: MockClient((http.Request req) async {
@@ -125,6 +126,22 @@ ApiClient _api(
     }
     if (req.url.path.contains('/episodes/')) {
       return http.Response(jsonEncode(_episode()), 200);
+    }
+    if (req.url.path == '/api/v1/users/u1/queue') {
+      return http.Response(
+        jsonEncode(<dynamic>[
+          for (final String id in queued)
+            <String, dynamic>{
+              'id': id,
+              'card': <String, dynamic>{
+                'type': 'movie',
+                'id': 'm1',
+                'title': 'One',
+              },
+            },
+        ]),
+        200,
+      );
     }
     return http.Response(jsonEncode(<dynamic>[]), 200);
   }),
@@ -177,6 +194,67 @@ void main() {
       _api(<String>[], versions: <Map<String, dynamic>>[_version('v1', 'fhd')]),
     );
 
+    await tester.tap(find.byType(PosterPlay));
+    await tester.pumpAndSettle();
+
+    expect(find.text('went to /watch?version=v1'), findsOneWidget);
+  });
+
+  testWidgets('an episode opened from a queue card plays in queue mode', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      _api(
+        <String>[],
+        versions: <Map<String, dynamic>>[_version('v1', 'fhd')],
+        queued: <String>['q4'],
+      ),
+      queue: 'q4',
+    );
+
+    await tester.tap(find.byType(PosterPlay));
+    await tester.pumpAndSettle();
+
+    expect(find.text('went to /watch?version=v1&queue=q4'), findsOneWidget);
+  });
+
+  testWidgets('an episode queue card whose entry is already gone plays '
+      'unqueued', (WidgetTester tester) async {
+    await _pump(
+      tester,
+      _api(<String>[], versions: <Map<String, dynamic>>[_version('v1', 'fhd')]),
+      queue: 'q4',
+    );
+
+    await tester.tap(find.byType(PosterPlay));
+    await tester.pumpAndSettle();
+
+    expect(find.text('went to /watch?version=v1'), findsOneWidget);
+  });
+
+  testWidgets('back on the episode page, an entry the queue let go of is '
+      'dropped', (WidgetTester tester) async {
+    final List<String> queued = <String>['q4'];
+    await _pump(
+      tester,
+      _api(
+        <String>[],
+        versions: <Map<String, dynamic>>[_version('v1', 'fhd')],
+        queued: queued,
+      ),
+      queue: 'q4',
+    );
+    final NavigatorState nav = tester.state<NavigatorState>(
+      find.byType(Navigator),
+    );
+
+    await tester.tap(find.byType(PosterPlay));
+    await tester.pumpAndSettle();
+    expect(find.text('went to /watch?version=v1&queue=q4'), findsOneWidget);
+    queued.clear();
+    nav.pop();
+    await tester.pumpAndSettle();
     await tester.tap(find.byType(PosterPlay));
     await tester.pumpAndSettle();
 
