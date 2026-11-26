@@ -60,12 +60,14 @@ The server must be up, and `SHADOWMASK_CORS_ALLOWED_ORIGINS` must include the po
 The web client also reads `SHADOWMASK_API_BASE` from `clients/flutter/web/assets/.env` at runtime.
 A `--dart-define` takes precedence over that file.
 
-The same codebase runs on the desktop with `flutter run -d macos` or `flutter run -d linux`. The
-desktop asks for the server address on first run and stores it on the device, so there is no
-`--dart-define` and no CORS to configure.
+The same codebase runs on the desktop with `flutter run -d macos`, `flutter run -d linux` or
+`flutter run -d windows`. The desktop asks for the server address on first run and stores it on the
+device, so there is no `--dart-define` and no CORS to configure.
 
-Desktop prerequisites: Xcode on macOS, and libmpv on Linux (`sudo apt install libmpv-dev mpv` on
-Debian and Ubuntu). Windows is not supported.
+Desktop prerequisites: Xcode on macOS, libmpv on Linux (`sudo apt install libmpv-dev mpv` on
+Debian and Ubuntu), and on Windows Visual Studio 2022 or later with the C++ desktop workload (see
+[`clients/flutter/README.md`](clients/flutter/README.md#platform-prerequisites)).
+[`deployment/dev/windows`](deployment/dev/windows) builds and runs the Windows client in a VM.
 
 The same codebase runs on mobile with `flutter run -d android` or `flutter run -d ios`. Mobile
 prerequisites are the Android SDK, and Xcode for iOS. Mobile asks for the server
@@ -77,8 +79,8 @@ resolution, code generation, format, analyze, test with coverage. It does not bu
 mobile targets, and it does not cover the native channels, so build and verify those by hand when
 the native side changes.
 
-Desktop releases are a macOS `.dmg` and a Linux `.AppImage`, built by the publish workflows and
-described in [`clients/flutter/README.md`](clients/flutter/README.md#packaging).
+Desktop releases are a macOS `.dmg`, a Linux `.AppImage` and a Windows `.zip`, built by the publish
+workflows and described in [`clients/flutter/README.md`](clients/flutter/README.md#packaging).
 
 [`clients/roku`](clients/roku) is a SceneGraph channel for Roku devices, viewer-only and paired by
 link code. No Node toolchain is installed on the host: `podman` (or `docker`) is the only

@@ -23,6 +23,15 @@ for size in 64 128 256 512; do
     rsvg-convert -w "$size" -h "$size" "$brand/shadowmask.logo.svg" -o "$out/linux_icon_$size.png"
 done
 
+windows="$(mktemp -d)"
+trap 'rm -rf "$windows"' EXIT
+for size in 16 24 32 48 64 128 256; do
+    rsvg-convert -w "$size" -h "$size" "$brand/shadowmask.logo.svg" -o "$windows/$size.png"
+done
+icotool -c -o "$out/windows_icon.ico" \
+    -r "$windows/16.png" -r "$windows/24.png" -r "$windows/32.png" -r "$windows/48.png" \
+    -r "$windows/64.png" -r "$windows/128.png" -r "$windows/256.png"
+
 for size in 48 72 96 144 192; do
     rsvg-convert -w "$size" -h "$size" "$brand/shadowmask.logo.svg" -o "$out/android_icon_$size.png"
 done

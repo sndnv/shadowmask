@@ -15,6 +15,9 @@ BundlePlatform bundlePlatform() {
   if (Platform.isLinux) {
     return BundlePlatform.linux;
   }
+  if (Platform.isWindows) {
+    return BundlePlatform.windows;
+  }
   return BundlePlatform.other;
 }
 

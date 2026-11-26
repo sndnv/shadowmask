@@ -185,6 +185,45 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  desktop-windows:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          channel: 'stable'
+          flutter-version: '3.50.0'
+
+      - name: Build Windows app
+        run: |
+          cd clients/flutter
+          flutter pub get
+          dart run build_runner build
+          flutter build windows --release
+
+      - name: Build zip archive
+        run: |
+          cd clients/flutter
+          New-Item -ItemType Directory -Path zip/Licenses
+          Copy-Item -Path build/windows/x64/runner/Release/* -Destination zip -Recurse
+          Copy-Item -Path "$env:SystemRoot/System32/msvcp140.dll", "$env:SystemRoot/System32/vcruntime140.dll", "$env:SystemRoot/System32/vcruntime140_1.dll" -Destination zip
+          Copy-Item -Path CREDITS.md -Destination zip
+          Copy-Item -Path assets/licenses/*.txt -Destination zip/Licenses
+          Compress-Archive -Path zip/* -DestinationPath shadowmask-client-windows-dev-latest.zip
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: client-windows
+          path: clients/flutter/shadowmask-client-windows-dev-latest.zip
+          if-no-files-found: error
+          retention-days: 7
+
   android:
     runs-on: ubuntu-latest
 
