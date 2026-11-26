@@ -4,6 +4,8 @@ coverage/
 *.profraw
 clients/roku/build/
 clients/roku/tooling/node_modules/
+deployment/dev/windows/.vagrant/
+deployment/dev/windows/artifacts/*.zip
 
 # Runtime state
 *.db

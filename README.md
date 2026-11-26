@@ -87,10 +87,10 @@ acceleration and the rest.
 ## Clients
 
 * **Flutter** ([`clients/flutter`](./clients/flutter)) - the primary interface, one codebase covering
-  the web, the desktop (macOS and Linux) and mobile (Android and iOS). The web build is published as
-  `ghcr.io/sndnv/shadowmask-web-ui`; the desktop ships as a macOS `.dmg` and a Linux `.AppImage`;
-  mobile ships as a signed Android `.apk`, and as an unsigned iOS `.ipa` that has to be signed at
-  install time with a tool such as Sideloadly or AltStore
+  the web, the desktop (macOS, Linux and Windows) and mobile (Android and iOS). The web build is
+  published as `ghcr.io/sndnv/shadowmask-web-ui`; the desktop ships as a macOS `.dmg`, a Linux
+  `.AppImage` and a Windows `.zip`; mobile ships as a signed Android `.apk`, and as an unsigned iOS
+  `.ipa` that has to be signed at install time with a tool such as Sideloadly or AltStore
 * **Roku** ([`clients/roku`](./clients/roku)) - a SceneGraph channel for Roku devices. Viewer-only,
   with no admin surface, and paired by link code so no password is typed on the remote. It ships as
   a channel zip, installed by sideloading
@@ -112,6 +112,9 @@ The desktop, mobile and Roku clients are attached to every
 * **Linux** - install libmpv (`sudo apt install libmpv-dev mpv` on Debian and Ubuntu), then make
   `shadowmask-client-linux-<version>.AppImage` executable and run it. `Account` > `Profile` >
   `Applications` menu adds it to the desktop's applications menu
+* **Windows** - extract `shadowmask-client-windows-<version>.zip` to a folder and run
+  `shadowmask.exe` (x64 only). It is not signed: SmartScreen warns on the first open, choose
+  `More info` > `Run anyway`. With Smart App Control on, Windows blocks it
 * **Android** - open `shadowmask-client-android-<version>.apk` on the device and allow installing
   apps from that source
 * **iOS** - sideload `shadowmask-client-ios-<version>.ipa` with Sideloadly or AltStore and your
@@ -128,7 +131,8 @@ gh release verify-asset <version> shadowmask-client-linux-<version>.AppImage --r
 ```
 
 Without the GitHub CLI, compare the file's digest (`sha256sum <file>` on Linux,
-`shasum -a 256 <file>` on macOS) with the one shown next to it on the release page.
+`shasum -a 256 <file>` on macOS, `Get-FileHash <file>` in PowerShell on Windows) with the one shown
+next to it on the release page.
 
 The desktop, mobile and Roku clients ask for the server's address first, for example
 `http://192.168.1.10:8080`. Sign in with a username and password, or with a link code: create one
@@ -204,10 +208,12 @@ We use [SemVer](http://semver.org/) for versioning.
 * The macOS and iOS applications bundle mpv (LGPL-2.1-or-later), FFmpeg (LGPL-3.0-or-later) and nine
   supporting libraries, each as a separately replaceable dynamically linked framework. Android
   bundles a different build of most of the same libraries, linked statically into one replaceable
-  `libmpv.so` per ABI. Both are credited in
+  `libmpv.so` per ABI. Windows bundles a third build, linked statically into one replaceable
+  `libmpv-2.dll`, and Microsoft's Visual C++ runtime. All three are credited in
   [`clients/flutter/CREDITS.md`](./clients/flutter/CREDITS.md), with their licence texts under
-  [`licenses/`](./licenses). The Linux application links the distribution's own libmpv and bundles
-  none of them.
+  [`licenses/`](./licenses); the Windows build's are in one file,
+  [`libmpv-windows.NOTICES.txt`](./licenses/libmpv-windows.NOTICES.txt). The Linux application
+  links the distribution's own libmpv and bundles none of them.
 * The enrichment image statically links C++ source vendored by the `ct2rs-sys` and
   `sentencepiece-sys` crates. Every licence text in those sources is collected under
   [`licenses/enrichment/`](./licenses/enrichment); the operator's model licensing responsibilities

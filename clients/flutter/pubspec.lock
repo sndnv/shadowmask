@@ -536,10 +536,11 @@ packages:
   media_kit:
     dependency: "direct main"
     description:
-      name: media_kit
-      sha256: ae9e79597500c7ad6083a3c7b7b7544ddabfceacce7ae5c9709b0ec16a5d6643
-      url: "https://pub.dev"
-    source: hosted
+      path: media_kit
+      ref: "177dd754aa4a2c9c8e677f263c93a3b6ee3a0335"
+      resolved-ref: "177dd754aa4a2c9c8e677f263c93a3b6ee3a0335"
+      url: "https://github.com/sndnv/media-kit.git"
+    source: git
     version: "1.2.6"
   media_kit_libs_android_video:
     dependency: "direct main"
@@ -553,8 +554,8 @@ packages:
     dependency: "direct main"
     description:
       path: "libs/ios/media_kit_libs_ios_video"
-      ref: "5c533691f0f1d75747b5cdad2456cc09de91ec9b"
-      resolved-ref: "5c533691f0f1d75747b5cdad2456cc09de91ec9b"
+      ref: "177dd754aa4a2c9c8e677f263c93a3b6ee3a0335"
+      resolved-ref: "177dd754aa4a2c9c8e677f263c93a3b6ee3a0335"
       url: "https://github.com/sndnv/media-kit.git"
     source: git
     version: "1.1.5"
@@ -570,17 +571,26 @@ packages:
     dependency: "direct main"
     description:
       path: "libs/macos/media_kit_libs_macos_video"
-      ref: "5c533691f0f1d75747b5cdad2456cc09de91ec9b"
-      resolved-ref: "5c533691f0f1d75747b5cdad2456cc09de91ec9b"
+      ref: "177dd754aa4a2c9c8e677f263c93a3b6ee3a0335"
+      resolved-ref: "177dd754aa4a2c9c8e677f263c93a3b6ee3a0335"
       url: "https://github.com/sndnv/media-kit.git"
     source: git
     version: "1.1.5"
+  media_kit_libs_windows_video:
+    dependency: "direct main"
+    description:
+      path: "libs/windows/media_kit_libs_windows_video"
+      ref: "177dd754aa4a2c9c8e677f263c93a3b6ee3a0335"
+      resolved-ref: "177dd754aa4a2c9c8e677f263c93a3b6ee3a0335"
+      url: "https://github.com/sndnv/media-kit.git"
+    source: git
+    version: "1.0.12"
   media_kit_video:
     dependency: "direct main"
     description:
       path: media_kit_video
-      ref: "5c533691f0f1d75747b5cdad2456cc09de91ec9b"
-      resolved-ref: "5c533691f0f1d75747b5cdad2456cc09de91ec9b"
+      ref: "177dd754aa4a2c9c8e677f263c93a3b6ee3a0335"
+      resolved-ref: "177dd754aa4a2c9c8e677f263c93a3b6ee3a0335"
       url: "https://github.com/sndnv/media-kit.git"
     source: git
     version: "2.0.1"

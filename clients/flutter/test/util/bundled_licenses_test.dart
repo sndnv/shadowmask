@@ -48,6 +48,30 @@ void main() {
     ]);
   });
 
+  test(
+    'Windows credits Roboto and every section of the libmpv notices',
+    () async {
+      final List<BundledLicense> windows = bundledLicensesFor(
+        BundlePlatform.windows,
+      );
+      final String notices = await rootBundle.loadString(windows.last.path);
+      final Set<String> sections = <String>{
+        for (final RegExpMatch match in RegExp(
+          r'^={80}\n(.+)\nLicense: ',
+          multiLine: true,
+        ).allMatches(notices))
+          match.group(1)!,
+      };
+
+      expect(windows.map((BundledLicense l) => l.asset), <String>[
+        'Roboto-OFL.txt',
+        'libmpv-windows.NOTICES.txt',
+      ]);
+      expect(sections, hasLength(windows.last.libraries.length));
+      expect(windows.last.libraries.toSet(), sections);
+    },
+  );
+
   test('every build credits the Roboto files it carries in its assets', () {
     for (final BundlePlatform platform in BundlePlatform.values) {
       expect(

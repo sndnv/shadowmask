@@ -256,3 +256,7 @@ scripts/run_playback_check.sh --player mpv --only 'F[23] .*far-seek'  # a slice
   picture (there is no GPU or display), Roku.
 - `--keep` leaves the server running after the run; `docker compose -f playback/compose.yml down -v`
   (or `podman compose`) removes it.
+
+## Windows client
+
+`windows/` runs the Windows desktop client in a VM against this stack; see `windows/README.md`.

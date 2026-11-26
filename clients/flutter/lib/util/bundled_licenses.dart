@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
-enum BundlePlatform { macos, ios, android, linux, web, other }
+enum BundlePlatform { macos, ios, android, linux, windows, web, other }
 
 @immutable
 class BundledLicense {
@@ -76,6 +76,75 @@ const List<BundledLicense> _linux = <BundledLicense>[
   ),
 ];
 
+const List<BundledLicense> _windows = <BundledLicense>[
+  _roboto,
+  BundledLicense(
+    asset: 'libmpv-windows.NOTICES.txt',
+    libraries: <String>[
+      'mpv',
+      'FFmpeg',
+      'dav1d',
+      'libvpx',
+      'uavs3d',
+      'libjxl',
+      'Highway',
+      'Brotli',
+      'libopenmpt',
+      'libogg',
+      'libvorbis',
+      'libmodplug',
+      'libsoxr',
+      'libplacebo',
+      'shaderc',
+      'glslang',
+      'SPIRV-Tools',
+      'SPIRV-Headers',
+      'SPIRV-Cross',
+      'Vulkan-Headers',
+      'Little CMS',
+      'zimg',
+      'graphengine',
+      'libass',
+      'GNU FriBidi',
+      'HarfBuzz',
+      'FreeType',
+      'Fontconfig',
+      'libunibreak',
+      'uchardet',
+      'GNU libiconv',
+      'libva',
+      'Intel VPL',
+      'AMF',
+      'nv-codec-headers',
+      'xxHash',
+      'VapourSynth headers',
+      'OpenSSL',
+      'curl',
+      'nghttp2',
+      'nghttp3',
+      'ngtcp2',
+      'c-ares',
+      'libpsl',
+      'Public Suffix List',
+      'libssh',
+      'SRT',
+      'libxml2',
+      'libarchive',
+      'libjpeg-turbo',
+      'libpng',
+      'zlib-ng',
+      'Zstandard',
+      'XZ Utils (liblzma)',
+      'bzip2',
+      'MinGW-w64 runtime and winpthreads',
+      'LLVM libc++, libc++abi and libunwind',
+      'C++/WinRT',
+      'subrandr',
+      'Rust standard library',
+    ],
+  ),
+];
+
 List<BundledLicense> bundledLicensesFor(BundlePlatform platform) {
   switch (platform) {
     case BundlePlatform.macos:
@@ -85,6 +154,8 @@ List<BundledLicense> bundledLicensesFor(BundlePlatform platform) {
       return _android;
     case BundlePlatform.linux:
       return _linux;
+    case BundlePlatform.windows:
+      return _windows;
     case BundlePlatform.web:
     case BundlePlatform.other:
       return const <BundledLicense>[_roboto];

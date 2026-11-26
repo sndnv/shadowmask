@@ -1,0 +1,58 @@
+begin
+  require Vagrant.source_root.join("lib", "vagrant", "util", "is_port_open").to_s
+  require "timeout"
+
+  Vagrant::Util::IsPortOpen.module_eval do
+    def is_port_open?(host, port)
+      Timeout.timeout(2) do
+        TCPSocket.new(host, port).close
+      end
+      true
+    rescue Errno::ETIMEDOUT, Errno::ECONNREFUSED, Errno::ECONNRESET,
+           Errno::EHOSTUNREACH, Errno::ENETUNREACH, Errno::EACCES,
+           Errno::ENOTCONN, Errno::EALREADY, Timeout::Error, SocketError, IOError
+      false
+    end
+  end
+rescue StandardError => e
+  warn "WARNING: could not replace Vagrant's port check: #{e.class}: #{e.message}"
+end
+
+artifacts = ENV.fetch("SHADOWMASK_WIN_ARTIFACTS", "released")
+unless %w[build released].include?(artifacts)
+  abort "Unsupported SHADOWMASK_WIN_ARTIFACTS [#{artifacts}]; expected one of: build, released."
+end
+
+Vagrant.configure("2") do |config|
+  config.vm.box = "gusztavvargadr/windows-11"
+  config.vm.guest = :windows
+  config.vm.communicator = "winrm"
+  config.winrm.username = "vagrant"
+  config.winrm.password = "vagrant"
+
+  config.vm.boot_timeout = 900
+  config.vm.graceful_halt_timeout = 180
+
+  config.vm.usable_port_range = 2610..2700
+
+  config.vm.synced_folder "../../..", "/shadowmask"
+
+  config.vm.provider "virtualbox" do |vb, override|
+    override.vm.network :forwarded_port, guest: 3389, host: 53389, host_ip: "127.0.0.1",
+                                         id: "tcp53389", auto_correct: true
+    vb.name = "shadowmask-windows"
+    vb.gui = true
+    vb.memory = ENV.fetch("SHADOWMASK_WIN_MEMORY", "8192").to_i
+    vb.cpus = ENV.fetch("SHADOWMASK_WIN_CPUS", "4").to_i
+    vb.customize ["modifyvm", :id, "--clipboard-mode", "bidirectional"]
+    vb.customize ["modifyvm", :id, "--vram", "128"]
+    vb.customize ["modifyvm", :id, "--audio-enabled", "on", "--audio-controller", "hda",
+                  "--audio-driver", "default", "--audio-out", "on", "--audio-in", "off"]
+  end
+
+  config.vm.provision "shell", path: "provision.ps1", privileged: true,
+                               env: {
+                                 "SHADOWMASK_WIN_ARTIFACTS" => artifacts,
+                                 "SHADOWMASK_PORT" => ENV.fetch("SHADOWMASK_PORT", "8080")
+                               }
+end

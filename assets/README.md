@@ -180,6 +180,8 @@ because each platform masks differently.
 - `icons/flutter/linux_icon_*.png` - the hicolor sizes for the Linux AppImage, rendered full-bleed
   from `brand/shadowmask.logo.svg`. Not distributed by `refresh_assets.py`;
   `clients/flutter/AppImageBuilder.yml` reads them from here at package time.
+- `icons/flutter/windows_icon.ico` - the Windows app icon, `brand/shadowmask.logo.svg` at 16, 24,
+  32, 48, 64, 128 and 256, each stored as PNG.
 - `vendor/hls.min.js` - hls.js, bundled by the web clients for HLS playback
   (Apache-2.0). Replace with a newer upstream `hls.min.js` here, then refresh.
 - `vendor/hls.js.LICENSE.txt` - the Apache-2.0 text and copyright notices for the
@@ -197,13 +199,14 @@ because each platform masks differently.
 
 ## Rendering
 
-The PNGs under `icons/` are generated from the SVGs under `brand/` by
-`./render_icons.sh`, which needs `rsvg-convert` from librsvg: `librsvg2-bin` on Debian
-and Ubuntu, `librsvg2-tools` on Fedora, `librsvg` on Arch or via Homebrew. Run it when a
-brand SVG changes, then refresh.
+The PNGs and the `.ico` under `icons/` are generated from the SVGs under `brand/` by
+`./render_icons.sh`, which needs `rsvg-convert` from librsvg (`librsvg2-bin` on Debian
+and Ubuntu, `librsvg2-tools` on Fedora, `librsvg` on Arch or via Homebrew) and `icotool` from
+icoutils (`icoutils` on Debian, Ubuntu, Fedora, Arch and Homebrew). Run it when a brand SVG
+changes, then refresh.
 
 ```
-./render_icons.sh              # brand SVGs -> icons/flutter/*.png
+./render_icons.sh              # brand SVGs -> icons/flutter/*.png, icons/flutter/windows_icon.ico
 ```
 
 ## Usage
@@ -234,6 +237,7 @@ brand SVG changes, then refresh.
 | `clients/flutter` | `icons/flutter/Icon-maskable-192.png`                       | `web/icons/Icon-maskable-192.png`                              |
 | `clients/flutter` | `icons/flutter/Icon-maskable-512.png`                       | `web/icons/Icon-maskable-512.png`                              |
 | `clients/flutter` | `icons/flutter/app_icon_{16,32,64,128,256,512,1024}.png`    | `macos/Runner/Assets.xcassets/AppIcon.appiconset/`             |
+| `clients/flutter` | `icons/flutter/windows_icon.ico`                            | `windows/runner/resources/app_icon.ico`                        |
 | `clients/flutter` | `icons/flutter/ios_icon_*.png`                              | `ios/Runner/Assets.xcassets/AppIcon.appiconset/`               |
 | `clients/flutter` | `icons/flutter/android_icon_{48,72,96,144,192}.png`         | `android/app/src/main/res/mipmap-*/ic_launcher.png`            |
 | `clients/flutter` | `icons/flutter/android_icon_fg_{108,162,216,324,432}.png`   | `android/app/src/main/res/mipmap-*/ic_launcher_foreground.png` |

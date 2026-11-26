@@ -3,16 +3,14 @@
 The primary user interface for the [Shadowmask](../../README.md) media server: one Flutter codebase
 targeting web, desktop and mobile, talking to the server's REST API and playing HLS.
 
-| Target  | Status        | Player                   |
-|---------|---------------|--------------------------|
-| Web     | Supported     | `hls.js`                 |
-| macOS   | Supported     | mpv, through `media_kit` |
-| Linux   | Supported     | mpv, through `media_kit` |
-| Android | Supported     | mpv, through `media_kit` |
-| iOS     | Supported     | mpv, through `media_kit` |
-| Windows | Not supported | -                        |
-
-Windows is not supported: its required native dependencies are out of date and unmaintained.
+| Target  | Status    | Player                   |
+|---------|-----------|--------------------------|
+| Web     | Supported | `hls.js`                 |
+| macOS   | Supported | mpv, through `media_kit` |
+| Linux   | Supported | mpv, through `media_kit` |
+| Windows | Supported | mpv, through `media_kit` |
+| Android | Supported | mpv, through `media_kit` |
+| iOS     | Supported | mpv, through `media_kit` |
 
 ## Build and run
 
@@ -36,6 +34,8 @@ release build does not, notably `Tooltip` when the window is resized while a too
 
 * macOS: Xcode. Every plugin resolves through Swift Package Manager; CocoaPods is not used.
 * Linux: libmpv, `sudo apt install libmpv-dev mpv` on Debian and Ubuntu.
+* Windows: Visual Studio 2022 or later with the C++ desktop workload.
+  [`deployment/dev/windows`](../../deployment/dev/windows) sets it up in a VM.
 * iOS: Xcode.
 * Android: the Android SDK. `flutter build apk --release` needs the signing keystore held in CI, so
   build `--debug` locally.
@@ -43,7 +43,8 @@ release build does not, notably `Tooltip` when the window is resized while a too
 ## Packaging
 
 [`publish_release.yml`](../../.github/workflows/publish_release.yml) attaches a macOS `.dmg`, a
-Linux `.AppImage`, an Android `.apk` and an unsigned iOS `.ipa` to the GitHub release on a `v*` tag.
+Linux `.AppImage`, a Windows `.zip`, an Android `.apk` and an unsigned iOS `.ipa` to the GitHub
+release on a `v*` tag.
 [`publish_branch.yml`](../../.github/workflows/publish_branch.yml) builds the same set on demand and
 uploads them as workflow artifacts.
 
@@ -65,6 +66,8 @@ create-dmg --volname "shadowmask" --window-size 800 400 --app-drop-link 600 200 
 
 flutter build linux --release
 appimage-builder --skip-test
+
+flutter build windows --release
 ```
 
 `create-dmg` comes from Homebrew, `appimage-builder` from pip. The AppImage is described by
@@ -90,15 +93,23 @@ Two parts of the recipe are load-bearing:
 * `runtime.env` points `APPDIR_EXEC_PATH` at `shadowmask-launch`, the libmpv check, and
   `runtime.preserve` keeps its shebang absolute. `app_info.exec` must stay the ELF binary.
 
+The Windows `.zip` is x64 only. It holds `build\windows\x64\runner\Release`, `CREDITS.md`, the
+licence texts under `Licenses\`, and the Visual C++ runtime (`msvcp140.dll`, `vcruntime140.dll`,
+`vcruntime140_1.dll`) beside `shadowmask.exe`, since a clean Windows may not have it. A `build` run
+of the VM in [`deployment/dev/windows`](../../deployment/dev/windows) zips the `Release` folder
+alone.
+
 The macOS build is neither signed nor notarized, so macOS refuses the first open. Open it once, then
 choose Open Anyway under System Settings > Privacy & Security, or run
-`xattr -dr com.apple.quarantine /Applications/shadowmask.app`. The iOS `.ipa` is built
-`--no-codesign`, so it installs only by sideloading with your own signing identity. The Android
-`.apk` is signed in CI.
+`xattr -dr com.apple.quarantine /Applications/shadowmask.app`. The Windows build is not signed
+either: SmartScreen warns on the first open (`More info` > `Run anyway`), and Smart App Control,
+when on, blocks it. The iOS `.ipa` is built `--no-codesign`, so it installs only by sideloading
+with your own signing identity. The Android `.apk` is signed in CI.
 
-The macOS and iOS bundles vendor mpv, FFmpeg and nine supporting libraries, and the Android APK
-vendors a different build of most of the same ones. They are attributed in
-[CREDITS.md](CREDITS.md), with their licence texts under [`licenses/`](../../licenses).
+The macOS and iOS bundles vendor mpv, FFmpeg and nine supporting libraries, the Android APK
+vendors a different build of most of the same ones, and the Windows zip a third, larger build in one
+`libmpv-2.dll`. They are attributed in [CREDITS.md](CREDITS.md), with their licence texts under
+[`licenses/`](../../licenses).
 
 ## Configuration
 
