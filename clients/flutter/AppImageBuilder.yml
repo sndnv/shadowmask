@@ -25,7 +25,7 @@ AppDir:
     id: io.github.sndnv.shadowmask
     name: shadowmask
     icon: shadowmask
-    version: 1.1.0
+    version: 1.1.1-SNAPSHOT
     exec: shadowmask
     exec_args: $@
 
