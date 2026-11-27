@@ -95,7 +95,7 @@ checksum = "2cb931c189b85683d69a5cfad41d4d418671e1ac413dd209f3f2fc31e3cfd902"
 
 [[package]]
 name = "api"
-version = "1.0.2-SNAPSHOT"
+version = "1.1.0"
 dependencies = [
  "axum",
  "contracts",
@@ -590,7 +590,7 @@ checksum = "be95d4a884358a21a199689323c29e9256b4a1b315e22f183d155422041d3a9a"
 
 [[package]]
 name = "contracts"
-version = "1.0.2-SNAPSHOT"
+version = "1.1.0"
 dependencies = [
  "domain",
  "jiff",
@@ -944,7 +944,7 @@ dependencies = [
 
 [[package]]
 name = "domain"
-version = "1.0.2-SNAPSHOT"
+version = "1.1.0"
 dependencies = [
  "isolang",
  "jiff",
@@ -1070,7 +1070,7 @@ dependencies = [
 
 [[package]]
 name = "fetch"
-version = "1.0.2-SNAPSHOT"
+version = "1.1.0"
 dependencies = [
  "domain",
  "serde",
@@ -1734,7 +1734,7 @@ dependencies = [
 
 [[package]]
 name = "inference"
-version = "1.0.2-SNAPSHOT"
+version = "1.1.0"
 dependencies = [
  "ct2rs",
  "ct2rs-sys",
@@ -1950,7 +1950,7 @@ dependencies = [
 
 [[package]]
 name = "jobs"
-version = "1.0.2-SNAPSHOT"
+version = "1.1.0"
 dependencies = [
  "domain",
  "jiff",
@@ -2198,7 +2198,7 @@ dependencies = [
 
 [[package]]
 name = "media"
-version = "1.0.2-SNAPSHOT"
+version = "1.1.0"
 dependencies = [
  "domain",
  "hex",
@@ -2242,7 +2242,7 @@ checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
 name = "metadata"
-version = "1.0.2-SNAPSHOT"
+version = "1.1.0"
 dependencies = [
  "domain",
  "http-body-util",
@@ -2353,7 +2353,7 @@ dependencies = [
 
 [[package]]
 name = "mocks"
-version = "1.0.2-SNAPSHOT"
+version = "1.1.0"
 dependencies = [
  "domain",
  "jiff",
@@ -2746,7 +2746,7 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "persistence"
-version = "1.0.2-SNAPSHOT"
+version = "1.1.0"
 dependencies = [
  "contracts",
  "domain",
@@ -3733,7 +3733,7 @@ dependencies = [
 
 [[package]]
 name = "server"
-version = "1.0.2-SNAPSHOT"
+version = "1.1.0"
 dependencies = [
  "anstream",
  "api",
@@ -3776,7 +3776,7 @@ dependencies = [
 
 [[package]]
 name = "services"
-version = "1.0.2-SNAPSHOT"
+version = "1.1.0"
 dependencies = [
  "argon2",
  "domain",
